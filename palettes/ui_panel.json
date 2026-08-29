@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "ui_panel",
+  "ramp_len": 6,
+  "outline": "#0F1017",
+  "comment": "임시 색이다. 기반 에셋(Kenney Pixel UI Pack)을 받으면 그 색으로 바꾼다. 0번이 가장 밝고 5번이 가장 어둡다",
+  "ramps": {
+    "ui_panel": ["#F2EDE4", "#D6CEBE", "#A79B86", "#6E6555", "#403A31", "#1E1B17"],
+    "ui_gray":  ["#EDEDED", "#CACACA", "#9A9A9A", "#666666", "#3B3B3B", "#1A1A1A"],
+    "ui_accent": ["#FFE9A8", "#F5CE63", "#D3A32E", "#96701A", "#5A430F", "#2B1F07"]
+  }
+}

@@ -1,0 +1,14 @@
+# 프리셋 : 탑다운 액션 (기본). 축 3개와 캔버스만 정한다.
+axes:
+  projection: quarter
+  directions: 4
+  movement: plane
+
+canvas:
+  frame: [64, 64]
+  baseline_y: 50
+  center_x: 31.5
+  pivot: bottom_center
+
+tiles:
+  size: 16

@@ -1,0 +1,85 @@
+# Example/ 의 슬라임 참고 그림으로 파이프라인을 끝에서 끝까지 돌려 보는 프로필.
+name: slime_demo
+preset: topdown_action
+
+canvas:
+  frame: [64, 64]
+  baseline_y: 50
+  center_x: 31.5
+  pivot: bottom_center
+
+palette:
+  ramp_len: 6
+  outline: "#000000"
+  exact_match: true
+  ramps_file: palettes/slime_example.json
+  swap: runtime_lut
+
+anim:
+  idle: { frames: 1, dirs: 4 }
+
+rigs:
+  blob:
+    method: anchor
+    anchors: [head_top, ground]
+    # parts · marker_layer 는 Aseprite 를 붙일 때 다시 넣는다. 지금은 아무 데서도 안 읽는다.
+    marker_colors:
+      head_top: "#FF00FF"
+      ground:   "#FF8000"
+    # z 는 정수다. 층이 늘어날 자리를 남기려고 10 단위로 띄워 쓴다.
+    anchor_z:
+      head_top: { south: 10, north: -10, default: 10 }
+      ground:   0
+
+tiles:
+  size: 16
+  blob: 47
+  mirror_east_from_west: true
+
+check:
+  max_colors: 48
+  allow_alpha: binary
+  baseline_tolerance: 0
+  bbox_drift: 1
+
+ui:
+  ppu: 16                      # 이 값이 slice-scale 을 정한다
+  reference: [320, 180]        # 기준 해상도. 16:9, 1080p 의 정확히 6배
+  scale_mode: integer          # floor(화면높이 / 기준높이). 이것만 지원
+  letterbox: true              # 남는 자리는 늘리지 말고 검게 둔다
+
+  frame:                       # 9-slice 로 늘어나는 것 (패널·버튼·바)
+    source: [16, 16]
+    even_only: true            # 홀수 폭·높이 금지 (반픽셀 방지)
+
+  icon:
+    sizes: [16, 32]            # 이 밖 크기는 검수 실패
+    sheet: { cell: 16, margin: 0, spacing: 2 }   # Kenney Pixel UI Pack 격자
+    hotspot: center            # 커서용. center | top_left | 픽셀 좌표
+
+  generator:
+    border_px: 1               # 바깥 테두리 두께
+    corner: cut1               # square | cut1 | cut2 (픽셀아트에 반지름은 없다)
+    highlight: 1               # 위·왼쪽 안쪽 밝은 줄
+    inner_shadow: 1            # 아래·오른쪽 안쪽 어두운 줄
+    ramp: ui_panel
+    ramp_disabled: ui_gray     # disabled 는 이 회색 램프로 통째 갈아끼운다
+    ramp_index: { outline: 5, highlight: 1, fill: 3, shadow: 4 }  # 0 = 가장 밝음
+    states: [normal, pressed, disabled]
+
+  font:
+    family: Galmuri11          # 갈무리. OFL-1.1
+    native_px: 11              # 이 폰트가 또렷한 고유 크기
+    sizes_px: [11, 22]         # 고유 크기의 정수 배수만
+    subset:
+      scan_dirs: [Text/]
+      extensions: [.txt, .json, .csv]
+      always: "0123456789.,!?%:()+-/ "   # 대사에 없어도 꼭 넣을 글자
+      atlas_max: 2048          # 넘으면 검수 경고
+
+  check:
+    atlas_max: 2048            # UI 아틀라스 한도. 폰트 아틀라스 한도와 다른 값이다
+    min_size_slack: 1          # 가운데 칸이 최소 1px 은 남아야 한다
+    palette_strict: true
+    allow_alpha: binary        # 반투명 픽셀 금지
+    require_even: true

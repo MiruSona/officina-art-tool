@@ -1,0 +1,14 @@
+# 프리셋 : 아이소메트릭. 방향이 여덟이라 그림 수가 두 배다.
+axes:
+  projection: isometric
+  directions: 8
+  movement: plane
+
+canvas:
+  frame: [64, 64]
+  baseline_y: 50
+  center_x: 31.5
+  pivot: bottom_center
+
+tiles:
+  size: 16

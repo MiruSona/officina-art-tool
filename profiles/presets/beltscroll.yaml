@@ -1,0 +1,14 @@
+# 프리셋 : 벨트스크롤 액션. 옆에서 보되 바닥 위를 앞뒤로도 움직인다.
+axes:
+  projection: front
+  directions: 1
+  movement: plane
+
+canvas:
+  frame: [64, 64]
+  baseline_y: 60
+  center_x: 31.5
+  pivot: bottom_center
+
+tiles:
+  size: 16

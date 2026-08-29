@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arttool"
+version = "0.1.0"
+description = "2D 그림 규격 맞추기 · 앵커 뽑기 · 검수 · 굽기 툴"
+requires-python = ">=3.11"
+dependencies = ["pillow>=10", "numpy>=1.26", "pyyaml>=6"]
+
+[project.scripts]
+arttool = "arttool.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

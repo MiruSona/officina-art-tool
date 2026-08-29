@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "name": "lpc_cloth",
+  "ramp_len": 6,
+  "outline": "#000000",
+  "ramps": {
+    "cloth_blue":  ["#1B2A4A", "#2C4270", "#3D5C9B", "#5A7DC0", "#8AA6DA", "#C2D3F0"],
+    "cloth_red":   ["#4A1B1B", "#702C2C", "#9B3D3D", "#C05A5A", "#DA8A8A", "#F0C2C2"],
+    "cloth_green": ["#1B4A2A", "#2C7042", "#3D9B5C", "#5AC07D", "#8ADAA6", "#C2F0D3"],
+    "skin_light":  ["#4A2E1B", "#70472C", "#9B653D", "#C0895A", "#DAAE8A", "#F0D7C2"],
+    "metal_gray":  ["#1F1F24", "#33333C", "#4E4E5A", "#72727F", "#9E9EA9", "#D2D2D8"],
+    "gold":        ["#4A3A0B", "#70591A", "#9B7C2B", "#C0A044", "#DAC271", "#F0E3AC"]
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "name": "slime_example",
+  "ramp_len": 6,
+  "comment": "Example/ 참고 그림에 실제로 쓰인 색을 밝기순으로 여섯 칸씩 묶었다. 손으로 고른 램프가 아니다",
+  "ramps": {
+    "slime_0": [
+      "#000000",
+      "#A48A00",
+      "#BE9F00",
+      "#C4A500",
+      "#C7A800",
+      "#CEAE00"
+    ],
+    "slime_1": [
+      "#D4B300",
+      "#D5B400",
+      "#D9B700",
+      "#DBB900",
+      "#DCBA00",
+      "#DFBC00"
+    ],
+    "slime_2": [
+      "#E0BD00",
+      "#B3B3B3",
+      "#E7C300",
+      "#EDC800",
+      "#EEC800",
+      "#EEC900"
+    ],
+    "slime_3": [
+      "#F5CE00",
+      "#F8D100",
+      "#FFD500",
+      "#FFD700",
+      "#CCCCCC",
+      "#FFDB16"
+    ],
+    "slime_4": [
+      "#FFE24D",
+      "#FFE76B",
+      "#FFE76E",
+      "#E2E2E2",
+      "#FCEC9C",
+      "#ECECEC"
+    ],
+    "slime_5": [
+      "#FFFEF9",
+      "#FFFFFF",
+      "#FFFFFF",
+      "#FFFFFF",
+      "#FFFFFF",
+      "#FFFFFF"
+    ]
+  }
+}
