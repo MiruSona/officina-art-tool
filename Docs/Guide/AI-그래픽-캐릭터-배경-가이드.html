@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 캐릭터·배경 아트 가이드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap">
+<style>
+:root{
+  --ground:#F7F5F3;
+  --surface:#FFFFFF;
+  --surface-sunk:#F0ECEA;
+  --ink:#1F1B1D;
+  --ink-soft:#43393E;
+  --muted:#6B6268;
+  --line:#E0D8DB;
+  --line-strong:#C9BDC2;
+  --accent:#B5285C;
+  --accent-soft:#F6E3EB;
+  --pro:#0F6E6E;
+  --pro-soft:#E0EFEE;
+  --shadow:0 1px 2px rgba(31,27,29,.05), 0 8px 24px -16px rgba(31,27,29,.25);
+
+  --f-display:"Gowun Batang", "Nanum Myeongjo", Georgia, serif;
+  --f-body:"IBM Plex Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --f-mono:"IBM Plex Mono", "D2Coding", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#151114;
+    --surface:#1D181B;
+    --surface-sunk:#241E22;
+    --ink:#EDE7EA;
+    --ink-soft:#C9BEC4;
+    --muted:#9E939A;
+    --line:#332B30;
+    --line-strong:#4A3F45;
+    --accent:#F0709E;
+    --accent-soft:#3A1F2B;
+    --pro:#5FBDB8;
+    --pro-soft:#17302F;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#151114;
+  --surface:#1D181B;
+  --surface-sunk:#241E22;
+  --ink:#EDE7EA;
+  --ink-soft:#C9BEC4;
+  --muted:#9E939A;
+  --line:#332B30;
+  --line-strong:#4A3F45;
+  --accent:#F0709E;
+  --accent-soft:#3A1F2B;
+  --pro:#5FBDB8;
+  --pro-soft:#17302F;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;
+  background:var(--ground);
+  color:var(--ink);
+  font-family:var(--f-body);
+  font-weight:400;
+  font-size:16px;
+  line-height:1.75;
+  letter-spacing:-.005em;
+}
+img{max-width:100%}
+a{color:var(--accent);text-underline-offset:3px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:2px}
+
+/* ---------- shell ---------- */
+.shell{max-width:1180px;margin:0 auto;padding:0 28px}
+.masthead{padding:72px 0 40px;border-bottom:1px solid var(--line-strong)}
+.eyebrow{
+  font-family:var(--f-mono);font-size:11px;font-weight:500;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--accent);
+  margin:0 0 18px;
+}
+.masthead h1{
+  font-family:var(--f-display);font-weight:700;
+  font-size:clamp(2.1rem,5.2vw,3.4rem);line-height:1.18;
+  letter-spacing:-.02em;margin:0 0 20px;text-wrap:balance;
+}
+.standfirst{
+  margin:0;max-width:62ch;color:var(--ink-soft);
+  font-size:1.05rem;font-weight:300;line-height:1.8;
+}
+
+.layout{display:grid;grid-template-columns:200px minmax(0,1fr);gap:56px;padding:48px 0 96px;align-items:start}
+@media (max-width:900px){
+  .layout{grid-template-columns:minmax(0,1fr);gap:0;padding-top:32px}
+  .toc{position:static;margin-bottom:40px;padding-bottom:28px;border-bottom:1px solid var(--line)}
+}
+
+/* ---------- toc ---------- */
+.toc{position:sticky;top:32px}
+.toc h2{
+  font-family:var(--f-mono);font-size:11px;font-weight:500;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+  margin:0 0 14px;
+}
+.toc ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+.toc a{
+  display:flex;gap:9px;text-decoration:none;color:var(--ink-soft);
+  font-size:.86rem;line-height:1.45;transition:color .15s;
+}
+.toc a:hover{color:var(--accent)}
+.toc .n{font-family:var(--f-mono);font-size:.76rem;color:var(--muted);flex:none;padding-top:2px}
+
+/* ---------- sections ---------- */
+.content{min-width:0;display:flex;flex-direction:column;gap:64px}
+section{scroll-margin-top:24px}
+.sec-head{display:flex;gap:16px;align-items:baseline;padding-bottom:14px;border-bottom:2px solid var(--ink);margin-bottom:32px}
+.sec-head .n{font-family:var(--f-mono);font-size:.95rem;font-weight:500;color:var(--accent);flex:none}
+.sec-head h2{
+  font-family:var(--f-display);font-weight:700;
+  font-size:clamp(1.5rem,3vw,2rem);line-height:1.3;
+  letter-spacing:-.015em;margin:0;text-wrap:balance;
+}
+
+.block{display:flex;flex-direction:column;gap:32px}
+.sub{display:flex;flex-direction:column;gap:14px}
+.sub > h3{
+  font-family:var(--f-body);font-weight:600;font-size:1.02rem;
+  letter-spacing:-.01em;margin:0;color:var(--ink);
+  display:flex;gap:10px;align-items:baseline;
+}
+.sub > h3 .n{font-family:var(--f-mono);font-size:.8rem;font-weight:500;color:var(--muted);flex:none}
+
+/* bracket-style heading from the source doc: ■ / [ ] */
+.bar{
+  font-family:var(--f-body);font-weight:600;font-size:.95rem;
+  margin:0;color:var(--ink);
+  display:flex;gap:9px;align-items:center;
+}
+.bar::before{
+  content:"";width:3px;height:1em;background:var(--accent);flex:none;border-radius:1px;
+}
+
+ul.dash{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px;max-width:68ch}
+ul.dash > li{position:relative;padding-left:18px;color:var(--ink-soft)}
+ul.dash > li::before{
+  content:"";position:absolute;left:0;top:.75em;
+  width:8px;height:1px;background:var(--line-strong);
+}
+ul.dash ul{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:7px}
+ul.dash ul > li{position:relative;padding-left:16px;font-size:.93rem;color:var(--muted)}
+ul.dash ul > li::before{content:"";position:absolute;left:0;top:.72em;width:5px;height:5px;border:1px solid var(--line-strong);border-radius:50%}
+
+ol.req{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:20px;counter-reset:req}
+ol.req > li{counter-increment:req;display:grid;grid-template-columns:26px minmax(0,1fr);gap:14px;align-items:start}
+ol.req > li::before{
+  content:counter(req);
+  font-family:var(--f-mono);font-size:.78rem;font-weight:500;
+  color:var(--accent);background:var(--accent-soft);
+  width:26px;height:26px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  margin-top:2px;
+}
+ol.req .req-t{font-weight:600;color:var(--ink);display:block;margin-bottom:6px}
+
+/* ---------- cards ---------- */
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:4px;
+  padding:24px 26px;box-shadow:var(--shadow);
+  display:flex;flex-direction:column;gap:18px;
+}
+.tool-name{
+  font-family:var(--f-mono);font-size:.9rem;font-weight:500;
+  color:var(--ink);margin:0;letter-spacing:-.01em;
+}
+.field{display:flex;flex-direction:column;gap:9px}
+.field > .lbl{
+  font-family:var(--f-mono);font-size:10.5px;font-weight:500;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+}
+.field p{margin:0;color:var(--ink-soft);max-width:68ch;font-size:.96rem}
+
+/* pipeline */
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:0;padding:0;list-style:none}
+.flow li{
+  font-family:var(--f-mono);font-size:.8rem;
+  background:var(--surface-sunk);border:1px solid var(--line);
+  color:var(--ink-soft);padding:5px 10px;border-radius:3px;white-space:nowrap;
+}
+.flow li.arrow{border:0;background:none;color:var(--line-strong);padding:0 1px;font-size:.9rem}
+
+/* pros / cons */
+.pc{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.pc > div{
+  background:var(--surface-sunk);border:1px solid var(--line);
+  border-radius:4px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;
+}
+.chip{
+  align-self:flex-start;
+  font-family:var(--f-mono);font-size:10.5px;font-weight:500;
+  letter-spacing:.12em;text-transform:uppercase;
+  padding:3px 9px;border-radius:3px;
+}
+.chip.pro{color:var(--pro);background:var(--pro-soft)}
+.chip.con{color:var(--accent);background:var(--accent-soft)}
+.pc p{margin:0;font-size:.93rem;color:var(--ink-soft);line-height:1.7}
+
+.verdict{
+  display:flex;gap:11px;align-items:flex-start;
+  border-left:2px solid var(--accent);padding:2px 0 2px 15px;
+  color:var(--ink);font-size:.95rem;max-width:66ch;
+}
+.verdict .m{font-family:var(--f-mono);color:var(--accent);flex:none;font-size:.85rem;padding-top:1px}
+
+.note{
+  background:var(--accent-soft);border-radius:4px;padding:16px 20px;
+  font-size:.92rem;color:var(--ink-soft);max-width:68ch;
+}
+.note strong{color:var(--ink);font-weight:600}
+
+.foot{
+  border-top:1px solid var(--line);padding:28px 0 64px;
+  font-family:var(--f-mono);font-size:.76rem;color:var(--muted);
+  display:flex;flex-wrap:wrap;gap:8px 20px;
+}
+
+@media (prefers-reduced-motion: reduce){
+  *{animation:none!important;transition:none!important}
+}
+@media print{
+  .toc{display:none}
+  .layout{grid-template-columns:1fr}
+  body{background:#fff}
+}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <header class="masthead">
+    <p class="eyebrow">Art Production Guide</p>
+    <h1>AI 캐릭터·배경 아트 가이드</h1>
+    <p class="standfirst">캐릭터 및 배경을 그리는 데 좀 더 빠르고 효과적인 AI 활용 방법에 대한 가이드를 제공하기 위함. AI를 활용할 때 리마인드하여 좀 더 효과적인 AI 아트를 생산할 수 있도록 문서를 작성.</p>
+  </header>
+
+  <div class="layout">
+    <nav class="toc" aria-label="목차">
+      <h2>목차</h2>
+      <ol>
+        <li><a href="#s1"><span class="n">1</span><span>문서 개요</span></a></li>
+        <li><a href="#s2"><span class="n">2</span><span>추천 활용 툴</span></a></li>
+        <li><a href="#s3"><span class="n">3</span><span>제작 가능 범위 설명</span></a></li>
+        <li><a href="#s4"><span class="n">4</span><span>프롬프트 작성 방법</span></a></li>
+      </ol>
+    </nav>
+
+    <main class="content">
+
+      <!-- ============ 1 ============ -->
+      <section id="s1">
+        <div class="sec-head"><span class="n">1</span><h2>문서 개요</h2></div>
+        <div class="block">
+
+          <div class="sub">
+            <p class="bar">문서 목적</p>
+            <ul class="dash">
+              <li>캐릭터 및 배경을 그리는 데 좀 더 빠르고 효과적인 AI 활용 방법에 대한 가이드를 제공하기 위함.</li>
+              <li>AI를 활용할 때 리마인드하여 좀 더 효과적인 AI 아트를 생산할 수 있도록 문서를 작성.</li>
+            </ul>
+          </div>
+
+          <div class="sub">
+            <p class="bar">주요 방향성</p>
+            <ul class="dash">
+              <li>아트의 토큰 리소스를 절감하는 것을 목표로 함.</li>
+              <li>리팩토링을 최소화시키는 것을 목표로 함.</li>
+              <li>이미지에 대한 수정을 하더라도 크게 수정하지 않는 방향으로 진행할 수 있도록 함.</li>
+            </ul>
+          </div>
+
+          <div class="sub">
+            <p class="bar">사전 전제 조건</p>
+            <ul class="dash">
+              <li>포토샵을 활용하지 않도록 함.</li>
+              <li>지속적인 비용을 최대한 절감할 수 있도록 함.</li>
+              <li>최적화는 가능한 선에서만 함.</li>
+            </ul>
+          </div>
+
+          <div class="sub">
+            <p class="bar">제작 목표</p>
+            <ul class="dash">
+              <li>원하는 캐릭터를 제작하는 것을 목표로 한다.</li>
+              <li>현재 가능한 선에서만 제작하는 것에 대한 설명을 진행함.</li>
+            </ul>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ============ 2 ============ -->
+      <section id="s2">
+        <div class="sec-head"><span class="n">2</span><h2>추천 활용 툴</h2></div>
+        <div class="block">
+
+          <div class="sub">
+            <h3><span class="n">2-1</span>캐릭터 / 배경 / UI 리소스</h3>
+            <div class="card">
+              <p class="tool-name">■ ChatGPT</p>
+              <div class="field">
+                <span class="lbl">제작 사용 방식</span>
+                <ul class="flow">
+                  <li>리소스 생성</li><li class="arrow">→</li>
+                  <li>배경 제거</li><li class="arrow">→</li>
+                  <li>리사이징</li><li class="arrow">→</li>
+                  <li>최적화</li><li class="arrow">→</li>
+                  <li>사용</li>
+                </ul>
+              </div>
+              <div class="field">
+                <span class="lbl">AI 사용 이유</span>
+                <p>PixelLab은 고전에 가까운 그림체를 가지고 있고, ChatGPT는 그런 것에 구애받지 않고 이미지에 대한 그래픽 컨셉 자유도가 높아서 오히려 ChatGPT가 그래픽 컨셉을 설정하는 데에 있어서는 더 낫다고 생각함. 그리고 이미지에 대한 리팩토링 작업을 디테일하게 진행할 수 있음. 또한 필요에 따라서 실사 그래픽과 대화 등 여러 가지를 지원하니 ChatGPT를 보다 추천할 수 있음.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="sub">
+            <h3><span class="n">2-2</span>Spine, Unity Skeleton Animation</h3>
+            <div class="card">
+              <p class="tool-name">■ Claude MCP / Codex</p>
+              <div class="field">
+                <span class="lbl">제작 사용 방식</span>
+                <ul class="flow">
+                  <li>이미지 생성</li><li class="arrow">→</li>
+                  <li>스파인 애니메이션 파일 생성</li><li class="arrow">→</li>
+                  <li>AI를 통해 폴더 경로 스캔</li><li class="arrow">→</li>
+                  <li>해당 파일로 애니메이션 제작 프롬프트 요청</li><li class="arrow">→</li>
+                  <li>생성 (GIF와 함께 스파인 파일을 생성)</li><li class="arrow">→</li>
+                  <li>스파인 파일에 대한 버전 변경</li><li class="arrow">→</li>
+                  <li>적용 진행</li>
+                </ul>
+              </div>
+              <div class="field">
+                <span class="lbl">AI 사용 이유</span>
+                <p>일단 아트의 영역에서는 애니메이션 같은 경우, 한 번에 디테일을 잡을 수 없음. 직접 빠르게 제작한 후 적용을 해보며 수정을 하는 게 좋음. Spine은 로컬 PC에 대한 API 연결이 필요(폴더 경로 내에 있는 이미지 경로 인식이 필요). 따라서 Claude 홈페이지 내에서 명령을 진행하는 형태의 AI 명령 사용은 불가능함.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="sub">
+            <h3><span class="n">2-3</span>파티클 제작</h3>
+            <div class="card">
+              <p class="tool-name">■ Claude Unity MCP</p>
+              <div class="field">
+                <span class="lbl">AI 사용 이유</span>
+                <p>유니티에 접근하는 AI가 Unity MCP 외엔 딱히 없음.</p>
+              </div>
+              <div class="field">
+                <span class="lbl">기타 방법</span>
+                <p>다른 우회적인 방법이 있긴 함. Claude 혹은 Codex 등으로 Custom Window 기능을 통해 버튼 입력으로 파티클을 생성해달라고 요청하는 기능을 요청.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="sub">
+            <h3><span class="n">2-4</span>Visual Scripting (Shader)</h3>
+            <div class="card">
+              <p class="tool-name">■ Claude Unity MCP / ChatGPT / Codex / Claude</p>
+              <ul class="dash">
+                <li>이건 디테일하게 그리 사용하지 않은데, 그냥 코드 작성하는 툴이면 어지간하면 그냥 요청한 기능을 만들어내는 듯함.</li>
+                <li>좀 더 디테일한 요청은 시각화 자료가 필요함.</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="sub">
+            <h3><span class="n">2-5</span>Visual Scripting (ShaderGraph)</h3>
+            <div class="card">
+              <p class="tool-name">■ Claude Unity MCP</p>
+              <ul class="dash">
+                <li>(2-4) 내용과 마찬가지이나, 직접 접근하는 건 Claude Unity MCP 외엔 현재로써는 찾기 힘든 거 같음.</li>
+              </ul>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ============ 3 ============ -->
+      <section id="s3">
+        <div class="sec-head"><span class="n">3</span><h2>제작 가능 범위 설명</h2></div>
+        <div class="block">
+
+          <div class="sub">
+            <h3><span class="n">3-1</span>배경</h3>
+            <ul class="dash">
+              <li>배경은 썸네일 범위까지 가능.</li>
+              <li>실제 게임 배경에 대한 범위도 가능은 함.</li>
+              <li>현재 추천은 ChatGPT, PixelLab 등이 있음.</li>
+              <li>단, 배경이 너무 큰 경우엔 API 연결을 통해 이미지 생성이 필요.
+                <ul><li>2048 사이즈가 넘어가는 경우, ChatGPT API, PixelLab을 연결해서 사용 필요.</li></ul>
+              </li>
+              <li>썸네일 퀄리티는 레퍼런스가 있냐 없냐에 따라 많이 나뉨.</li>
+              <li>원하는 썸네일, 캐릭터가 내부에 포함되어 있어야 한다면 그 썸네일을 그림판으로라도 위치나 형태를 간단하게 그린 후 AI에게 전달해야 디테일이 증가함.</li>
+            </ul>
+          </div>
+
+          <div class="sub">
+            <h3><span class="n">3-2</span>캐릭터</h3>
+            <ul class="dash">
+              <li>현재 그래픽 컨셉을 UI나 캐릭터, 배경에 맞추는 가능한 범위는 3~5등신 캐릭터까지만 가능함.</li>
+              <li>5등신 캐릭터도 리터칭이 필요할 수 있음.</li>
+              <li>장신구(무기 포함)가 많으면 많을수록 리터칭이 매우 어려움.</li>
+            </ul>
+          </div>
+
+          <div class="sub">
+            <h3><span class="n">3-3</span>스프라이트 애니메이션</h3>
+            <ul class="dash">
+              <li>현 시점에선 애니메이션이 가능은 함.</li>
+              <li>단, 애니메이션에 대한 디테일 가이드라인 그림 이미지가 필요함.</li>
+              <li>레퍼런스 이미지가 없는 경우, 재가공에 필요한 시간이 거의 하루 이상을 소비하게 되는 거 같음.</li>
+              <li>간단한 무기 모션, 점프, 이동 등 전반적으로 애니메이션이 가능.</li>
+            </ul>
+          </div>
+
+          <div class="sub">
+            <h3><span class="n">3-4</span>UI</h3>
+            <ul class="dash">
+              <li>UI는 전반적으로 다 가능.</li>
+            </ul>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ============ 4 ============ -->
+      <section id="s4">
+        <div class="sec-head"><span class="n">4</span><h2>프롬프트 작성 방법</h2></div>
+        <div class="block">
+
+          <div class="sub">
+            <h3><span class="n">4-1</span>공통</h3>
+            <ul class="dash">
+              <li>공통적으로 디테일한 프롬프트와 간단한 프롬프트 2가지 방법엔 아래와 같은 장단점이 존재.</li>
+            </ul>
+
+            <div class="card">
+              <p class="tool-name">[ 디테일한 프롬프트 ]</p>
+              <div class="pc">
+                <div>
+                  <span class="chip pro">장점</span>
+                  <p>원하는 항목(장신구, 악세서리, 방어구, 무기) 등은 다 추가 가능. 디테일한 요소가 필요할 시엔 빠른 속도감을 체감할 수 있음.</p>
+                </div>
+                <div>
+                  <span class="chip con">단점</span>
+                  <p>리팩토링 하는 시간이 매우 오래 걸림. AI랑 대화하는 피로도가 매우 많이 소비하게 된다.</p>
+                </div>
+              </div>
+              <p class="verdict"><span class="m">&gt;&gt;</span><span>결론적으로 방치형 / 뱀서류 등 약간의 퀄리티를 지향하면 사용하는 게 좋음.</span></p>
+            </div>
+
+            <div class="card">
+              <p class="tool-name">[ 간단한 프롬프트 ]</p>
+              <div class="pc">
+                <div>
+                  <span class="chip pro">장점</span>
+                  <p>스트레스를 덜 받음. 빠른 속도를 지향. 디테일한 작업이 필요 없으면 무조건 이 방식을 추천.</p>
+                </div>
+                <div>
+                  <span class="chip con">단점</span>
+                  <p>디테일한 게 필요한데 이 방식으로 하면 리팩토링이 오래 걸림. 토큰 소비도 디테일한 방법보다 많이 소요가 될 수 있음.</p>
+                </div>
+              </div>
+              <p class="verdict"><span class="m">&gt;&gt;</span><span>결론적으로 캐주얼 / 하이퍼 캐주얼에 적합함. 캐주얼도 좀 더 그래픽 요소가 많이 필요하면 부합하지 않을 수 있음.</span></p>
+            </div>
+          </div>
+
+          <div class="sub">
+            <h3><span class="n">4-2</span>제작 순서</h3>
+            <ul class="flow">
+              <li>이미지 생성</li><li class="arrow">→</li>
+              <li>배경 제거</li><li class="arrow">→</li>
+              <li>이미지 사이즈 리사이징</li><li class="arrow">→</li>
+              <li>최적화</li><li class="arrow">→</li>
+              <li>적용</li>
+            </ul>
+            <p class="bar" style="margin-top:6px">과정을 나누는 이유</p>
+            <ul class="dash">
+              <li>과정을 나누지 않으면, AI가 하나의 TASK에서 여러 개를 하려다 보니 이미지의 컨셉을 오히려 해치는 경우가 많음. 따라서 이미지 디자인을 바꾸고 싶으면 <strong>[이미지 생성 과정]</strong> 내에서 컨셉을 바꾸는 것을 추천함.</li>
+            </ul>
+          </div>
+
+          <div class="sub">
+            <h3><span class="n">4-3</span>제작 가이드</h3>
+            <p class="bar">필수 항목</p>
+            <ol class="req">
+              <li>
+                <div>
+                  <span class="req-t">AI를 실행할 때엔 무조건 레퍼런스 이미지가 있어야 한다.</span>
+                  <ul class="dash">
+                    <li>레퍼런스 이미지가 없으면 무조건 수정한다, 라는 생각을 기본적으로 가지고 있어야 함.</li>
+                    <li>실제로 사람들끼리 구두로만 이야기하면 전달력이 중간중간 없듯이 AI도 마찬가지라는 생각을 기본적으로 가지고 있어야 함.</li>
+                  </ul>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <span class="req-t">웬만하면 계획을 미리 공유해야 한다.</span>
+                  <ul class="dash">
+                    <li>AI한테 사전에 이 캐릭터에 애니메이션이 포함될 예정이니 “파츠 같은 것들 분리해서 제작해야 한다”와 같은 간단한 컨셉 계획도 미리 공유를 해야 한다. 안 그러면 그 AI는 파츠 분리나 제작 방식에 대해 미리 인지하지 않음.</li>
+                  </ul>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <span class="req-t">아트는 창작 영역이기 때문에 최대한 많은 레퍼런스를 AI에게 제공하는 게 좋다.</span>
+                  <ul class="dash">
+                    <li>그래픽 컨셉, UI 컴포넌트 유형 정보, 장식, 크기 등을 고려한 UI 레퍼런스를 AI에게 제공하는 게 좋음.</li>
+                  </ul>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <span class="req-t">되도록 파츠로 분리하는 걸로 생각하는 게 좋다.</span>
+                  <ul class="dash">
+                    <li>미드저니와 같이 AI는 디자인적으로 그리 똑똑하지 않음.</li>
+                    <li>인지성이 좋은 건 맞으나, 현 시대에서 그래픽 컨셉을 계속 통일화시킬 만큼 AI가 그렇게 기억력이 좋지 않다. 따라서 토큰 소모량을 줄이고 그래픽 컨셉을 통일화시키려면 파츠를 여러 개로 분리해서 조립하는 개념으로 이미지를 생성 요청하는 게 좋다. (배경 제외)</li>
+                    <li>간단한 그래픽 32px × 32px 미만의 캐릭터는 굳이 파츠를 분리할 필요는 없음.</li>
+                  </ul>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <span class="req-t">웬만하면 여러 개의 이미지를 요청해라.</span>
+                  <ul class="dash">
+                    <li>하나의 큰 이미지 내에 여러 개의 사물(나무 / 장신구 / 무기 / 방어구 / 캐릭터 등), UI를 요청하는 게 프롬프트를 다시 추가해서 요청하는 것보다 훨씬 효과적이다.</li>
+                  </ul>
+                </div>
+              </li>
+            </ol>
+          </div>
+
+          <div class="sub">
+            <h3><span class="n">4-4</span>개별 전제</h3>
+
+            <div class="card">
+              <p class="tool-name">[ 캐릭터 ]</p>
+              <ul class="dash">
+                <li>유니티 에셋 스토어 썸네일이나 게임 레퍼런스, 레퍼런스 이미지를 통해 프롬프트를 설계 진행. 사이즈는 되도록 크게 구성하는 게 좋음.</li>
+                <li>크게 이미지를 구성한 후 리사이징을 진행한다.</li>
+                <li>캐릭터 파츠는 무조건 분리하는 게 애니메이팅할 때 좋다.</li>
+              </ul>
+            </div>
+
+            <div class="card">
+              <p class="tool-name">[ 배경 이미지 ]</p>
+              <ul class="dash">
+                <li>배경 이미지도 어떤 이미지가 필요한지 캡쳐 혹은 구글 서치, 게임 배경 서치 등을 통해 레퍼런스를 가지고 제작한다.</li>
+                <li>만약 비슷한 이미지가 없는 경우, 어떤 컨셉인지 그래픽 컨셉이라도 안내가 필요함.</li>
+                <li>이미지 사이즈도 크게 구성한 후 사이즈를 줄이는 게 제작하는 데 효과적임.</li>
+              </ul>
+            </div>
+
+            <div class="card">
+              <p class="tool-name">[ UI ]</p>
+              <ul class="dash">
+                <li>컴포넌트 필요한 걸 정확하게 명시하여 AI에게 요청을 진행하는 게 좋음.</li>
+              </ul>
+            </div>
+
+            <div class="card">
+              <p class="tool-name">[ 파티클 ]</p>
+              <ul class="dash">
+                <li>파티클도 커스텀 윈도우를 통해서 AI에게 명령을 내린 후, 그걸 통해 프리팹을 생성할 수 있도록 요청하는 게 효과적임.</li>
+              </ul>
+            </div>
+
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <footer class="foot">
+    <span>AI 캐릭터·배경 아트 가이드</span>
+    <span>—</span>
+    <span>토큰 절감 · 리팩토링 최소화 · 최소 수정</span>
+  </footer>
+</div>
+
+</body>
+</html>
