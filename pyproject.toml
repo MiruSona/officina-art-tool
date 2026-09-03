@@ -7,6 +7,7 @@ name = "arttool"
 version = "0.1.0"
 description = "2D 그림 규격 맞추기 · 앵커 뽑기 · 검수 · 굽기 툴"
 requires-python = ">=3.11"
+license = { file = "LICENSE" }
 dependencies = ["pillow>=10", "numpy>=1.26", "pyyaml>=6"]
 
 [project.scripts]

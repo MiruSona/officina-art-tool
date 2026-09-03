@@ -8,6 +8,18 @@ Unity 가 바로 쓸 데이터로 굽는 툴이다. 그림을 그려 주는 툴�
 ## 설치
 
 이 폴더 안에 가상환경을 만들고 거기에만 깐다. 전역 pip 는 안 쓴다.
+**부르는 자리에 따라 명령 앞이 다르다.** 두 벌을 다 적어 둔다.
+
+ArtTool 저장소 단독일 때 (저장소 뿌리에서) :
+
+```
+python -m venv .venv
+.venv/Scripts/python -m pip install pillow numpy pyyaml pytest
+.venv/Scripts/python -m pip install -e .
+.venv/Scripts/python -m pytest tests -q
+```
+
+스튜디오 저장소(Officina)에 서브모듈로 물린 상태일 때 (스튜디오 뿌리에서) :
 
 ```
 python -m venv ArtTool/.venv
@@ -15,6 +27,8 @@ ArtTool/.venv/Scripts/python -m pip install pillow numpy pyyaml pytest
 ArtTool/.venv/Scripts/python -m pip install -e ArtTool
 ArtTool/.venv/Scripts/python -m pytest ArtTool/tests -q
 ```
+
+시험은 **374개가 다 통과해야** 한다.
 
 `profiles/` · `palettes/` 는 이 폴더를 기준으로 찾는다. 다른 자리에 두려면 `ARTTOOL_HOME` 을 정한다.
 
@@ -149,8 +163,9 @@ border 순서는 **[왼, 아래, 오른, 위]** 다. Unity `spriteBorder` 의 Ve
 | `palettes/` | 램프 JSON |
 | `tests/` | pytest. 시험용 그림은 코드로 만든다 |
 | `Example/` | 참고 그림 (64×64, Front/Left/Back) |
-| `Docs/` | 조사 · 설계 · 할 일 |
+| `Docs/` | 조사 · 설계 · 할 일 · 안내 |
 | `Docs/Todo/진행상황.md` | **이어받는 세션이 여기부터 읽는다.** 한 줄 상태 · 지금 차례 · 주의 |
+| `Docs/Guide/AI-그래픽-캐릭터-배경-가이드.html` | 캐릭터·배경 그림을 AI 로 만들 때의 안내. 브라우저로 연다 |
 
 ## 제공자
 

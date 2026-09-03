@@ -1,5 +1,29 @@
+# ArtTool — Python 툴이라 무시할 것이 파이썬 부스러기와 결과물이다
+
+# 가상환경 (README 「설치」 대로 이 폴더 안에 만든다)
 .venv/
-build/
+venv/
+
+# 파이썬 부스러기
 __pycache__/
+*.py[cod]
 *.egg-info/
+.eggs/
+dist/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 툴이 뽑는 결과물
+build/
+out/
+gen/
+*.log
+
+# OS·편집기 부스러기
+.DS_Store
+Thumbs.db
+*.swp
+
+# 로컬 전용 문서 (저장소에 올리지 않는다)
+*.local.md
