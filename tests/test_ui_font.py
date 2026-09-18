@@ -2,7 +2,7 @@ import pytest
 
 from arttool import profile
 from arttool.errors import ArtToolError
-from arttool.ui import font
+from arttool.ui import bake_ui, font
 
 
 def prof(**over):
@@ -54,7 +54,7 @@ def test_charset_is_sorted_and_merged():
    assert text == "01가나"
 
 
-def test_build_writes_charset_and_baker(tmp_path):
+def test_build_writes_charset_only(tmp_path):
    make_text(tmp_path)
    out = tmp_path / "build" / "charset.txt"
    result = font.build(prof(), ["Text"], out, root=tmp_path)
@@ -67,7 +67,9 @@ def test_build_writes_charset_and_baker(tmp_path):
    text = out.read_text(encoding="utf-8").strip()
    assert "안" in text and "0" in text and "%" in text
    assert text == "".join(sorted(set(text)))
-   assert (tmp_path / "build" / "TmpFontBaker.cs").is_file()
+   # baker 는 ui bake 만 낸다 (같은 타입이 두 벌이 되면 Unity 가 컴파일을 못 한다)
+   assert not (tmp_path / "build" / "TmpFontBaker.cs").exists()
+   assert "ui bake" in result["note"]
 
 
 def test_build_uses_profile_scan_dirs(tmp_path):
@@ -87,9 +89,7 @@ def test_zero_characters(tmp_path):
       font.build(p, ["Text"], tmp_path / "charset.txt", root=tmp_path)
 
 
-def test_baker_file_is_whole(tmp_path):
-   make_text(tmp_path)
-   font.build(prof(), ["Text"], tmp_path / "out" / "charset.txt", root=tmp_path)
-   text = (tmp_path / "out" / "TmpFontBaker.cs").read_text(encoding="utf-8")
+def test_baker_file_is_whole():
+   text = (bake_ui.unity_dir() / font.BAKER).read_text(encoding="utf-8")
    assert "Tools/ArtTool/Bake UI Font" in text
    assert "GlyphRenderMode.RASTER_HINTED" in text

@@ -28,7 +28,7 @@ ArtTool/.venv/Scripts/python -m pip install -e ArtTool
 ArtTool/.venv/Scripts/python -m pytest ArtTool/tests -q
 ```
 
-시험은 **374개가 다 통과해야** 한다.
+시험은 **381개가 다 통과해야** 한다.
 
 `profiles/` · `palettes/` 는 이 폴더를 기준으로 찾는다. 다른 자리에 두려면 `ARTTOOL_HOME` 을 정한다.
 

@@ -438,3 +438,18 @@ def test_design_example_matches_implementation():
    text = (profile.tool_home() / "Docs" / "Design" / "2026-08-25-UI툴설계.md").read_text(encoding="utf-8")
    assert '"content_padding": [3, 2, 3, 4]' in text
    assert '"content_padding": [4, 5, 4, 3]' not in text
+# --- R7 적힌 크기와 실제 PNG 크기가 다르면 굽지 않는다 ---
+
+
+def test_bake_rejects_size_that_does_not_match_the_png(tmp_path):
+   p, build = _make_build(tmp_path)
+   entry = read_json(build / "border.json")["frames"][0]
+   image.save(build / entry["file"], image.new(12, 12))
+
+   with pytest.raises(ArtToolError, match="크기"):
+      bake_ui.bake(p, build, tmp_path / "unity")
+
+
+def test_bake_still_goes_when_sizes_match(tmp_path):
+   p, build = _make_build(tmp_path)
+   assert bake_ui.bake(p, build, tmp_path / "unity")["out"]

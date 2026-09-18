@@ -2,12 +2,12 @@
 
 대사 텍스트를 훑어 실제로 쓰인 글자만 모은다. 한글 11,172자를 정적 아틀라스 한 장에 못 넣기 때문이다.
 JSON·CSV 도 파서 없이 그냥 텍스트로 읽는다. 키 이름 몇 글자가 더 드는 게 파서를 갖는 것보다 싸다.
-TMP 폰트 에셋 굽기는 Unity 에디터 몫이라 여기서는 charset.txt 와 에디터 스크립트까지만 낸다.
+TMP 폰트 에셋 굽기는 Unity 에디터 몫이라 여기서는 charset.txt 까지만 낸다.
+에디터 스크립트(TmpFontBaker.cs)는 ui bake 가 Editor/ 아래에 낸다 - 두 곳에서 내면 같은 타입이 두 벌이 된다.
 """
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from ..errors import ArtToolError
@@ -84,7 +84,6 @@ def build(prof: Profile, scan_dirs: list[str] | None, out_path: str | Path, root
    ensure_parent(out_file)
    out_file.write_text(text + chr(10), encoding="utf-8")
 
-   baker = _copy_baker(out_file.parent)
    return {
       "out": str(out_file),
       "chars": len(text),
@@ -93,13 +92,11 @@ def build(prof: Profile, scan_dirs: list[str] | None, out_path: str | Path, root
       "root": str(base),
       "family": font["family"],
       "native_px": int(font["native_px"]),
-      "baker": baker,
+      "note": _baker_note(),
       "warnings": warnings,
    }
 
 
-def _copy_baker(folder: Path) -> str:
-   source = Path(__file__).resolve().parent / "unity" / BAKER
-   target = folder / BAKER
-   shutil.copyfile(source, target)
-   return str(target)
+def _baker_note() -> str:
+   """baker 는 ui bake 만 낸다. 여기서도 내면 같은 타입이 두 벌이 되고 네임스페이스도 어긋난다."""
+   return f"{BAKER} 는 arttool ui bake 가 Editor/ 아래에 낸다"

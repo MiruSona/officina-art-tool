@@ -62,10 +62,23 @@ def _load_singles(in_dir: Path, anim: str, direction: str, only_dir: bool) -> li
    return [image.load(p) for p in names]
 
 
-def _collect_one(in_dir: Path, prof: Profile, anim: str, direction: str, grid, row_index: int):
+def _grid_directions(prof: Profile, directions: list[str], grid) -> list[str]:
+   """격자 시트의 줄이 어느 방향인가. east 하나만큼 모자라면 반전으로 채울 시트로 본다."""
+   if grid is None:
+      return []
+   if len(grid) == len(directions):
+      return list(directions)
+   source = [d for d in directions if d != "east"]
+   if prof.mirror_east() and len(grid) == len(source):
+      return source
+   return list(directions)[: len(grid)]
+
+
+def _collect_one(in_dir: Path, prof: Profile, anim: str, direction: str, grid, row_index: int | None):
    if grid is not None:
-      if row_index >= len(grid):
-         raise ArtToolError(f"{anim}.png 에 {direction} 줄이 없다 (줄 {len(grid)})")
+      # 줄이 없으면 여기서 터뜨리지 않는다. 반전으로 채울 방향인지는 collect 가 본다.
+      if row_index is None:
+         return None
       return grid[row_index]
 
    frames = _load_row_sheet(in_dir, anim, direction, prof)
@@ -82,9 +95,11 @@ def collect(in_dir: Path, prof: Profile, anim: str) -> tuple[dict[str, list[imag
    """
    directions = _anim_dirs(prof, anim)
    grid = _load_grid_sheet(in_dir, anim, prof)
+   rows = _grid_directions(prof, directions, grid)
    found: dict[str, list[image.RGBA]] = {}
-   for index, direction in enumerate(directions):
-      frames = _collect_one(in_dir, prof, anim, direction, grid, index)
+   for direction in directions:
+      row_index = rows.index(direction) if direction in rows else None
+      frames = _collect_one(in_dir, prof, anim, direction, grid, row_index)
       if frames is not None:
          found[direction] = frames
 

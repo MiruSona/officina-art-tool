@@ -85,9 +85,13 @@ def _pack_atlas(prof: Profile, build: Path, index: dict) -> tuple[image.RGBA, li
 def _place_sheet(prof: Profile, atlas: image.RGBA, sheet: dict, grid: list, top: int) -> tuple[list[str], list[dict]]:
    """시트 한 장을 아틀라스에 붙이고 이름 목록과 slice 목록을 낸다."""
    frame_w, frame_h = prof.frame
+   directions = sheet["directions"]
+   if len(grid) != len(directions):
+      raise ArtToolError(f"{sheet['file']} 의 줄이 {len(grid)}개다. 방향 {len(directions)}개와 같아야 한다")
+
    entries: list[str] = []
    slices: list[dict] = []
-   for row, direction in enumerate(sheet["directions"][: len(grid)]):
+   for row, direction in enumerate(directions):
       for col, frame in enumerate(grid[row]):
          x, y = col * frame_w, top + row * frame_h
          image.paste(atlas, frame, x, y)

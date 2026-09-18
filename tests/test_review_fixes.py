@@ -437,3 +437,96 @@ def test_failed_run_leaves_no_empty_folder(tmp_path):
    with pytest.raises(ArtToolError):
       normalize.normalize(prof, tmp_path / "없는입력", out, ["walk"])
    assert not out.exists()
+# --- R1 먼 색이 엉뚱한 색으로 스냅되지 않는다 (int16 제곱 넘침) ---
+
+
+def test_snap_nearest_picks_the_real_nearest():
+   ramps = palette.Ramps("t", {"gray": [(0, 0, 0), (255, 255, 255)]}, None, 2)
+   arr = image.new(1, 1)
+   arr[0, 0] = (250, 250, 250, 255)
+   out, changed = palette.snap_nearest(arr, ramps)
+   assert changed == 1
+   assert tuple(int(v) for v in out[0, 0][:3]) == (255, 255, 255)
+
+
+# --- R2 격자 시트에 east 줄이 없어도 반전으로 채운다 ---
+
+
+def _write_grid(path, prof, directions, anim="walk"):
+   frame_w, frame_h = prof.frame
+   count = int(prof.anim[anim]["frames"])
+   rows = []
+   for _direction in directions:
+      rows.append([helpers.put_on_canvas(helpers.blob(6, 6), frame_w, frame_h, 1 + i, 2) for i in range(count)])
+   path.mkdir(parents=True, exist_ok=True)
+   image.save(path / f"{anim}.png", image.pack_grid(rows, frame_w, frame_h))
+
+
+def test_grid_sheet_without_east_row_is_mirrored(tmp_path):
+   prof = helpers.tiny_profile(tmp_path)
+   raw = tmp_path / "raw"
+   _write_grid(raw, prof, ["south", "west", "north"])
+
+   found, mirrored = normalize.collect(raw, prof, "walk")
+   assert sorted(found) == ["north", "south", "west"]
+   assert mirrored == ["east"]
+
+   index = normalize.normalize(prof, raw, tmp_path / "build", ["walk"])
+   assert index["sheets"][0]["mirrored"] == ["east"]
+   assert index["sheets"][0]["rows"] == 4
+
+
+def test_grid_sheet_without_mirror_still_says_what_is_missing(tmp_path):
+   prof = helpers.tiny_profile(tmp_path, **{"tiles.mirror_east_from_west": False})
+   raw = tmp_path / "raw"
+   _write_grid(raw, prof, ["south", "west", "north"])
+   with pytest.raises(ArtToolError, match="그림이 없다"):
+      normalize.collect(raw, prof, "walk")
+
+
+# --- R4 아트 격자는 줄 번호가 아니라 방향 이름으로 찾는다 ---
+
+
+def test_art_grid_row_is_found_by_direction_name(tmp_path):
+   over = {"rigs.blob.anchors": ["head_top", "ground"], "anim": {"walk": {"frames": 2, "dirs": 8}}}
+   prof = helpers.tiny_profile(tmp_path, **over)
+   raw = tmp_path / "raw"
+   helpers.write_singles(raw, prof)
+   for i in range(2):
+      (raw / f"walk_east_{i}.png").unlink()
+
+   build_dir = tmp_path / "build"
+   index = normalize.normalize(prof, raw, build_dir, ["walk"])
+   assert index["sheets"][0]["mirrored"] == ["east"]
+
+   markers = tmp_path / "markers"
+   source = [d for d in prof.direction_names(8) if d != "east"]
+   helpers.write_markers(markers, prof, directions=source)
+
+   # southeast 는 격자 마지막 줄(7)이다. 줄 번호로 찾으면 east 줄(6)을 보고 못 잡는다.
+   frame_h = prof.frame[1]
+   art = image.load(build_dir / "walk.png")
+   art[7 * frame_h + 13, 3] = (*helpers.MARKER_HEAD, 255)
+   image.save(build_dir / "walk.png", art)
+
+   with pytest.raises(ArtToolError, match="southeast"):
+      anchors.extract(prof, index, markers, "blob", art_dir=build_dir)
+
+
+# --- R5 굽기도 줄 수가 다르면 check 와 같은 오류를 낸다 ---
+
+
+def test_bake_rejects_short_sheet(tmp_path):
+   prof = helpers.tiny_profile(tmp_path)
+   raw = tmp_path / "raw"
+   helpers.write_singles(raw, prof)
+   out = tmp_path / "build"
+   normalize.normalize(prof, raw, out, ["walk"])
+   jsonio.write_json(out / "check.json", check.run(prof, out))
+
+   frame_w, frame_h = prof.frame
+   sheet = image.load(out / "walk.png")
+   image.save(out / "walk.png", image.crop(sheet, 0, 0, frame_w * 2, frame_h * 3))
+
+   with pytest.raises(ArtToolError, match="줄이 3개다"):
+      bake.bake(prof, out, tmp_path / "unity")

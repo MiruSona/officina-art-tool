@@ -101,10 +101,11 @@ def snap_nearest(arr: image.RGBA, ramps: Ramps) -> tuple[image.RGBA, int]:
    if not strays:
       return arr.copy(), 0
 
-   allowed = np.array(sorted(ramps.colors()), dtype=np.int16)
+   # int16 이면 제곱이 넘쳐(255*255 > 32767) 먼 색이 가장 가까운 색으로 뽑힌다.
+   allowed = np.array(sorted(ramps.colors()), dtype=np.int32)
    table: dict[RGB, RGB] = {}
    for color in strays:
-      diff = allowed - np.array(color, dtype=np.int16)
+      diff = allowed - np.array(color, dtype=np.int32)
       index = int(np.argmin(np.sum(diff * diff, axis=1)))
       table[color] = tuple(int(v) for v in allowed[index])
    return image.replace_colors(arr, table), len(table)

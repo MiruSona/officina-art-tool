@@ -47,6 +47,16 @@ def _read_lists(build: Path) -> tuple[list[dict], list[dict]]:
    return frames, icons
 
 
+def _check_sizes(build: Path, frames: list[dict], icons: list[dict]) -> None:
+   """자리는 json 의 size 로 잡고 붙이는 것은 실제 PNG 다. 다르면 이웃 그림을 덮는다."""
+   wanted = [(e["name"], e["file"], tuple(e["size"])) for e in frames]
+   wanted += [(e["name"], e["file"], (int(e["size"]), int(e["size"]))) for e in icons]
+   for name, file, size in wanted:
+      real = image.size(image.load(build / file))
+      if real != size:
+         raise ArtToolError(f"{name} 의 PNG 크기 {real[0]}x{real[1]} 가 적힌 크기 {size[0]}x{size[1]} 와 다르다")
+
+
 def _paint_atlas(build: Path, data: dict, sources: dict[str, str]) -> image.RGBA:
    width, height = data["atlas_size"]
    atlas = image.new(width, height)
@@ -107,6 +117,7 @@ def bake(
    report = common.gate(build, force, "check.json")
    frames, icons = _read_lists(build)
    sources = {e["name"]: e["file"] for e in frames + icons}
+   _check_sizes(build, frames, icons)
    data = manifest.build(prof, frames, icons)
    data["forced"] = bool(force)
    data["check"] = report.get("status")

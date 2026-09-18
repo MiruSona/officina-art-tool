@@ -128,10 +128,21 @@ def _collect_sheet(book, prof, rig, rig_name, anim, sheet, grid, source, colors,
    if art_root is not None:
       art_grid = _split_sheet(art_root / sheet["file"], frame_w, frame_h, anim)
 
+   art_rows = list(sheet["directions"])
    for row, direction in enumerate(source):
+      # 마커 시트는 반전 방향 줄이 없을 수 있다. 아트 격자는 줄 번호가 아니라 방향 이름으로 찾는다.
+      art_row = _art_row(art_grid, art_rows, direction, anim)
       for col, frame in enumerate(grid[row]):
-         art = art_grid[row][col] if art_grid is not None else None
+         art = art_row[col] if art_row is not None else None
          _collect_frame(book, rig, rig_name, anim, direction, col, frame, art, colors)
+
+
+def _art_row(art_grid, art_rows: list[str], direction: str, anim: str):
+   if art_grid is None:
+      return None
+   if direction not in art_rows or art_rows.index(direction) >= len(art_grid):
+      raise ArtToolError(f"{anim} 아트 시트에 {direction} 줄이 없다")
+   return art_grid[art_rows.index(direction)]
 
 
 def _collect_frame(book, rig, rig_name, anim, direction, col, frame, art, colors) -> None:
