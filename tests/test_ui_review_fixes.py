@@ -453,3 +453,123 @@ def test_bake_rejects_size_that_does_not_match_the_png(tmp_path):
 def test_bake_still_goes_when_sizes_match(tmp_path):
    p, build = _make_build(tmp_path)
    assert bake_ui.bake(p, build, tmp_path / "unity")["out"]
+
+
+# --- 2026-09-21 리뷰 : gather 의 --fit · 빈 그림 · 섞인 크기 ---
+
+
+FILL = (242, 237, 228, 255)
+
+
+def _loose(tmp_path, name="loose", side=20, box=4):
+   folder = tmp_path / name
+   folder.mkdir(parents=True, exist_ok=True)
+   arr = image.new(side, side)
+   arr[1 : 1 + box, 1 : 1 + box] = FILL
+   image.save(folder / "berry.png", arr)
+   return folder
+
+
+def test_fit_in_place_overwrites_the_png(tmp_path):
+   folder = _loose(tmp_path)
+   data = icons.gather(prof(), folder, folder, fit=16)
+   assert data["icons"][0]["size"] == 16
+   assert image.size(image.load(folder / "berry.png")) == (16, 16)
+
+
+def test_in_place_without_fit_only_writes_json(tmp_path):
+   folder = _loose(tmp_path, side=16)
+   icons.gather(prof(), folder, folder)
+   assert image.size(image.load(folder / "berry.png")) == (16, 16)
+   assert sorted(p.name for p in folder.iterdir()) == ["berry.png", "icons.json"]
+
+
+def test_empty_png_is_skipped_and_counted(tmp_path):
+   folder = _loose(tmp_path, side=16)
+   image.save(folder / "빈것.png", image.new(16, 16))
+   data = icons.gather(prof(), folder, tmp_path / "out")
+   assert data["empty_cells"] == 1
+   assert [e["name"] for e in data["icons"]] == ["berry"]
+   assert not (tmp_path / "out" / "빈것.png").exists()
+
+
+def test_empty_png_is_skipped_with_fit_too(tmp_path):
+   folder = _loose(tmp_path)
+   image.save(folder / "빈것.png", image.new(20, 20))
+   data = icons.gather(prof(), folder, tmp_path / "out", fit=16)
+   assert data["empty_cells"] == 1
+   assert len(data["icons"]) == 1
+
+
+def test_all_empty_folder_errors(tmp_path):
+   folder = tmp_path / "loose"
+   folder.mkdir()
+   image.save(folder / "빈것.png", image.new(16, 16))
+   with pytest.raises(ArtToolError, match="다 비어 있다"):
+      icons.gather(prof(), folder, tmp_path / "out")
+
+
+def test_mixed_sizes_make_cell_null(tmp_path):
+   folder = tmp_path / "loose"
+   folder.mkdir()
+   for side in (16, 32):
+      arr = image.new(side, side)
+      arr[2 : side - 2, 2 : side - 2] = FILL
+      image.save(folder / f"i_{side}.png", arr)
+
+   data = icons.gather(prof(**{"ui.icon.sizes": [16, 32]}), folder, tmp_path / "out")
+   assert data["cell"] is None
+   assert data["sizes"] == [16, 32]
+
+
+def test_one_size_keeps_cell(tmp_path):
+   data = icons.gather(prof(), _loose(tmp_path, side=16), tmp_path / "out")
+   assert data["cell"] == 16
+   assert data["sizes"] == [16]
+
+
+def test_gather_takes_upper_case_png_only_in_this_folder(tmp_path):
+   folder = tmp_path / "loose"
+   folder.mkdir()
+   arr = image.new(16, 16)
+   arr[2:14, 2:14] = FILL
+   image.save(folder / "BERRY.PNG", arr)
+   (folder / "안쪽").mkdir()
+   image.save(folder / "안쪽" / "deep.png", arr)
+
+   data = icons.gather(prof(), folder, tmp_path / "out")
+   assert [e["name"] for e in data["icons"]] == ["BERRY"]
+
+
+# --- 2026-09-21 리뷰 : ui icons 의 인자 조합 ---
+
+
+def test_cell_with_a_folder_is_refused(tmp_path):
+   folder = _loose(tmp_path, side=16)
+   code = cli.main(["--profile", "topdown_action", "ui", "icons",
+                    "--in", str(folder), "--cell", "16", "--out", str(tmp_path / "out")])
+   assert code == errors.EXIT_ERROR
+
+
+def test_fit_with_a_sheet_is_refused(tmp_path):
+   sheet = test_ui_icons.make_sheet(tmp_path)
+   code = cli.main(["--profile", "topdown_action", "ui", "icons",
+                    "--in", str(sheet), "--fit", "16", "--out", str(tmp_path / "out")])
+   assert code == errors.EXIT_ERROR
+
+
+@pytest.mark.parametrize("bad", ["0", "-4"])
+def test_fit_must_be_positive(tmp_path, bad):
+   folder = _loose(tmp_path)
+   code = cli.main(["--profile", "topdown_action", "ui", "icons",
+                    "--in", str(folder), "--fit", bad, "--out", str(tmp_path / "out")])
+   assert code == errors.EXIT_ERROR
+
+
+def test_good_combinations_still_run(tmp_path):
+   folder = _loose(tmp_path)
+   assert cli.main(["--profile", "topdown_action", "ui", "icons",
+                    "--in", str(folder), "--fit", "16", "--out", str(tmp_path / "out")]) == 0
+   sheet = test_ui_icons.make_sheet(tmp_path)
+   assert cli.main(["--profile", "topdown_action", "ui", "icons",
+                    "--in", str(sheet), "--cell", "16", "--out", str(tmp_path / "out2")]) == 0

@@ -93,8 +93,9 @@ def _add_anchors(subs) -> None:
 
 def _add_check(subs) -> None:
    node = subs.add_parser("check", help="③ 검수", parents=[COMMON])
-   node.add_argument("--in", dest="in_dir", required=True)
+   node.add_argument("--in", dest="in_dir", required=True, help="frames.json 이 있는 폴더, 또는 낱장 PNG 폴더·파일")
    node.add_argument("--report", dest="report", required=True)
+   node.add_argument("--no-ramps", dest="no_ramps", action="store_true", help="램프 규칙을 건너뛴다 (팔레트 미정일 때)")
 
 
 def _add_bake(subs) -> None:
@@ -147,10 +148,11 @@ def _add_ui(subs) -> None:
    bring.add_argument("--in", dest="in_dir", required=True)
    bring.add_argument("--out", dest="out_dir", required=True)
 
-   cut = inner.add_parser("icons", help="①ㄷ 아이콘 자르기", parents=[COMMON])
-   cut.add_argument("--in", dest="in_file", required=True, help="아이콘 시트 PNG")
-   cut.add_argument("--cell", type=int)
-   cut.add_argument("--family")
+   cut = inner.add_parser("icons", help="①ㄷ 아이콘 들이기", parents=[COMMON])
+   cut.add_argument("--in", dest="in_file", required=True, help="아이콘 시트 PNG, 또는 낱장 PNG 폴더")
+   cut.add_argument("--cell", type=int, help="시트를 자를 칸 크기. 시트 파일에만 쓴다")
+   cut.add_argument("--family", help="아이콘 가족 이름. 안 주면 시트·폴더 이름")
+   cut.add_argument("--fit", type=int, help="낱장을 N×N 가운데에 맞춘다. 폴더에만 쓰고, 제자리면 원본을 덮어쓴다")
    cut.add_argument("--out", dest="out_dir", required=True)
 
    look = inner.add_parser("check", help="② UI 검수", parents=[COMMON])
@@ -235,7 +237,7 @@ def _run_anchors(args) -> dict:
 
 
 def _run_check(args) -> dict:
-   report = check_mod.run(_profile(args), args.in_dir)
+   report = check_mod.run(_profile(args), args.in_dir, args.no_ramps)
    write_json(jailed_output(args.report), report)
    return report
 
@@ -285,6 +287,15 @@ def _ui_import(prof, args) -> dict:
 
 
 def _ui_icons(prof, args) -> dict:
+   """길이 둘이라 한쪽에서만 쓰는 인자가 있다. 조용히 무시하지 않고 거절한다."""
+   if args.fit is not None and args.fit <= 0:
+      raise ArtToolError(f"--fit 은 양수여야 한다 : {args.fit}")
+   if Path(args.in_file).is_dir():
+      if args.cell is not None:
+         raise ArtToolError("--cell 은 시트를 자를 때만 쓴다. --in 이 폴더면 낱장 들이기라 쓸 데가 없다")
+      return ui_icons_mod.gather(prof, args.in_file, args.out_dir, args.family, args.fit)
+   if args.fit is not None:
+      raise ArtToolError("--fit 은 낱장 폴더에만 쓴다. --in 이 시트 파일이면 --cell 로 칸 크기를 준다")
    return ui_icons_mod.cut(prof, args.in_file, args.out_dir, args.cell, args.family)
 
 
@@ -333,6 +344,8 @@ def _print_human(data) -> None:
          mark = "켜짐" if row["available"] else "꺼짐"
          print(f"{row['name']:<10} {mark:<4} {', '.join(row['capabilities'])}")
       return
+   if isinstance(data, dict) and isinstance(data.get("checked"), dict) and data["checked"].get("mode") == "loose":
+      print("낱장 모드")
    print(json.dumps(data, ensure_ascii=False, indent=2))
 
 

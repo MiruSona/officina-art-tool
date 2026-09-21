@@ -82,3 +82,13 @@ def test_ui_font_cli(tmp_path):
    assert run("--profile", "topdown_action", "ui", "font", "--scan-root", str(tmp_path),
               "--scan", "Text", "--out", str(out)) == 0
    assert "가" in out.read_text(encoding="utf-8")
+
+
+def test_ui_icons_loose_folder_cli(tmp_path):
+   """--in 이 폴더면 자르지 않고 낱장을 그대로 들인다."""
+   folder = test_ui_icons.make_loose(tmp_path, side=32, count=2)
+   out = tmp_path / "ui"
+   assert run("--profile", "topdown_action", "ui", "icons", "--in", str(folder), "--out", str(out), "--fit", "32") == 0
+
+   data = read_json(out / "icons.json")
+   assert [e["name"] for e in data["icons"]] == ["berry_0", "berry_1"]

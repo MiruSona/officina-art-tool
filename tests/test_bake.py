@@ -83,3 +83,14 @@ def test_sprite_spec_numbers_only(tmp_path):
    assert spec["frameWidth"] == 16
    assert spec["baselineY"] == 13
    assert spec["namespace"] == "Game.Art"
+
+
+def test_bake_refuses_skipped_report(tmp_path):
+   """건너뛴 규칙이 있는 보고는 status 가 ok 라도 --force 없이는 못 굽는다."""
+   prof, out = build(tmp_path, run_check=False)
+   write_json(out / "check.json", check.run(prof, out, no_ramps=True))
+
+   with pytest.raises(CheckFailed, match="건너뛴"):
+      bake.bake(prof, out, tmp_path / "unity")
+   bake.bake(prof, out, tmp_path / "unity", force=True)
+   assert read_json(tmp_path / "unity" / "sprite_manifest.json")["forced"] is True

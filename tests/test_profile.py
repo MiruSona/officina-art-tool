@@ -90,3 +90,25 @@ def test_all_presets_valid():
    for name in P.PRESET_NAMES:
       data = P.deep_merge(P.DEFAULTS, P.load_preset(name))
       P.validate(data)
+
+
+README_EXAMPLE = """name: mozzi
+preset: topdown_action
+canvas: { frame: [64, 64], baseline_y: 50, center_x: 31.5 }
+palette: { ramps_file: "" }
+ui:
+  icon:  { sizes: [28] }
+  check: { palette_strict: false }
+"""
+
+
+def test_readme_minimal_profile_loads(tmp_path):
+   """README 「어느 길로 쓰나」 의 최소 프로필 예시. 글만 고치고 안 돌려 보면 낡는다."""
+   path = tmp_path / "mozzi.yaml"
+   path.write_text(README_EXAMPLE, encoding="utf-8")
+
+   prof = P.load_profile(str(path))
+   assert prof.frame == (64, 64)
+   assert prof.ui["icon"]["sizes"] == [28]
+   assert prof.ui["check"]["palette_strict"] is False
+   assert prof.ramps_path() is None

@@ -50,6 +50,11 @@ def gate(build: Path, force: bool, report_name: str = "check.json") -> dict:
       return {"status": None}
 
    report = read_json(report_file)
+   # 낱장 보고는 프레임을 안 본 보고다. 그것으로 프레임을 구우면 검수 없이 굽는 셈이다.
+   if report.get("checked", {}).get("mode") == "loose" and not force:
+      raise CheckFailed("낱장 모드 보고로는 프레임을 못 굽는다. frames.json 을 만들어 다시 check 하거나 --force 를 준다")
+   if report.get("skipped") and not force:
+      raise CheckFailed(f"검수에서 건너뛴 규칙이 있다 : {', '.join(report['skipped'])}")
    if report.get("status") != "ok" and not force:
       raise CheckFailed(f"검수가 통과하지 않았다 : {', '.join(report.get('failed', []))}")
    return report

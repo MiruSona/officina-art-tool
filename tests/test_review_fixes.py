@@ -7,7 +7,7 @@ import pytest
 
 import helpers
 from arttool import bake, check, image, jsonio, palette, paths, profile
-from arttool.errors import ArtToolError, PathJailError, ProfileError
+from arttool.errors import ArtToolError, CheckFailed, PathJailError, ProfileError
 from arttool.sprite import anchors, normalize
 
 
@@ -530,3 +530,86 @@ def test_bake_rejects_short_sheet(tmp_path):
 
    with pytest.raises(ArtToolError, match="줄이 3개다"):
       bake.bake(prof, out, tmp_path / "unity")
+
+
+# --- 2026-09-21 리뷰 : 낱장 모드가 조용히 통과하지 않는다 ---
+
+
+def _loose_dir(tmp_path, name="loose"):
+   out = tmp_path / name
+   out.mkdir(parents=True, exist_ok=True)
+   image.save(out / "icon_0.png", helpers.blob(8, 8))
+   return out
+
+
+def test_missing_frames_json_warns_on_stderr(tmp_path, capsys):
+   prof = helpers.tiny_profile(tmp_path)
+   check.run(prof, _loose_dir(tmp_path))
+   err = capsys.readouterr().err
+   assert "frames.json 이 없어 낱장 모드로 본다" in err
+   assert "baseline" in err and "bbox_drift" in err
+
+
+def test_single_png_does_not_warn(tmp_path, capsys):
+   prof = helpers.tiny_profile(tmp_path)
+   check.run(prof, _loose_dir(tmp_path) / "icon_0.png")
+   assert capsys.readouterr().err == ""
+
+
+def test_loose_report_lists_every_skipped_rule(tmp_path):
+   prof = helpers.tiny_profile(tmp_path)
+   assert check.run(prof, _loose_dir(tmp_path))["skipped"] == ["baseline", "bbox_drift"]
+
+
+def test_empty_ramps_file_is_not_skipped(tmp_path):
+   """프로필에서 램프를 비운 것은 「설정상 없는 검사」라 bake 를 막지 않는다."""
+   prof = helpers.tiny_profile(tmp_path, **{"palette.ramps_file": ""})
+   raw = tmp_path / "raw"
+   helpers.write_singles(raw, prof)
+   out = tmp_path / "build"
+   normalize.normalize(prof, raw, out, ["walk"])
+   report = check.run(prof, out)
+   assert report["skipped"] == []
+
+   jsonio.write_json(out / "check.json", report)
+   assert bake.bake(prof, out, tmp_path / "unity")["check"] == "ok"
+
+
+def test_bake_refuses_a_loose_report(tmp_path):
+   prof = helpers.tiny_profile(tmp_path)
+   raw = tmp_path / "raw"
+   helpers.write_singles(raw, prof)
+   out = tmp_path / "build"
+   normalize.normalize(prof, raw, out, ["walk"])
+   jsonio.write_json(out / "check.json", check.run(prof, _loose_dir(tmp_path)))
+
+   with pytest.raises(CheckFailed, match="낱장 모드 보고"):
+      bake.bake(prof, out, tmp_path / "unity")
+   assert bake.bake(prof, out, tmp_path / "unity", force=True)["forced"] is True
+
+
+# --- 2026-09-21 리뷰 : check 입구 말과 확장자 ---
+
+
+def test_check_missing_path(tmp_path):
+   with pytest.raises(ArtToolError, match="폴더·파일이 없다"):
+      check.run(helpers.tiny_profile(tmp_path), tmp_path / "없는곳")
+
+
+def test_check_refuses_non_png_file(tmp_path):
+   text = tmp_path / "메모.txt"
+   text.write_text("x", encoding="utf-8")
+   with pytest.raises(ArtToolError, match="PNG 파일만"):
+      check.run(helpers.tiny_profile(tmp_path), text)
+
+
+def test_check_takes_upper_case_png_and_ignores_subfolders(tmp_path):
+   prof = helpers.tiny_profile(tmp_path)
+   out = tmp_path / "loose"
+   out.mkdir()
+   image.save(out / "ICON.PNG", helpers.blob(8, 8))
+   (out / "안쪽").mkdir()
+   image.save(out / "안쪽" / "deep.png", helpers.blob(8, 8))
+
+   report = check.run(prof, out)
+   assert report["checked"]["files"] == 1

@@ -8,6 +8,22 @@ Unity 가 바로 쓸 데이터로 굽는 툴이다. 그림을 그려 주는 툴�
 ## 설치
 
 이 폴더 안에 가상환경을 만들고 거기에만 깐다. 전역 pip 는 안 쓴다.
+**파이썬 3.11 이상이 없으면 명령이 하나도 안 돈다.**
+
+### 서브모듈로 붙였을 때 (한 줄)
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File <서브모듈경로>\ArtTool\setup.ps1
+```
+
+`-ExecutionPolicy Bypass` 가 있어야 한다. 실행 정책이 `Restricted` 인 PC 에서는 없으면 스크립트가 아예 안 뜬다.
+끝까지 되면 `.venv\.setup-stamp` 에 그때 시각을 적는다 — 게임 저장소의 점검 스크립트가 이 표식으로 낡음을 잰다.
+
+`.venv` 를 만들고 깔고 연기 시험까지 한다. **받은 직후와 서브모듈을 갱신한 뒤마다** 한 번씩 돌린다
+(서브모듈 사본에는 `.venv` 가 안 딸려 온다). 그다음부터 부르는 법은 `<경로>\.venv\Scripts\arttool …` 다.
+
+### 손으로 할 때
+
 **부르는 자리에 따라 명령 앞이 다르다.** 두 벌을 다 적어 둔다.
 
 ArtTool 저장소 단독일 때 (저장소 뿌리에서) :
@@ -28,9 +44,54 @@ ArtTool/.venv/Scripts/python -m pip install -e ArtTool
 ArtTool/.venv/Scripts/python -m pytest ArtTool/tests -q
 ```
 
-시험은 **381개가 다 통과해야** 한다.
+시험은 **422개가 다 통과해야** 한다.
 
 `profiles/` · `palettes/` 는 이 폴더를 기준으로 찾는다. 다른 자리에 두려면 `ARTTOOL_HOME` 을 정한다.
+
+## 어느 길로 쓰나
+
+**길이 둘이다.** 게임 쪽이 낱장 PNG 를 자동으로 들여오는 임포터를 갖고 있으면 아틀라스를 구울 값이 없다.
+그때는 「낱장 길」로 간다.
+
+| | 아틀라스 길 | 낱장 길 |
+| --- | --- | --- |
+| 언제 | 애니 프레임을 한 아틀라스로 묶어 쓸 때 | 게임 쪽에 낱장 자동 임포터가 있을 때 |
+| 순서 | `normalize` → `anchors` → `check` → `bake` | `check --in 낱장폴더 [--no-ramps]` · `ui icons --in 낱장폴더 [--fit N]` → `ui check` |
+| 건너뛰는 것 | — | `bake` · `ui bake` · `tile blob/place/ldtk` |
+
+**낱장 길에서는 baseline · bbox 흔들림 규칙이 안 돈다.** 프레임 규격이 없어 잴 기준이 없다.
+`check` 보고에 `"mode": "loose"` 가 박히고 두 규칙은 「낱장 모드라 건너뛴다」로 지나가며
+`"skipped": ["baseline", "bbox_drift"]` 가 같이 박힌다. 도는 것은 색 수(장마다) · 램프 밖 색 · 반투명 셋이다.
+
+**`frames.json` 이 없는 폴더를 주면 말없이 낱장 모드로 내려간다.** 그것이 앞 단계(`normalize`)가 실패한
+판일 수도 있어, 낱장으로 들어갈 때 「frames.json 이 없어 낱장 모드로 본다」를 stderr 에 찍는다.
+그 보고로는 `bake` 가 `--force` 없이 안 돈다.
+
+**`check` 는 준 폴더 바로 아래 `.png` 만 본다.** 하위 폴더는 안 들어가고, 확장자는 대소문자를 안 가린다.
+(`ui icons` 의 낱장 폴더도 같다.)
+
+**아이콘에 `ui check` 가 실제로 보는 것은 셋뿐이다** — 반투명 · (켰다면) 램프 밖 색 · 가족 안에서 크기가 섞였는지(경고).
+최소 크기 · 홀수 · 상태 갖춤은 **프레임(9패치) 전용**이라 아이콘은 그냥 지나간다 (`ui/check_ui.py:150-154`).
+
+**팔레트가 아직 미정이면** `palette.ramps_file: ""` 과 `ui.check.palette_strict: false` 로 둔다.
+프로필에 램프 파일을 적어 놓고 파일이 없으면 그것은 실패로 잡는다 (오타를 놓치지 않으려는 것이다).
+한 판만 램프를 빼고 싶으면 `check --no-ramps` 를 쓴다 — 보고의 `skipped` 에 `ramp_colors` 가 박히고
+그 보고로는 `--force` 없이 `bake` 가 안 된다.
+
+**프로필에서 램프를 비운 것(`ramps_file: ""`)과 `--no-ramps` 는 다르다.** 앞은 「설정상 없는 검사」라
+`skipped` 에 안 들어가고 `bake` 도 그냥 지나간다. 뒤는 **있는 검사를 한 판만 끈 것**이라 `bake` 가 `--force` 를 요구한다.
+
+게임 저장소에 둘 최소 프로필은 이 정도면 된다.
+
+```yaml
+name: mozzi
+preset: topdown_action
+canvas: { frame: [64, 64], baseline_y: 50, center_x: 31.5 }
+palette: { ramps_file: "" }          # 팔레트 미정 : 램프 규칙이 꺼진다
+ui:
+  icon:  { sizes: [28] }             # 낱장 아이콘 한 변. 이 밖 크기는 거절한다
+  check: { palette_strict: false }
+```
 
 ## 명령
 
@@ -38,7 +99,7 @@ ArtTool/.venv/Scripts/python -m pytest ArtTool/tests -q
 arttool profile show   --profile slime_demo
 arttool normalize      --profile P --in raw/ --out build/
 arttool anchors        --profile P --in build/ --rig blob --from marker --markers markers/ --out build/anchors.json
-arttool check          --profile P --in build/ --report build/check.json
+arttool check          --profile P --in build/ --report build/check.json [--no-ramps]
 arttool bake           --profile P --in build/ --out Unity/Art/ --namespace Game.Art
 arttool layers         --profile P --rig humanoid_lpc --in parts/ --out build/
 arttool tile blob      --profile P --in template6/ --out tiles47/
@@ -46,7 +107,7 @@ arttool tile place     --profile P --tileset tiles47/tileset.json --rules rules.
 arttool tile ldtk      --map map/map.json --tileset tiles47/tileset.json --out map/level.ldtk
 arttool ui frame       --profile P --kind panel --size 16x16 --out build/ui/
 arttool ui import      --profile P --in raw/ui/ --out build/ui/
-arttool ui icons       --profile P --in raw/icons.png --cell 16 --out build/ui/
+arttool ui icons       --profile P --in raw/icons.png --cell 16 --out build/ui/   (--in 이 폴더면 낱장 들이기 · --fit N)
 arttool ui check       --profile P --in build/ui/ --report build/ui/check.json [--manifest Unity/UI/ui_manifest.json]
 arttool ui bake        --profile P --in build/ui/ --out Unity/UI/ --namespace Game.UI
 arttool ui screen      --profile P --spec screens/pause_menu.json --out Unity/UI/
@@ -64,8 +125,10 @@ arttool provider make  --kind character --spec req.json --out gen/ --dry-run
 | --- | --- | --- |
 | ① `normalize` | 낱장·시트를 프레임 크기·baseline·중심에 맞춘다 | 프레임 수가 프로필과 다름 · 캔버스가 안 맞음 · 반투명 픽셀 |
 | ② `anchors` | 마커 색 한 픽셀 → `anchors.json` | 부착점이 빠짐 · 마커가 2개 이상 · 마커 색이 그림 색과 겹침 |
-| ③ `check` | 규칙 다섯을 돌려 보고 JSON | 색 수 · 램프 밖 색 · 반투명 · baseline · bbox 흔들림 |
+| ③ `check` | 규칙 다섯을 돌려 보고 JSON (낱장 모드는 앞 셋, `--no-ramps` 면 램프 밖 색도 뺀다) | 색 수 · 램프 밖 색 · 반투명 · baseline · bbox 흔들림 |
 | ④ `bake` | 아틀라스 · 매니페스트 · SO JSON | ③이 `ok` 가 아님 (`--force` 면 `forced: true` 가 박힌다) |
+
+**④ `bake` 는 선택이다.** 게임 쪽이 낱장 임포터로 이미 자동이면 굽지 않고 ③에서 멈춘다 (위 「어느 길로 쓰나」).
 
 들어오는 파일 이름은 셋 중 하나다.
 
@@ -101,11 +164,17 @@ UI 는 새 툴이 아니라 `arttool ui …` 명령 묶음 + 프로필의 `ui:` 
 | --- | --- | --- |
 | ①ㄱ `ui frame` | 패널·버튼·바를 코드가 그리고 border 를 같이 적는다 | 램프에 단이 모자람 · 최소 크기 > 원본 · 원본이 홀수 |
 | ①ㄴ `ui import` | `.9.png` 안내선을 읽고 1px 을 떼어 낸다 | 안내선이 네 변에 안 맞음 · 검은 구간이 2개 이상 · 안내선 없음 |
-| ①ㄷ `ui icons` | 격자로 아이콘 시트를 자른다 | 칸 크기가 `icon.sizes` 밖 · 격자가 시트 크기와 안 맞음 |
+| ①ㄷ `ui icons` | 격자로 시트를 자르거나, 낱장 PNG 폴더를 그대로 들인다 | 칸 크기가 `icon.sizes` 밖 · 격자가 시트 크기와 안 맞음 · 낱장이 정사각형이 아님 · `--cell` 을 폴더에, `--fit` 을 시트에 줌 |
 | ② `ui check` | 규칙 **여섯** + 경고 둘 | 최소 크기 · 홀수 · 램프 밖 색 · 반투명 · 상태 갖춤 · **PPU 대조** |
 | ③ `ui bake` | 아틀라스 · `ui_manifest.json` · `ui.uss` · 에디터 스크립트 | ②가 `ok` 가 아님 (`--force` 면 `forced: true`) |
 | 곁가지 `ui screen` | 화면 JSON → UXML + USS | id 겹침 · 모르는 type · 매니페스트에 없는 `bg` |
 | 곁가지 `ui font` | 텍스트를 훑어 `charset.txt` | 훑을 폴더가 없음 · 글자 0개 |
+
+**`--fit` 을 제자리(`--in` 과 `--out` 이 같은 폴더)에 쓰면 원본 PNG 를 맞춘 그림으로 덮어쓴다.**
+원본을 남기려면 `--out` 을 다른 폴더로 준다. `--fit` 없이 제자리면 `icons.json` 만 새로 쓴다.
+`--cell` 은 시트 파일에만, `--fit` 은 낱장 폴더에만 쓴다 — 반대로 주면 거절한다.
+**속이 텅 빈 PNG 는 건너뛰고** 보고의 `empty_cells` 로 센다. 크기가 섞인 폴더면 `cell` 이 `null` 이고
+`sizes` 에 나온 크기가 다 적힌다.
 
 **`ui check` 와 `ui bake` 는 같은 폴더를 본다.** `ui frame` · `ui import` · `ui icons` 의 `--out` 을
 한 폴더로 맞춰야 `border.json` 과 `icons.json` 이 한자리에 모인다.
@@ -152,6 +221,7 @@ border 순서는 **[왼, 아래, 오른, 위]** 다. Unity `spriteBorder` 의 Ve
 
 | 경로 | 내용 |
 | --- | --- |
+| `setup.ps1` | 깔기 한 줄. `.venv` 만들기 → 깔기 → 연기 시험 |
 | `src/arttool/` | 코드. `cli.py` 는 인자만 넘기고 셈은 안 한다 |
 | `src/arttool/image.py` | Pillow 를 부르는 유일한 자리. 밖으로는 numpy 배열만 오간다 |
 | `src/arttool/sprite/` | ① 규격 `normalize` ② 앵커 `anchors` · 층 겹치기 `layers` · Aseprite `aseprite` |
@@ -196,6 +266,6 @@ border 순서는 **[왼, 아래, 오른, 위]** 다. Unity `spriteBorder` 의 Ve
 - **Unity 에디터 스크립트 둘(`UiImportSettings.cs` · `TmpFontBaker.cs`)은 컴파일해 본 적이 없다.** Unity 가 이 PC 에 없다.
 - 화면 정의의 격자 · 스크롤 · 목록 · 전환, `hover` · `focus` 상태, 커서 핫스폿은 2차다.
 - `local` · `pixellab` 의 실제 호출. 지금은 `--dry-run` 요청 JSON 까지만.
-- UI 툴.
+- 타일 낱장 검사 셋 (`tile inspect` · `tile seam` · `tile preview`). 설계 스케치만 있다 (`Docs/Todo/진행상황.md`).
 
 설계는 `Docs/Design/2026-08-25-그림툴설계.md`, 할 일은 `Docs/Todo/그림툴.md` 를 본다.

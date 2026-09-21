@@ -120,3 +120,27 @@ def write_tiny_profile(tmp_path, max_colors=48, tile_size=16):
       encoding="utf-8",
    )
    return str(path)
+
+
+def test_check_loose_cli(tmp_path, capsys):
+   """낱장 폴더를 그대로 받는다. 프레임 규격이 없어도 돈다."""
+   from arttool import image
+
+   loose = tmp_path / "loose"
+   loose.mkdir()
+   image.save(loose / "berry.png", helpers.blob(8, 8))
+
+   code = cli.main(["--profile", "topdown_action", "check", "--in", str(loose), "--report", str(tmp_path / "c.json")])
+   assert code == errors.EXIT_OK
+   assert "낱장 모드" in capsys.readouterr().out
+   assert read_json(tmp_path / "c.json")["checked"]["mode"] == "loose"
+
+
+def test_module_entry_point():
+   """setup.ps1 의 연기 시험이 쓰는 길이다. 끊기면 설치가 실패로 보인다."""
+   import subprocess
+   import sys
+
+   done = subprocess.run([sys.executable, "-m", "arttool", "--help"], capture_output=True, text=True)
+   assert done.returncode == 0
+   assert "arttool" in done.stdout
