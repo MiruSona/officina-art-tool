@@ -135,11 +135,42 @@ def pack_grid(rows: list[list[RGBA]], frame_w: int, frame_h: int) -> RGBA:
 
 
 def replace_colors(arr: RGBA, table: dict[tuple[int, int, int], tuple[int, int, int]]) -> RGBA:
+   """알파가 있는 칸의 색만 바꾼다. 자리는 원본에서 찾아 A→B, B→C 가 A→C 로 번지지 않는다."""
    out = arr.copy()
    for src, dst in table.items():
-      mask = (out[:, :, 0] == src[0]) & (out[:, :, 1] == src[1]) & (out[:, :, 2] == src[2])
-      mask &= out[:, :, 3] > 0
+      mask = (arr[:, :, 0] == src[0]) & (arr[:, :, 1] == src[1]) & (arr[:, :, 2] == src[2])
+      mask &= arr[:, :, 3] > 0
       out[mask, 0] = dst[0]
       out[mask, 1] = dst[1]
       out[mask, 2] = dst[2]
    return out
+
+
+def scale_up(arr: RGBA, factor: int) -> RGBA:
+   """정수 배로 키운다. 칸을 그대로 늘리므로 NEAREST 와 같다."""
+   if factor <= 0:
+      raise ArtToolError(f"배율은 양수여야 한다 : {factor}")
+   return np.repeat(np.repeat(arr, factor, axis=0), factor, axis=1)
+
+
+def contact_sheet(items: list[RGBA], scale: int = 1, cols: int | None = None, gap: int = 2) -> RGBA:
+   """그림 여러 장을 격자로 늘어놓은 한 장. 칸 크기는 가장 큰 그림, 작은 그림은 칸 왼쪽 위에 둔다.
+
+   배율을 먼저 걸고, 칸 사이는 gap 픽셀 투명. cols 를 안 주면 한 줄에 8장까지.
+   """
+   if not items:
+      raise ArtToolError("늘어놓을 그림이 없다")
+   if gap < 0:
+      raise ArtToolError(f"칸 사이는 0 이상이다 : {gap}")
+   count = cols or min(len(items), 8)
+   if count <= 0:
+      raise ArtToolError(f"칸 수는 양수여야 한다 : {cols}")
+   big = [scale_up(item, scale) for item in items]
+   cell_w = max(item.shape[1] for item in big)
+   cell_h = max(item.shape[0] for item in big)
+   rows = (len(big) + count - 1) // count
+   sheet = new(count * cell_w + (count - 1) * gap, rows * cell_h + (rows - 1) * gap)
+   for index, item in enumerate(big):
+      col, row = index % count, index // count
+      paste(sheet, item, col * (cell_w + gap), row * (cell_h + gap))
+   return sheet

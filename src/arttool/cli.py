@@ -12,13 +12,15 @@ from pathlib import Path
 from . import bake as bake_mod
 from . import check as check_mod
 from . import providers
-from .errors import EXIT_CHECK_FAIL, EXIT_ERROR, EXIT_OK, ArtToolError
+from .errors import EXIT_CHECK_FAIL, EXIT_ERROR, EXIT_OK, ArtToolError, UsageError
 from .jsonio import read_json, write_json
 from .paths import jailed_output
 from .profile import load_profile
 from .sprite import anchors as anchors_mod
 from .sprite import layers as layers_mod
 from .sprite import normalize as normalize_mod
+from .sprite import recolor as recolor_mod
+from .sprite import split as split_mod
 from .tiles import blob as blob_mod
 from .tiles import ldtk as ldtk_mod
 from .tiles import place as place_mod
@@ -62,6 +64,8 @@ def build_parser() -> argparse.ArgumentParser:
    _add_check(subs)
    _add_bake(subs)
    _add_layers(subs)
+   _add_split(subs)
+   _add_recolor(subs)
    _add_tile(subs)
    _add_ui(subs)
    _add_provider(subs)
@@ -111,6 +115,25 @@ def _add_layers(subs) -> None:
    node.add_argument("--out", dest="out_dir", required=True)
    node.add_argument("--rig", required=True)
    node.add_argument("--anim", action="append")
+
+
+def _add_split(subs) -> None:
+   node = subs.add_parser("split", help="한 장 → 겹 여러 장 (나누기 표)", parents=[COMMON])
+   node.add_argument("--in", dest="in_file", required=True, help="한 장 PNG")
+   node.add_argument("--spec", help="나누기 표 split.json")
+   node.add_argument("--out", dest="out", required=True, help="겹 폴더. --list-colors 면 색 목록 JSON 파일")
+   node.add_argument("--rig", help="주면 프로필 rigs.<rig>.layer_order 와 표의 layers 가 같아야 한다")
+   node.add_argument("--min-piece", dest="min_piece", type=int, help=f"떨어진 조각 기본 크기 (기본 {split_mod.DEFAULT_MIN_PIECE})")
+   node.add_argument("--list-colors", dest="list_colors", action="store_true", help="나누지 않고 색 목록만 낸다")
+
+
+def _add_recolor(subs) -> None:
+   node = subs.add_parser("recolor", help="겹 + 색표 → N장", parents=[COMMON])
+   node.add_argument("--in", dest="in_dir", required=True, help="밑감 겹 폴더")
+   node.add_argument("--spec", required=True, help="색표 recolor.json")
+   node.add_argument("--out", dest="out_dir", required=True)
+   node.add_argument("--sheet", help="구운 그림과 조합을 늘어놓은 미리보기 PNG")
+   node.add_argument("--scale", type=int, help="미리보기 배율 (--sheet 와 같이)")
 
 
 def _add_tile(subs) -> None:
@@ -204,6 +227,8 @@ def run(args) -> dict:
       "check": _run_check,
       "bake": _run_bake,
       "layers": _run_layers,
+      "split": _run_split,
+      "recolor": _run_recolor,
       "tile": _run_tile,
       "ui": _run_ui,
       "provider": _run_provider,
@@ -248,6 +273,26 @@ def _run_bake(args) -> dict:
 
 def _run_layers(args) -> dict:
    return layers_mod.compose_sheets(_profile(args), args.rig, args.in_dir, args.out_dir, args.anim)
+
+
+def _run_split(args) -> dict:
+   """두 길이 인자를 나눠 쓴다. 한쪽 인자를 다른 길에 주면 조용히 무시하지 않고 거절한다."""
+   if args.list_colors:
+      if args.spec or args.rig or args.min_piece is not None:
+         raise UsageError("--list-colors 는 --spec · --rig · --min-piece 와 같이 못 쓴다")
+      return split_mod.run_list_colors(args.in_file, args.out)
+   if not args.spec:
+      raise UsageError("--spec 나누기 표가 있어야 한다 (색 목록만 보려면 --list-colors)")
+   order, prof_name = None, None
+   if args.rig:
+      prof = _profile(args)
+      order, prof_name = layers_mod.layer_order(prof, args.rig), prof.name
+   min_piece = split_mod.DEFAULT_MIN_PIECE if args.min_piece is None else args.min_piece
+   return split_mod.run(args.in_file, args.spec, args.out, order, args.rig, prof_name, min_piece)
+
+
+def _run_recolor(args) -> dict:
+   return recolor_mod.run(args.in_dir, args.spec, args.out_dir, args.sheet, args.scale)
 
 
 def _run_tile(args) -> dict:

@@ -44,7 +44,7 @@ ArtTool/.venv/Scripts/python -m pip install -e ArtTool
 ArtTool/.venv/Scripts/python -m pytest ArtTool/tests -q
 ```
 
-시험은 **422개가 다 통과해야** 한다.
+시험은 **483개가 다 통과해야** 한다.
 
 `profiles/` · `palettes/` 는 이 폴더를 기준으로 찾는다. 다른 자리에 두려면 `ARTTOOL_HOME` 을 정한다.
 
@@ -56,7 +56,7 @@ ArtTool/.venv/Scripts/python -m pytest ArtTool/tests -q
 | | 아틀라스 길 | 낱장 길 |
 | --- | --- | --- |
 | 언제 | 애니 프레임을 한 아틀라스로 묶어 쓸 때 | 게임 쪽에 낱장 자동 임포터가 있을 때 |
-| 순서 | `normalize` → `anchors` → `check` → `bake` | `check --in 낱장폴더 [--no-ramps]` · `ui icons --in 낱장폴더 [--fit N]` → `ui check` |
+| 순서 | `normalize` → `anchors` → `check` → `bake` | (겹으로 색 변종을 만들 때 `split` → `recolor` →) `check --in 낱장폴더 [--no-ramps]` · `ui icons --in 낱장폴더 [--fit N]` → `ui check` |
 | 건너뛰는 것 | — | `bake` · `ui bake` · `tile blob/place/ldtk` |
 
 **낱장 길에서는 baseline · bbox 흔들림 규칙이 안 돈다.** 프레임 규격이 없어 잴 기준이 없다.
@@ -102,6 +102,8 @@ arttool anchors        --profile P --in build/ --rig blob --from marker --marker
 arttool check          --profile P --in build/ --report build/check.json [--no-ramps]
 arttool bake           --profile P --in build/ --out Unity/Art/ --namespace Game.Art
 arttool layers         --profile P --rig humanoid_lpc --in parts/ --out build/
+arttool split          --in clean/customer.png --spec split.json --out layers/ [--rig R] [--min-piece 8]   (--list-colors 면 색 목록만)
+arttool recolor        --in layers/ --spec recolor.json --out Unity/Art/Customer/ [--sheet preview.png --scale 2]
 arttool tile blob      --profile P --in template6/ --out tiles47/
 arttool tile place     --profile P --tileset tiles47/tileset.json --rules rules.json --size 64x64 --out map/
 arttool tile ldtk      --map map/map.json --tileset tiles47/tileset.json --out map/level.ldtk
@@ -140,6 +142,34 @@ walk_south_0.png      낱장
 
 `tiles.mirror_east_from_west` 가 켜져 있으면 east 그림이 없을 때 west 를 뒤집어 만들고,
 앵커 `x` 도 `frame_w - 1 - x` 로 같이 뒤집는다.
+
+### 겹 나누기 · 색 굽기 (`split` · `recolor`)
+
+한 장 그림을 겹(몸·머리·옷·표정…)으로 가르고, 겹마다 색 변종을 굽는다. **AI 나 사람은 표 JSON 만 쓰고 픽셀은 코드가 만진다.**
+제공자를 타지 않는다. 받는 베이스 PNG 는 직접 그린 것 · PixelLab · 다른 생성기 어디서 왔든 같다 — **PixelLab 은 선택이다.**
+표 꼴 전체는 `Docs/Design/2026-09-23-겹나누기·팔레트굽기·타일·아이콘설계.md` 3·4절을 본다.
+
+| 명령 | 무엇 | 막히는 곳 |
+| --- | --- | --- |
+| `split --list-colors` | 색마다 개수 · bbox · y 범위를 낸다. 나누기 표를 쓸 때 읽는다 | 반투명 픽셀 |
+| `split` | `<out>/<겹>/<원본>.png` + `split_report.json` + `anchors.json` | 반투명 · 표에 없는 겹 이름 · 잘못된 hex · `--rig` 의 `layer_order` 와 표 `layers` 가 다름 · **되돌림 다름이 0 이 아니면 `fail`** |
+| `recolor` | 겹 × 색 벌 → PNG N장 + `recolor_report.json` (+ `--sheet` 미리보기) | `out` 에 `..` · 벌이 둘 이상인데 `out` 에 `{v}` 없음 · 같은 출력 이름 두 번 · 벌에 역할 빠짐 · **자리다름이 0 이 아니면 `fail`** |
+
+- **겹은 캔버스를 안 자른다.** 원본과 같은 크기·좌표라 Unity 에서 같은 자리에 쌓기만 하면 맞는다.
+  출력 꼴이 `layers` 입력 꼴과 같아 `arttool layers --rig R --anim <원본이름>` 으로 다시 쌓으면 원본이 나온다.
+- 가르는 순서는 **마스크 > 자리 규칙 > 색 표 > 외곽선 투표 > 투표 뒤 규칙(`from`·`near`)** 이다.
+  `box` 는 끝을 뺀 `[x0, y0, x1, y1)`, `above_y: N` 은 `y < N`, `below_y: N` 은 `y >= N` 이다.
+  외곽선 투표는 반경 1→2→3→4→6 으로 넓히고, 한 반경에서 정해진 외곽선이 다음 반경 투표에 낀다.
+  표가 같으면 먼저 표를 준 겹(위 줄부터, 왼쪽부터)이 이긴다. `from: <겹>` 은 투표 뒤 그 겹으로 간 픽셀만, `near: <겹>` 은 그 겹에 붙은 픽셀만 본다.
+  마스크 경로는 표 파일 폴더 아래만 받는다. 겹 이름은 대소문자만 다른 것도 겹침으로 보고 거절한다.
+- `--list-colors` 의 `bbox` 와 `y_range` 는 둘 다 **끝을 뺀 값**이다 (`y_range: [3, 8]` 이면 3~7 줄).
+- 떨어진 작은 조각(8방향, 겹마다 `min_piece`)은 **지우지 않고 이웃 겹으로 옮긴다.** 옮길 이웃이 없으면 그대로 두고 `warn`.
+  **표정 겹은 `layer_opts.<겹>.min_piece: 0`** 으로 둔다 — 눈·입이 원래 떨어진 점이다.
+- `recolor` 는 밑감 색 하나 → 결과 색 하나로 바꾸고 밝기를 계산하지 않는다. 표에 없는 색은 그대로 두고 보고에 적는다 (`warn`).
+  `outline` 을 주면 RGB 각 칸 차이 2 이내인 색을 그 한 색으로 맞춘다.
+- 표에 없는 색 · 빈 겹 · 떠 있는 조각 · `roles` 에 적었지만 그림에 없는 색은 `warn`(종료 코드 0), 되돌림·자리 어긋남은 `fail`(종료 코드 4)이다.
+  되돌림은 저장한 겹 파일을 다시 읽어 쌓아서 본다. `recolor` 출력이 밑감 원본 경로와 같으면 거절한다.
+- **프로필의 `palette.swap: bake` 는 `recolor` 를 부르지 않는다.** 색 굽기는 `recolor` 를 따로 부른다.
 
 ### 타일 3단
 
@@ -224,7 +254,8 @@ border 순서는 **[왼, 아래, 오른, 위]** 다. Unity `spriteBorder` 의 Ve
 | `setup.ps1` | 깔기 한 줄. `.venv` 만들기 → 깔기 → 연기 시험 |
 | `src/arttool/` | 코드. `cli.py` 는 인자만 넘기고 셈은 안 한다 |
 | `src/arttool/image.py` | Pillow 를 부르는 유일한 자리. 밖으로는 numpy 배열만 오간다 |
-| `src/arttool/sprite/` | ① 규격 `normalize` ② 앵커 `anchors` · 층 겹치기 `layers` · Aseprite `aseprite` |
+| `src/arttool/sprite/` | ① 규격 `normalize` ② 앵커 `anchors` · 층 겹치기 `layers` · 겹 나누기 `split` · 색 굽기 `recolor` · Aseprite `aseprite` |
+| `src/arttool/pieces.py` | 8방향 덩어리 묶기 · 떨어진 조각 찾기 · 이웃 투표 (`split`·`recolor` 가 같이 쓴다) |
 | `src/arttool/tiles/` | ② 부풀리기 `blob` ③ 배치 `place` · LDtk `ldtk` |
 | `src/arttool/ui/` | 프레임 `frame` · 9패치 `ninepatch` · 아이콘 `icons` · 검수 `check_ui` · 매니페스트 `manifest` · 굽기 `bake_ui` · 화면 `screen`·`uxml`·`uss` · 글자 `font` |
 | `src/arttool/ui/unity/` | 내보낼 C# 원본. 템플릿 문자열이 아니라 진짜 `.cs` 파일이다 |
