@@ -107,6 +107,9 @@ arttool recolor        --in layers/ --spec recolor.json --out Unity/Art/Customer
 arttool tile blob      --profile P --in template6/ --out tiles47/
 arttool tile place     --profile P --tileset tiles47/tileset.json --rules rules.json --size 64x64 --out map/
 arttool tile ldtk      --map map/map.json --tileset tiles47/tileset.json --out map/level.ldtk
+arttool tile preview   --layout layout.json --in tiles/ --out preview.png [--scale 2]
+arttool tile inspect   --in tiles/ --report inspect.json [--size 32]
+arttool tile seam      --in tiles/ --report seam.json [--sheet seams.png --scale 2] [--pairs] [--k 2.0]
 arttool ui frame       --profile P --kind panel --size 16x16 --out build/ui/
 arttool ui import      --profile P --in raw/ui/ --out build/ui/
 arttool ui icons       --profile P --in raw/icons.png --cell 16 --out build/ui/   (--in 이 폴더면 낱장 들이기 · --fit N)
@@ -177,6 +180,31 @@ walk_south_0.png      낱장
 왼쪽 위 사분면을 잘라 네 모서리에 뒤집어 붙여 47장을 만든다.
 `tile place` 는 DeBroglie 를 바깥 실행 파일로 부른다 (`--exe` 나 `DEBROGLIE_EXE`).
 `tile ldtk` 는 맵 JSON 을 LDtk 프로젝트 파일로 쓴다.
+
+#### 타일 낱장 검사 셋 (`tile preview` · `inspect` · `seam`)
+
+PIL 이나 손으로 그린 낱장 타일을 볼 때 쓴다. 팔레트 · 제공자가 없어도 돈다.
+`--in` 은 폴더 바로 아래 PNG(이름순)이거나 PNG 한 장이다. 설계는 `Docs/Design/2026-09-23-겹나누기·팔레트굽기·타일·아이콘설계.md` 6절.
+
+| 명령 | 무엇 | 막히는 곳 |
+| --- | --- | --- |
+| `tile preview` | 배치표대로 여러 장을 조립한 PNG 한 장. 반복 티를 눈으로 본다 | 타일 크기가 섞임 · 배치표 이름에 맞는 파일이 없음 · `weights` 와 `cells` 를 둘 다 줌 · 256×256 칸을 넘음 |
+| `tile inspect` | 장마다 크기 · bbox · 불투명 비율 · 반투명 수 · 색 수 · 네 변 닿음 · 넘친 픽셀을 한 표로 | 크기가 `--size` 와 다름 · `--size` 밖 불투명 픽셀 · 반투명(프로필 `check.allow_alpha: binary` 일 때) → `fail` |
+| `tile seam` | 이음 줄(오른쪽↔왼쪽 · 아래↔위)을 본다. `--pairs` 면 변종끼리 모든 순서쌍도 | 이음 줄 평균 차이가 안쪽 이웃 평균의 `k` 배를 넘음 → `fail` |
+
+- **배치표**는 둘 중 하나다. 이름 = 파일 이름에서 `.png` 를 뗀 것.
+  `{"size": [12, 13], "weights": {"grass_0": 6, "grass_1": 2}, "seed": 3}` — `seed` 로 섞는다 (없으면 0, 같은 seed 면 같은 그림).
+  `{"cells": [["fence_l", "fence_m", "fence_r"], ["grass_0", null, "grass_0"]]}` — 자리 고정, `null` 은 빈 칸. `size` 는 주면 맞아야 한다.
+  `weights` 에 적은 이름은 무게 0 이어도 파일이 있어야 한다. 무게는 0 이상 유한한 수만 받는다 (`NaN` · `Infinity` · 합이 넘치는 값은 거절).
+  이름에 `/` · `\` 를 넣으면 거절한다 — `--in` 바로 아래 파일만 가리킨다. 출력의 `grid` 에 칸마다 고른 이름이 찍힌다.
+- `preview` 출력과 `seam --sheet`(그리고 `recolor --sheet`)는 **8192×8192 픽셀을 넘으면 그리기 전에 거절**한다.
+- `--scale 0` · `--k 0`·`inf`·`nan` · `inspect --size 0` 처럼 잘못된 인자는 종료 코드 2 다.
+- `inspect` 의 `--size` 는 안 주면 프로필 `tiles.size` 다. 네 변 닿음은 왼쪽 위 `--size` 칸 안에서 본다.
+  빈 타일은 `warn` 이다.
+- `seam` 의 차이는 칸마다 RGBA 네 칸 차이의 합이다 (투명 칸은 RGB 를 0 으로 보고 센다).
+  실패한 줄에만 `rows`(오른쪽↔왼쪽) · `cols`(아래↔위)로 어긋난 자리를 적는다. `ratio` 가 `k` 와 견준 값이다 (안쪽이 한 색이라 평균 0 인데 이음 줄만 다르면 `ratio` 는 `null` 이고 실패).
+  **`k` 기본 2.0 은 실제 풀밭 타일 3장으로 쟀다** — 이어지는 풀은 1.14 이하, 이어지지 않는 울타리 모서리는 4 안팎이었다.
+  `--sheet` 는 장마다 3×3 으로 이은 그림을 늘어놓는다. `--pairs` 는 크기가 같은 타일끼리만 된다.
 
 #### 설계 문서의 이름과 다른 자리
 
@@ -256,7 +284,7 @@ border 순서는 **[왼, 아래, 오른, 위]** 다. Unity `spriteBorder` 의 Ve
 | `src/arttool/image.py` | Pillow 를 부르는 유일한 자리. 밖으로는 numpy 배열만 오간다 |
 | `src/arttool/sprite/` | ① 규격 `normalize` ② 앵커 `anchors` · 층 겹치기 `layers` · 겹 나누기 `split` · 색 굽기 `recolor` · Aseprite `aseprite` |
 | `src/arttool/pieces.py` | 8방향 덩어리 묶기 · 떨어진 조각 찾기 · 이웃 투표 (`split`·`recolor` 가 같이 쓴다) |
-| `src/arttool/tiles/` | ② 부풀리기 `blob` ③ 배치 `place` · LDtk `ldtk` |
+| `src/arttool/tiles/` | ② 부풀리기 `blob` ③ 배치 `place` · LDtk `ldtk` · 낱장 검사 `preview` · `inspect` · `seam` |
 | `src/arttool/ui/` | 프레임 `frame` · 9패치 `ninepatch` · 아이콘 `icons` · 검수 `check_ui` · 매니페스트 `manifest` · 굽기 `bake_ui` · 화면 `screen`·`uxml`·`uss` · 글자 `font` |
 | `src/arttool/ui/unity/` | 내보낼 C# 원본. 템플릿 문자열이 아니라 진짜 `.cs` 파일이다 |
 | `src/arttool/providers/` | 제공자. 밖에서는 제공자 이름을 모른다 |
@@ -297,6 +325,5 @@ border 순서는 **[왼, 아래, 오른, 위]** 다. Unity `spriteBorder` 의 Ve
 - **Unity 에디터 스크립트 둘(`UiImportSettings.cs` · `TmpFontBaker.cs`)은 컴파일해 본 적이 없다.** Unity 가 이 PC 에 없다.
 - 화면 정의의 격자 · 스크롤 · 목록 · 전환, `hover` · `focus` 상태, 커서 핫스폿은 2차다.
 - `local` · `pixellab` 의 실제 호출. 지금은 `--dry-run` 요청 JSON 까지만.
-- 타일 낱장 검사 셋 (`tile inspect` · `tile seam` · `tile preview`). 설계 스케치만 있다 (`Docs/Todo/진행상황.md`).
 
 설계는 `Docs/Design/2026-08-25-그림툴설계.md`, 할 일은 `Docs/Todo/그림툴.md` 를 본다.

@@ -22,8 +22,11 @@ from .sprite import normalize as normalize_mod
 from .sprite import recolor as recolor_mod
 from .sprite import split as split_mod
 from .tiles import blob as blob_mod
+from .tiles import inspect as inspect_mod
 from .tiles import ldtk as ldtk_mod
 from .tiles import place as place_mod
+from .tiles import preview as preview_mod
+from .tiles import seam as seam_mod
 from .ui import bake_ui as ui_bake_mod
 from .ui import check_ui as ui_check_mod
 from .ui import font as ui_font_mod
@@ -156,6 +159,25 @@ def _add_tile(subs) -> None:
    to_ldtk.add_argument("--map", dest="map_file", required=True)
    to_ldtk.add_argument("--tileset", required=True)
    to_ldtk.add_argument("--out", dest="out_file", required=True)
+
+   show = inner.add_parser("preview", help="낱장 여러 장 → 실제 칸 수로 조립한 미리보기", parents=[COMMON])
+   show.add_argument("--layout", required=True, help="배치표 layout.json (weights+seed 또는 cells)")
+   show.add_argument("--in", dest="in_dir", required=True, help="타일 PNG 폴더. 배치표 이름 = 파일 이름")
+   show.add_argument("--out", dest="out_file", required=True, help="미리보기 PNG")
+   show.add_argument("--scale", type=int, help="배율 (기본 1, NEAREST)")
+
+   look = inner.add_parser("inspect", help="낱장 한 표 (크기 · bbox · 반투명 · 네 변 · 넘친 픽셀)", parents=[COMMON])
+   look.add_argument("--in", dest="in_dir", required=True, help="타일 PNG 폴더 또는 PNG 한 장")
+   look.add_argument("--report", required=True)
+   look.add_argument("--size", type=int, help="타일 한 변. 안 주면 프로필 tiles.size")
+
+   join = inner.add_parser("seam", help="이음매 검사 (3×3 이어 붙이기)", parents=[COMMON])
+   join.add_argument("--in", dest="in_dir", required=True, help="타일 PNG 폴더 또는 PNG 한 장")
+   join.add_argument("--report", required=True)
+   join.add_argument("--k", type=float, default=seam_mod.DEFAULT_K, help=f"이음 줄 차이가 안쪽 평균의 몇 배를 넘으면 실패 (기본 {seam_mod.DEFAULT_K})")
+   join.add_argument("--pairs", action="store_true", help="변종끼리 모든 순서쌍(A 오른쪽 ↔ B 왼쪽, A 아래 ↔ B 위)도 본다")
+   join.add_argument("--sheet", help="3×3 으로 이은 그림을 늘어놓은 PNG")
+   join.add_argument("--scale", type=int, help="--sheet 배율")
 
 
 def _add_ui(subs) -> None:
@@ -303,6 +325,16 @@ def _run_tile(args) -> dict:
       return place_mod.place(
          _profile(args), args.tileset, args.rules, args.size, args.out_dir, args.exe, args.seed, args.dry_run
       )
+   if args.sub == "preview":
+      return preview_mod.run(args.layout, args.in_dir, args.out_file, args.scale)
+   if args.sub == "inspect":
+      report = inspect_mod.run(_profile(args), args.in_dir, args.size)
+      write_json(jailed_output(args.report), report)
+      return report
+   if args.sub == "seam":
+      report = seam_mod.run(args.in_dir, args.k, args.pairs, args.sheet, args.scale)
+      write_json(jailed_output(args.report), report)
+      return report
    out = jailed_output(args.out_file)
    ldtk_mod.write_ldtk(read_json(args.map_file), read_json(args.tileset), out)
    return {"out": str(out)}

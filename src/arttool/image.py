@@ -16,6 +16,14 @@ from .paths import ensure_parent
 
 RGBA = np.ndarray
 
+# 만들 그림 한 장의 픽셀 상한. 잘못 준 배율·배치표 하나로 메모리가 터지지 않게 그리기 전에 본다.
+MAX_PIXELS = 8192 * 8192
+
+
+def check_pixels(width: int, height: int, what: str) -> None:
+   if width * height > MAX_PIXELS:
+      raise ArtToolError(f"{what}가 너무 크다 : {width}x{height} (한도 {MAX_PIXELS} 픽셀)")
+
 
 def new(width: int, height: int, fill: tuple[int, int, int, int] = (0, 0, 0, 0)) -> RGBA:
    arr = np.zeros((height, width, 4), dtype=np.uint8)
@@ -165,11 +173,15 @@ def contact_sheet(items: list[RGBA], scale: int = 1, cols: int | None = None, ga
    count = cols or min(len(items), 8)
    if count <= 0:
       raise ArtToolError(f"칸 수는 양수여야 한다 : {cols}")
+   if scale <= 0:
+      raise ArtToolError(f"배율은 양수여야 한다 : {scale}")
+   cell_w = max(item.shape[1] for item in items) * scale
+   cell_h = max(item.shape[0] for item in items) * scale
+   rows = (len(items) + count - 1) // count
+   width, height = count * cell_w + (count - 1) * gap, rows * cell_h + (rows - 1) * gap
+   check_pixels(width, height, "시트")
    big = [scale_up(item, scale) for item in items]
-   cell_w = max(item.shape[1] for item in big)
-   cell_h = max(item.shape[0] for item in big)
-   rows = (len(big) + count - 1) // count
-   sheet = new(count * cell_w + (count - 1) * gap, rows * cell_h + (rows - 1) * gap)
+   sheet = new(width, height)
    for index, item in enumerate(big):
       col, row = index % count, index // count
       paste(sheet, item, col * (cell_w + gap), row * (cell_h + gap))
