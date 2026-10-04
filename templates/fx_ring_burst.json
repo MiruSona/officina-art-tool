@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "name": "fx_ring_burst",
+  "kind": "effect",
+  "title": "고리 폭발 (16×16 · 5프레임 · 흰 1색)",
+  "sizes": [[16, 16]],
+  "values": { "frame_ms": 50, "colors": 1 },
+  "frames": [
+    { "draw": [{ "shape": "dot", "size": 2 }] },
+    { "draw": [{ "shape": "disc", "r": 8 }] },
+    { "draw": [{ "shape": "ring", "r": 8, "width": 2 }] },
+    { "draw": [{ "shape": "ring", "r": 8, "width": 1 }] },
+    { "draw": [{ "shape": "ring", "r": 8, "width": 1, "dash": 2 }] }
+  ],
+  "check": { "style": { "outline": "none" }, "check": { "max_colors": 1 }, "frames": 5 },
+  "fixed": ["style.outline"],
+  "must": [],
+  "prompt": "pixel art {w}x{h} white burst ring effect, {frames} frames, {frame_ms}ms per frame, single color, no outline, transparent background",
+  "steps": [
+    "흰 1색 실루엣으로 다섯 장을 먼저 맞춘다 (_f00 ~ _f04 가 그 모양)",
+    "2×2 점 → 꽉 찬 원 → 2px 고리 → 1px 고리 → 끊긴 점선 고리",
+    "색은 그 다음에 입힌다. 게임 팔레트로 칠해도 외곽선은 안 단다"
+  ],
+  "sources": ["X도트강좌조사-denchan 3절 프레임 공식 「고리 폭발」"],
+  "layers": [{ "name": "fx", "kind": "fx" }]
+}

@@ -485,3 +485,47 @@ def test_moved_piece_not_checked_again():
    assert owner_of(parts, 10, 1) == "shirt"
    assert info["pieces"][2]["pieces_moved"] == []   # 옷 겹 차례에 (10,1) 을 또 옮기지 않았다
    assert info["roundtrip_diff"] == 0
+
+
+# --- 겹 묶음 layers.json (2026-10-04 설계 10-2 · 10-6) ---
+
+
+def test_split_writes_layers_json(tmp_path):
+   from arttool import layerset
+
+   src, spec_file = write_case(tmp_path, doll(), base_spec())
+   report = split.run(src, spec_file, tmp_path / "out")
+   ls = layerset.load(tmp_path / "out")
+   assert report["layers_json"] and ls.names() == LAYERS and ls.items == ["doll"] and ls.canvas == (12, 16)
+   kinds = {layer.name: layer.kind for layer in ls.layers}
+   assert kinds == {"body": "body", "hair": "hair", "shirt": "deco", "face": "face"}
+
+
+def test_split_second_image_adds_item(tmp_path):
+   from arttool import layerset
+
+   src, spec_file = write_case(tmp_path, doll(), base_spec())
+   split.run(src, spec_file, tmp_path / "out")
+   image.save(tmp_path / "doll2.png", doll())
+   split.run(tmp_path / "doll2.png", spec_file, tmp_path / "out")
+   assert layerset.load(tmp_path / "out").items == ["doll", "doll2"]
+
+
+def test_split_skips_layers_json_for_odd_names_without_changing_status(tmp_path):
+   src, spec_file = write_case(tmp_path, doll(), base_spec(), name="인형.png")
+   report = split.run(src, spec_file, tmp_path / "out")
+   assert report["status"] == "ok" and report["layers_json"] is None and report["layers_json_note"]
+   assert not (tmp_path / "out" / "layers.json").exists()
+
+
+def test_split_output_passes_layers_check(tmp_path):
+   src, spec_file = write_case(tmp_path, doll(), base_spec())
+   split.run(src, spec_file, tmp_path / "out")
+   args = cli.build_parser().parse_args(["layers", "check", "--in", str(tmp_path / "out"), "--original", str(src)])
+   rep = cli.run(args)
+   assert rep["failed"] == [] and rep["roundtrip_diff"] == 0
+
+
+def test_layer_name_equal_to_layers_json_rejected():
+   with pytest.raises(ArtToolError):
+      spec_of(base_spec(layers=["body", "hair", "shirt", "face", "layers.json"]))

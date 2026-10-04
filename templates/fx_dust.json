@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "name": "fx_dust",
+  "kind": "effect",
+  "title": "흙먼지 (3프레임 · 덩어리 → 조각 → 없음 · 흰 1색, 작은 판 8 · 12 / 큰 판 48 · 64)",
+  "sizes": [[8, 8], [12, 12], [48, 48], [64, 64]],
+  "values": { "frame_ms": 80, "colors": 1 },
+  "frames": [
+    {
+      "draw": [
+        { "shape": "dot", "size": 2, "dy": 2 }
+      ]
+    },
+    {
+      "draw": [
+        { "shape": "dot", "dx": -2, "dy": 2.5 },
+        { "shape": "dot", "dx": 2, "dy": 1.5 },
+        { "shape": "dot", "dx": 3, "dy": 3.5 }
+      ]
+    },
+    {
+      "draw": []
+    }
+  ],
+  "check": {
+    "style": { "outline": "none" },
+    "check": { "max_colors": 1 },
+    "frames": 3
+  },
+  "fixed": ["style.outline"],
+  "must": [],
+  "prompt": "pixel art {w}x{h} small dust puff effect at the feet, {frames} frames, {frame_ms}ms per frame, single color, no outline, transparent background",
+  "steps": ["발이 닿는 장에 2×2 흰 점 → 1px 조각 2~3 개로 흩어짐 → 없음", "달리기 8프레임이면 발 닿는 장 두 번에 붙인다", "곁가지 움직임이라 작고 빠르게. 캐릭터 겹과 따로 둔다"],
+  "sources": ["X도트강좌조사-denchan 3절 프레임 공식 「흙먼지」 · 「곁가지 움직임」", "실물시험 5장 (반짝이 11×11 · 이펙트 48 · 64)"],
+  "layers": [
+    { "name": "fx", "kind": "fx" }
+  ],
+  "default_preset": { "8": "small", "48": "big" },
+  "presets": {
+    "small": {
+      "sizes": [[8, 8], [12, 12]]
+    },
+    "big": {
+      "title": "흙먼지 큰 판 (48 · 64 · 3프레임 · 흰 1색)",
+      "sizes": [[48, 48], [64, 64]],
+      "frames": [
+        {
+          "draw": [
+            { "shape": "disc", "r": 6, "dy": 12 },
+            { "shape": "disc", "r": 4, "dx": -7, "dy": 14 },
+            { "shape": "disc", "r": 4, "dx": 7, "dy": 14 }
+          ]
+        },
+        {
+          "draw": [
+            { "shape": "disc", "r": 3, "dx": -11, "dy": 13 },
+            { "shape": "disc", "r": 3, "dx": 9, "dy": 10 },
+            { "shape": "disc", "r": 2, "dx": 14, "dy": 15 },
+            { "shape": "dot", "size": 2, "dx": -3, "dy": 16 }
+          ]
+        },
+        {
+          "draw": [
+            { "shape": "dot", "size": 2, "dx": -15, "dy": 15 },
+            { "shape": "dot", "dx": 16, "dy": 16 }
+          ]
+        }
+      ],
+      "steps": ["발이 닿는 장에 덩어리 셋(가운데 큰 것) → 작은 조각으로 흩어지며 옆으로 퍼짐 → 점 두셋", "큰 판은 바닥(아래쪽)에 붙인다. 위로 높이 뜨지 않는다", "곁가지 움직임이라 빠르게. 캐릭터 겹과 따로 둔다"]
+    }
+  }
+}

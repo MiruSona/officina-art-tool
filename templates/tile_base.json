@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "name": "tile_base",
+  "kind": "tile",
+  "title": "타일 밑판 (가장자리 지키는 줄 · 50% 밀어 보기 · 변종은 가운데만)",
+  "sizes": [[16, 16], [32, 32], [64, 64], [128, 128], [256, 256]],
+  "values": {
+    "edge": { "16": 1, "32": 2 }
+  },
+  "check": {
+    "check": { "allow_alpha": "binary" }
+  },
+  "fixed": [],
+  "must": [],
+  "prompt": "pixel art {w}x{h} seamless tile, edges match on all four sides, low contrast texture, {light}, palette {palette}",
+  "steps": [
+    "그리기 전에 램프 · 크기 · 빛 방향 셋을 먼저 정한다",
+    "거칠게 채움 → 50% 밀기(분홍 줄이 가운데 이음매) → 가운데 손보기 → 다시 밀기",
+    "2×2 로 이어 붙여 보고(_preview) 격자가 보이면 바로 고친다",
+    "변종 타일은 노란 가장자리를 그대로 두고 가운데만 바꾼다"
+  ],
+  "sources": [
+    "도트강좌자료조사 3장 「타일 · 배경」 (50% 밀기 · 2×2 이어 보기 · 변종은 가운데만)",
+    "X도트강좌조사-다른작가 3절 「타일」 (램프 · 16×16 · 빛 방향 먼저, 가장자리 1~2px)",
+    "실물시험 5장 (바닥 256×256 · 꾸밈은 안쪽 2px 안)"
+  ],
+  "layers": [
+    { "name": "base", "kind": "base" },
+    { "name": "variant", "kind": "variant", "optional": true }
+  ]
+}

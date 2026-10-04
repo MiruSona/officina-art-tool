@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
 import pytest
 
 from arttool import cli, image
@@ -69,13 +70,36 @@ def test_broken_column_marks_that_seam(tmp_path):
    assert "cols" not in bt
 
 
-def test_single_point_break_gives_its_row(tmp_path):
+def test_single_point_on_flat_tile_passes(tmp_path):
+   """평평한 바탕 위 한 칸 묘사는 비율이 튀어도 넘친 칸이 1개라 통과 (실물 시험 #20)."""
    arr = flat(GREEN)
    arr[3, 7] = BROWN
    row = tile_row(seam.run(write(tmp_path, {"a.png": arr})), "a.png")
    rl = seam_of(row, "right_left")
+   assert rl["ratio"] > 2 and rl["bad_px"] == 1 and rl["bad_px_min"] == 2
+   assert rl["ok"] is True
+
+
+def test_two_point_break_gives_its_rows(tmp_path):
+   arr = flat(GREEN)
+   arr[3:5, 7] = BROWN
+   row = tile_row(seam.run(write(tmp_path, {"a.png": arr})), "a.png")
+   rl = seam_of(row, "right_left")
+   assert rl["ok"] is False and rl["bad_px"] == 2
+   assert rl["rows"] == [3, 4]
+
+
+def test_sparse_detail_on_wide_flat_tile_passes(tmp_path):
+   """64 칸 줄에서 넘친 칸이 15% 밑(9칸 미만)이면 통과, 넘으면 실패."""
+   few = np.zeros((64, 64, 4), dtype=np.uint8)
+   few[:, :] = GREEN
+   few[0:64:8, 63] = BROWN                   # 8칸
+   rl = seam_of(tile_row(seam.run(write(tmp_path / "few", {"a.png": few})), "a.png"), "right_left")
+   assert rl["bad_px_min"] == 10 and rl["bad_px"] == 8 and rl["ok"] is True
+   many = few.copy()
+   many[1:64:4, 63] = BROWN                  # 8 + 16 칸
+   rl = seam_of(tile_row(seam.run(write(tmp_path / "many", {"a.png": many})), "a.png"), "right_left")
    assert rl["ok"] is False
-   assert rl["rows"] == [3]
 
 
 def test_bottom_top_break_gives_cols(tmp_path):

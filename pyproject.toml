@@ -16,11 +16,29 @@ arttool = "arttool.cli:main"
 [project.optional-dependencies]
 dev = ["pytest>=7"]
 
+# 휠(편집 아닌 설치)에는 저장소 맨 위 profiles/ · palettes/ · templates/ 가 안 딸려 온다.
+# 그래서 꾸러미 안 arttool/_home/ 아래로 사본을 넣는다 — profile.tool_home() 이 소스 폴더가 없으면 여기를 본다.
+# 하위 꾸러미를 새로 만들면 아래 packages 목록에 한 줄 더한다.
 [tool.setuptools]
-package-dir = { "" = "src" }
+packages = [
+   "arttool", "arttool.checks", "arttool.draw", "arttool.edit", "arttool.providers",
+   "arttool.sprite", "arttool.style", "arttool.template", "arttool.tiles", "arttool.ui",
+   "arttool._home.profiles", "arttool._home.profiles.presets", "arttool._home.palettes", "arttool._home.templates",
+]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools.package-dir]
+"" = "src"
+"arttool._home.profiles" = "profiles"
+"arttool._home.profiles.presets" = "profiles/presets"
+"arttool._home.palettes" = "palettes"
+"arttool._home.templates" = "templates"
+
+[tool.setuptools.package-data]
+arttool = ["assets/fonts/*"]
+"arttool._home.profiles" = ["*.yaml"]
+"arttool._home.profiles.presets" = ["*.yaml"]
+"arttool._home.palettes" = ["*.json"]
+"arttool._home.templates" = ["*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "name": "ui9_panel",
+  "kind": "ui9",
+  "title": "UI 9조각 판넬 밑판 (자르는 줄 · 테 선 · 모서리에 디테일, 프리셋 panel · button · bubble)",
+  "sizes": [[16, 16], [24, 24], [32, 32], [48, 48], [48, 32], [64, 32], [36, 36], [54, 34], [64, 40]],
+  "values": {
+    "border": { "16": 4, "24": 6, "32": 8, "48": 12 },
+    "border_px": 1,
+    "min_center": 2
+  },
+  "default_preset": { "8": "panel", "36x36": "button", "54x34": "bubble", "64x40": "bubble" },
+  "presets": {
+    "panel": {
+      "sizes": [[16, 16], [24, 24], [32, 32], [48, 48], [48, 32], [64, 32]]
+    },
+    "button": {
+      "title": "UI 9조각 — 버튼 (테두리 = 짧은 변의 약 0.28)",
+      "sizes": [[36, 36], [24, 24], [48, 48], [48, 32], [64, 32]],
+      "values": {
+        "border": { "24": 7, "32": 9, "36": 10, "48": 13 }
+      },
+      "prompt": "pixel art {w}x{h} UI button for 9-slice, {border}px corners with the detail, plain edges and plain center that can stretch, {outline}, {light}, palette {palette}"
+    },
+    "bubble": {
+      "title": "UI 9조각 — 말풍선 (테두리 L/B/R/T 따로 · 아래 가운데 꼬리)",
+      "sizes": [[54, 34], [64, 40]],
+      "values": { "border": 14, "border_l": 14, "border_b": 20, "border_r": 14, "border_t": 12, "tail_w": 8, "tail_h": 7 },
+      "prompt": "pixel art {w}x{h} speech bubble UI for 9-slice, rounded body, small tail at the bottom center pointing down, corners {border_text}px (left, bottom, right, top), plain edges and plain center that can stretch, {outline}, {light}, palette {palette}",
+      "steps": [
+        "몸(점 테두리 안)을 먼저 그리고, 꼬리는 노란 칸 안에만 — 꼬리가 아래 가운데 조각에 남아 늘려도 안 늘어난다",
+        "테두리는 변마다 다르다 (L,B,R,T). 아래는 꼬리까지 들어가서 가장 두껍다",
+        "디테일은 네 모서리(자르는 줄 바깥 칸)에만 몬다. 변 · 가운데는 한 색",
+        "다 그리면 ui preview --border {border_text} 로 여러 크기에 늘려 본다"
+      ]
+    }
+  },
+  "check": {
+    "check": { "allow_alpha": "binary" }
+  },
+  "fixed": [],
+  "must": [],
+  "prompt": "pixel art {w}x{h} UI panel for 9-slice, {border}px corners with the detail, plain edges and plain center that can stretch, {outline}, {light}, palette {palette}",
+  "steps": [
+    "점(하늘색) 줄이 테 선 자리다. 두께는 프로필 ui.generator.border_px",
+    "디테일은 네 모서리(자르는 줄 바깥 칸)에만 몬다",
+    "변 · 가운데는 이어 붙여도 티가 안 나게 한 색 또는 아주 단순하게",
+    "다 그리면 ui preview --border {border_text} 로 여러 크기에 늘려 본다 (L,B,R,T)"
+  ],
+  "sources": [
+    "도트강좌자료조사 3장 「UI」 (9-slice : 가운데 · 변은 디테일 적게, 모서리에 몰기)",
+    "실물시험 5장 (버튼 36×36 테두리 10 · 말풍선 L14 B20 R14 T12 꼬리 · 도트가 아닌 그림 무리 42장 중 27장 비대칭)"
+  ],
+  "layers": [
+    { "name": "frame", "kind": "frame" },
+    { "name": "fill", "kind": "fill" },
+    { "name": "deco", "kind": "deco", "optional": true }
+  ]
+}

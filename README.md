@@ -2,8 +2,9 @@
 
 게임에 들어가는 **2D 그림**(스프라이트·타일·UI)을 규격에 맞추고, 앵커를 뽑고, 검수해서
 Unity 가 바로 쓸 데이터로 굽는 툴이다. 그림을 그려 주는 툴은 아니다.
+**그림 뽑기는 PixelLab MCP(또는 PIL · 손그림)로 하고, ArtTool 은 그 뒤 손질 · 규격 · 검수를 맡는다. ArtTool 이 PixelLab 을 부르지는 않는다.**
 
-**상태 : 스프라이트 툴 · 타일 툴 · UI 툴 1차 구현 끝**
+**상태 : 스프라이트 · 타일 · UI 1차 끝 + 2026-10-04 개선 판(손질 · 비교판 · 경고 검사 · 템플릿 · 화풍 · 겹) 구현 · 보강 끝, 커밋 대기**
 
 ## 설치
 
@@ -44,7 +45,7 @@ ArtTool/.venv/Scripts/python -m pip install -e ArtTool
 ArtTool/.venv/Scripts/python -m pytest ArtTool/tests -q
 ```
 
-시험은 **483개가 다 통과해야** 한다.
+시험은 **1375개가 다 통과해야** 한다.
 
 `profiles/` · `palettes/` 는 이 폴더를 기준으로 찾는다. 다른 자리에 두려면 `ARTTOOL_HOME` 을 정한다.
 
@@ -101,7 +102,7 @@ arttool normalize      --profile P --in raw/ --out build/
 arttool anchors        --profile P --in build/ --rig blob --from marker --markers markers/ --out build/anchors.json
 arttool check          --profile P --in build/ --report build/check.json [--no-ramps]
 arttool bake           --profile P --in build/ --out Unity/Art/ --namespace Game.Art
-arttool layers         --profile P --rig humanoid_lpc --in parts/ --out build/
+arttool layers compose --profile P --rig humanoid_lpc --in parts/ --out build/
 arttool split          --in clean/customer.png --spec split.json --out layers/ [--rig R] [--min-piece 8]   (--list-colors 면 색 목록만)
 arttool recolor        --in layers/ --spec recolor.json --out Unity/Art/Customer/ [--sheet preview.png --scale 2]
 arttool tile blob      --profile P --in template6/ --out tiles47/
@@ -121,8 +122,69 @@ arttool provider list
 arttool provider make  --kind character --spec req.json --out gen/ --dry-run
 ```
 
+### 개선 판 명령 (2026-10-04)
+
+자세한 인자 · 보고 칸 · 대표 문턱은 **`Docs/Guide/명령안내.md`** 에 있다. 여기는 한 줄씩만.
+
+| 명령 | 하는 일 |
+| --- | --- |
+| `cutout --in raw/ --out cut/ [--key edge\|corner\|#hex] [--tol 10] [--shave N]` | 바탕 지우기. `--shave` 면 깎아 낸 고리에서 바탕 색을 고른다 |
+| `trim --in raw/ --out t/ [--pad N] [--square] [--common]` | 여백 걷기. `--common` 은 폴더에 bbox 하나(크기가 섞이면 종료 2) |
+| `intake --in raw/ --out clean/ [--sheet s.png] [--template t.json] [--no-trim]` | cutout → trim → check → sheet 한 번에. 배경 그림은 cutout 을 건너뛴다. 이번에 쓴 파일만 검수 |
+| `sheet --in a.png b/ --out s.png [--kinds zoom,silhouette,colors4,blur,tile] [--label]` | 사람이 보는 비교판. `--scale` 은 64 까지 |
+| `check … [--no-warn] [--mode auto\|sprite\|background] [--template t.json]` | 실패 규칙 다섯 + **경고 일곱**(`integer_scale` · `outline` · `isolated` · `color_cap` · `near_colors` · `ramp_shape` · `loop_seam`) |
+| `style extract --in refs/ --out style/ [--by-folder] [--max-colors 64] [--force]` | 기준 그림 → 팔레트 · 견본 · 프로필 조각 · 보고. **종류별(`--by-folder`)이 권장 길** |
+| `template list` · `show <이름> [--size N\|WxH] [--preset P] [--base #hex] [--material M]` · `render … --out guide/ [--over a.png]` | 그리기 전 밑판(가이드 겹 · 마스크 · 프롬프트 · 순서). **템플릿 15개** |
+| `layers compose\|diff\|mask\|view\|check\|export` | 겹 묶음 명령. `diff --carve report\|common\|apply`. 옛 `layers --profile …` 줄은 `layers compose` 로 |
+| `ui preview --in panel.png --border N\|L,B,R,T --size WxH` | 안내선 없는 9조각 늘려 보기 |
+| `tile seam` | 새 칸 `bad_px` · `bad_px_min` — 이음 줄에서 크게 다른 칸이 한 줄의 15%(최소 2px) 미만이면 통과 |
+
+**`arttool.draw`** 는 PIL 로 겹별로 그리는 파이썬 공개 모듈이다(`Canvas` · `shade` · 도형 · `outline`). 쓰는 법은 스킬의 `그리기-pil.md`.
+
+**원본 보호** : 새 명령은 모두 **쓸 자리가 읽은 그림과 겹치면 아무것도 안 쓰고 종료 2** 다. `--report` 는 `.json` 만 받는다.
+**`template render` 로 만든 폴더는 커밋하지 않는다** — `template.json` 에 이 PC 의 절대 경로가 박힌다.
+
+**보고 꼴** : `status`(`ok` · `warn` · `fail`) · `warnings`(걸린 것만 `{rule, ok, detail, items}`) · `must_failed`(템플릿 최소 규칙을 어긴 낱말) ·
+`skipped_files`(`check` 가 건너뛴 render 가이드 파일). 경고는 `status` · 종료 코드 · `bake` 를 안 바꾼다. 종료 코드는 0 · 1 · 2 · 4(아래 표).
+
+### 프로필 새 칸
+
+옛 프로필은 그대로 읽힌다(모두 기본값이 있다). 값은 `arttool --profile P profile show` 로 본다.
+
+```yaml
+style:                  # 이 게임은 이렇게 그린다. 템플릿 · 경고가 읽는다
+  outline: unset        # unset | none | black | solid | selout | selout+light
+  light: top_left       # top_left | top | top_right
+  scale: 1
+  materials: {}
+check:
+  warn:                 # 경고 일곱. 켜고 끄는 칸 이름은 enabled (on 은 YAML 이 참거짓으로 읽어 못 쓴다)
+    isolated: { enabled: true, max_ratio: 0.15 }
+    near_colors: { enabled: true, max_delta: 4, min_pairs: 20 }
+    # integer_scale · outline · color_cap · ramp_shape · loop_seam 도 같은 꼴
+  background: { auto: true, min_side: 128, color_cap: 64, max_colors: null }
+```
+
+### 스킬 — 그림 그릴 때 에이전트가 읽는 글
+
+`.claude/skills/arttool-usage/` (`SKILL.md` · `기준.md` · `뽑기-pixellab.md` · `그리기-pil.md` · `scripts/` 예시 셋).
+이 README 를 한 번 읽으면 스킬 목록에 뜬다. 서브모듈로 붙인 게임 저장소에서는 그 저장소 `CLAUDE.md` 에 아래 한 줄을 넣는다
+(서브에이전트에는 목록에 안 뜨니 `SKILL.md` 를 파일로 읽게 한다).
+
+```
+도트 그림 : 그리거나 PixelLab 으로 뽑기 전에 Tools/ArtTool/.claude/skills/arttool-usage/SKILL.md 를 읽는다 (밑판 template → 그리기 → intake · check · sheet)
+```
+
+### 라이선스
+
+비교판 · 미리보기 딱지 글꼴 **Pretendard Medium** 은 SIL Open Font License 1.1 이다. 원본 파일을 그대로 넣었고 라이선스 글은 `src/arttool/assets/fonts/OFL-Pretendard.txt` 에 있다.
+
 공통 인자 `--profile` `--provider` `--dry-run` `--force` `--json` `--directions` 는
 명령 앞에도 뒤에도 붙는다. `--json` 이면 사람용 표 대신 JSON 을 찍는다.
+
+**출력은 늘 UTF-8 이다.** 파이프 · 파일로 나가도 한글이 안 깨진다(cp949 로 받아야 하면 `PYTHONIOENCODING` 을 준다).
+PowerShell 5.1 에서 `$x = arttool …` 로 받으면 콘솔 인코딩(cp949)으로 읽어 깨질 수 있다 —
+받아 쓸 때는 `--report` 파일을 읽거나 먼저 `[Console]::OutputEncoding = [Text.Encoding]::UTF8` 을 준다.
 
 ### 스프라이트 4단
 
@@ -159,7 +221,7 @@ walk_south_0.png      낱장
 | `recolor` | 겹 × 색 벌 → PNG N장 + `recolor_report.json` (+ `--sheet` 미리보기) | `out` 에 `..` · 벌이 둘 이상인데 `out` 에 `{v}` 없음 · 같은 출력 이름 두 번 · 벌에 역할 빠짐 · **자리다름이 0 이 아니면 `fail`** |
 
 - **겹은 캔버스를 안 자른다.** 원본과 같은 크기·좌표라 Unity 에서 같은 자리에 쌓기만 하면 맞는다.
-  출력 꼴이 `layers` 입력 꼴과 같아 `arttool layers --rig R --anim <원본이름>` 으로 다시 쌓으면 원본이 나온다.
+  출력 꼴이 `layers compose` 입력 꼴과 같아 `arttool layers compose --rig R --anim <원본이름>` 으로 다시 쌓으면 원본이 나온다.
 - 가르는 순서는 **마스크 > 자리 규칙 > 색 표 > 외곽선 투표 > 투표 뒤 규칙(`from`·`near`)** 이다.
   `box` 는 끝을 뺀 `[x0, y0, x1, y1)`, `above_y: N` 은 `y < N`, `below_y: N` 은 `y >= N` 이다.
   외곽선 투표는 반경 1→2→3→4→6 으로 넓히고, 한 반경에서 정해진 외곽선이 다음 반경 투표에 낀다.
@@ -288,6 +350,14 @@ border 순서는 **[왼, 아래, 오른, 위]** 다. Unity `spriteBorder` 의 Ve
 | `src/arttool/ui/` | 프레임 `frame` · 9패치 `ninepatch` · 아이콘 `icons` · 검수 `check_ui` · 매니페스트 `manifest` · 굽기 `bake_ui` · 화면 `screen`·`uxml`·`uss` · 글자 `font` |
 | `src/arttool/ui/unity/` | 내보낼 C# 원본. 템플릿 문자열이 아니라 진짜 `.cs` 파일이다 |
 | `src/arttool/providers/` | 제공자. 밖에서는 제공자 이름을 모른다 |
+| `src/arttool/edit/` · `intake.py` · `sheet.py` | 손질(`cutout` · `trim`) · 한 번에 손질 · 비교판 |
+| `src/arttool/checks/` | 경고 일곱의 「재기」 와 「판정」. `sheet` · `style` 도 재기를 같이 쓴다 |
+| `src/arttool/style/` · `template/` · `draw/` | 화풍 뽑기 · 템플릿 엔진 · PIL 그리기 공개 모듈 `arttool.draw` |
+| `src/arttool/layerset.py` · `sprite/layerops.py` | 겹 묶음 꼴(`layers.json`) · `layers` 묶음 명령 |
+| `src/arttool/assets/fonts/` | Pretendard Medium + 라이선스 글 |
+| `templates/` | 템플릿 JSON 15개 |
+| `.claude/skills/arttool-usage/` | 그림 그릴 때 읽는 스킬 (위 「스킬」) |
+| `Docs/Guide/명령안내.md` | 개선 판 명령의 자세한 안내 |
 | `profiles/` | 프로필. `presets/` 안에 프리셋 넷 |
 | `palettes/` | 램프 JSON |
 | `tests/` | pytest. 시험용 그림은 코드로 만든다 |
@@ -321,9 +391,10 @@ border 순서는 **[왼, 아래, 오른, 위]** 다. Unity `spriteBorder` 의 Ve
 
 ## 아직 안 붙인 것
 
-- **Aseprite · DeBroglie · PixelLab 은 이 PC 에 없다.** 감싸는 코드는 있고 계약(인자 목록 · 요청/응답 JSON)만 시험했다.
+- **Aseprite · DeBroglie 는 이 PC 에 없다.** 감싸는 코드는 있고 계약(인자 목록 · 요청/응답 JSON)만 시험했다.
+- `provider make --provider pixellab` 은 요청 JSON 견적만 낸다. 실제 뽑기는 PixelLab MCP 쪽 일이다(에이전트가 MCP 도구를 직접 부른다).
 - **Unity 에디터 스크립트 둘(`UiImportSettings.cs` · `TmpFontBaker.cs`)은 컴파일해 본 적이 없다.** Unity 가 이 PC 에 없다.
 - 화면 정의의 격자 · 스크롤 · 목록 · 전환, `hover` · `focus` 상태, 커서 핫스폿은 2차다.
-- `local` · `pixellab` 의 실제 호출. 지금은 `--dry-run` 요청 JSON 까지만.
+- `local` 제공자의 실제 호출. 지금은 `--dry-run` 요청 JSON 까지만.
 
-설계는 `Docs/Design/2026-08-25-그림툴설계.md`, 할 일은 `Docs/Todo/그림툴.md` 를 본다.
+설계는 `Docs/Design/2026-08-25-그림툴설계.md` · `Docs/Design/2026-10-04-ArtTool개선설계.md`, 할 일은 `Docs/Todo/진행상황.md` · `Docs/Todo/그림툴.md` 를 본다.

@@ -11,11 +11,11 @@ from pathlib import Path
 
 import numpy as np
 
-from .. import image, pieces
+from .. import image, layerset, pieces
 from ..errors import ArtToolError, UsageError
 from ..jsonio import read_json, write_json
 from ..palette import parse_hex, to_hex
-from ..paths import check_relative, jailed_output, resolve_root, safe_join
+from ..paths import check_relative, guard_overwrite, jailed_output, resolve_root, safe_join
 from . import layers as layers_mod
 from .anchors import VERSION as ANCHOR_VERSION
 from .anchors import PointBook
@@ -28,7 +28,7 @@ ANCHORS_NAME = "anchors.json"
 
 SPEC_KEYS = ("version", "layers", "default", "outline", "colors", "rules", "masks", "layer_opts")
 RULE_KEYS = ("color", "to", "box", "above_y", "below_y", "near", "from")
-RESERVED_NAMES = (REPORT_NAME, ANCHORS_NAME)
+RESERVED_NAMES = (REPORT_NAME, ANCHORS_NAME, layerset.FILE_NAME)
 OPT_KEYS = ("min_piece", "anchor")
 
 # 픽셀마다 어느 단계에서 주인이 정해졌나. 투표 뒤 규칙(near·from)은 색 표·투표 몫만 덮는다.
@@ -333,6 +333,40 @@ def _layer_report(parts, spec: SplitSpec, piece_info: dict, rig: str, book: Poin
    return out
 
 
+def _layer_kind(name: str, idx: int, spec: SplitSpec) -> str:
+   """겹 이름이 정해진 낱말이면 그대로, 아니면 default 겹은 body · 나머지는 deco 로 본다."""
+   if name in layerset.KINDS:
+      return name
+   return "body" if idx == spec.default else "deco"
+
+
+def _write_layerset(root: Path, spec: SplitSpec, item: str, size: tuple[int, int]) -> tuple[str | None, str | None]:
+   """`<out>/layers.json` 을 쓴다(설계 10-2). 돌려주는 값 = (쓴 경로, 못 쓴 까닭).
+
+   같은 폴더에 다른 그림을 먼저 갈랐으면 그 목록에 그림 이름만 더한다.
+   겹 이름 · 그림 이름이 겹 묶음 규칙(영숫자 · _ · -)에 안 맞거나 앞 목록과 겹 구성이 다르면 쓰지 않고 까닭만 돌려준다 —
+   나누기 자체는 성공이므로 status 를 바꾸지 않는다.
+   """
+   rows = [{"name": name, "kind": _layer_kind(name, idx, spec)} for idx, name in enumerate(spec.layers)]
+   data = {"version": layerset.VERSION, "canvas": [size[0], size[1]], "layers": rows, "items": [item]}
+   try:
+      fresh = layerset.from_dict(data, "(split)")
+   except ArtToolError as exc:
+      return None, str(exc)
+
+   file = root / layerset.FILE_NAME
+   if file.is_file():
+      try:
+         old = layerset.load(file)
+      except ArtToolError as exc:
+         return None, f"이미 있는 layers.json 을 못 읽었다 : {exc}"
+      if old.names() != fresh.names() or old.canvas != fresh.canvas:
+         return None, f"이미 있는 layers.json 의 겹 · canvas 가 다르다 : {old.names()} {old.canvas}"
+      items = list(old.items) if item in old.items else [*old.items, item]
+      fresh = layerset.LayerSet(old.canvas, old.layers, items, old.template)
+   return str(layerset.save(root, fresh)), None
+
+
 def _load_masks(spec: SplitSpec) -> dict[int, np.ndarray]:
    return {idx: image.load(path)[:, :, 3] > 0 for idx, path in spec.masks.items()}
 
@@ -348,10 +382,15 @@ def run(in_file: str | Path, spec_file: str | Path, out_dir: str | Path, rig_ord
    if rig_order is not None and list(rig_order) != spec.layers:
       raise ArtToolError(f"rig 의 layer_order {rig_order} 와 표의 layers {spec.layers} 가 다르다")
 
+   root = resolve_root(out_dir)
+   # 겹 · 보고 · 앵커가 원본 · 나누기 표 · 마스크를 덮으면 쓰기 전에 거절한다
+   writes = [safe_join(root, f"{name}/{source.name}") for name in spec.layers]
+   writes += [safe_join(root, REPORT_NAME), safe_join(root, ANCHORS_NAME), safe_join(root, layerset.FILE_NAME)]
+   guard_overwrite(writes, [source, spec_path, *spec.masks.values()])
+
    arr = image.load(source)
    parts, info = split_array(arr, spec, _load_masks(spec), default_min_piece)
 
-   root = resolve_root(out_dir)
    for name, layer in parts.items():
       image.save(safe_join(root, f"{name}/{source.name}"), layer)
    # 되돌림은 저장한 파일을 다시 읽어서 본다. 한 파일을 두 겹이 덮어쓴 사고도 여기서 잡힌다.
@@ -371,6 +410,11 @@ def run(in_file: str | Path, spec_file: str | Path, out_dir: str | Path, rig_ord
    if info["roundtrip_diff"] != 0:
       status = "fail"
    width, height = image.size(arr)
+   layers_json, layers_json_note = None, None
+   if source.suffix.lower() == ".png":
+      layers_json, layers_json_note = _write_layerset(root, spec, source.stem, (width, height))
+   else:
+      layers_json_note = f"겹 묶음은 <겹>/<그림>.png 꼴이라 .png 가 아닌 원본은 layers.json 을 안 쓴다 : {source.name}"
    report = {
       "status": status,
       "image": source.name,
@@ -380,7 +424,10 @@ def run(in_file: str | Path, spec_file: str | Path, out_dir: str | Path, rig_ord
       "unmapped_colors": unmapped,
       "warnings": warnings,
       "out": str(root),
+      "layers_json": layers_json,
    }
+   if layers_json_note:
+      report["layers_json_note"] = layers_json_note
    write_json(safe_join(root, REPORT_NAME), report)
    anchors = {"version": ANCHOR_VERSION, "profile": profile_name, "frame": [width, height], "points": book.points}
    write_json(safe_join(root, ANCHORS_NAME), anchors)
@@ -412,5 +459,6 @@ def run_list_colors(in_file: str | Path, out_file: str | Path) -> dict:
    width, height = image.size(arr)
    data = {"image": source.name, "size": [width, height], "colors": list_colors(arr)}
    out = jailed_output(out_file)
+   guard_overwrite([out], [source])
    write_json(out, data)
    return {"out": str(out), "colors": len(data["colors"])}

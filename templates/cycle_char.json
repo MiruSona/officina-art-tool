@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "name": "cycle_char",
+  "kind": "cycle",
+  "title": "캐릭터 동작 프레임 틀 (걷기 · 달리기 · idle · 공격, 프레임별 몸 위아래, 비율은 char_small 크기별 기본 프리셋)",
+  "sizes": [[16, 16], [24, 24], [32, 32], [48, 48], [64, 64], [48, 64], [64, 80]],
+  "values": {
+    "heads": { "16": 2, "32": 2, "48": 2, "64": 4, "48x64": 1.7, "64x80": 2.1 },
+    "top_ratio": { "16": 0.0625, "32": 0.0625, "48": 0.0625, "64": 0.0625, "48x64": 0.125, "64x80": 0.025 },
+    "foot_ratio": { "16": 0.0625, "32": 0.0625, "48": 0.0625, "64": 0.0625, "48x64": 0.0625, "64x80": 0.04 },
+    "head_aspect": { "16": 1.2, "32": 1.1, "48": 1.2, "64": 1.0, "48x64": 1.2, "64x80": 1.3 },
+    "torso_ratio": { "16": 0.68, "32": 0.68, "48": 0.68, "64": 0.8, "48x64": 0.68, "64x80": 0.68 },
+    "crotch_ratio": { "16": 0.6, "32": 0.7, "48": 0.6, "64": 0.33, "48x64": 0.6, "64x80": 0.6 },
+    "knee_ratio": { "16": 0.1, "32": 0.1, "48": 0.1, "64": 0.25, "48x64": 0.1, "64x80": 0.1 },
+    "eye_ratio": { "16": 0.75, "32": 0.75, "48": 0.75, "64": 0.5, "48x64": 0.8, "64x80": 0.65 },
+    "eye_h": { "16": 2, "32": 2, "48": 3, "64": 3, "48x64": 3, "64x80": 7 },
+    "eye_w": { "16": 1, "32": 2, "48": 2, "64": 4, "48x64": 2, "64x80": 5 },
+    "eye_gap": { "16": 2, "32": 4, "48": 8, "64": 4, "48x64": 8, "64x80": 9 },
+    "cheek": { "16": 0, "32": 2, "48": 4, "64": 0, "48x64": 4, "64x80": 5 },
+    "hair_side": { "16": 0.1, "32": 0.1, "48": 0.12, "64": 0, "48x64": 0.12, "64x80": 0.12 }
+  },
+  "presets": {
+    "walk": {
+      "frames": 8,
+      "frame_ms": 100,
+      "bob": [0, 1, 0, -1, 0, 1, 0, -1],
+      "phases": ["contact", "down", "passing", "up", "contact", "down", "passing", "up"]
+    },
+    "walk6": {
+      "frames": 6,
+      "frame_ms": 100,
+      "bob": [0, 1, -1, 0, 1, -1]
+    },
+    "walk12": {
+      "frames": 12,
+      "frame_ms": 100,
+      "bob": [0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, -1]
+    },
+    "run": {
+      "frames": 8,
+      "frame_ms": 80,
+      "bob": [0, 2, 1, -1, 0, 2, 1, -1]
+    },
+    "idle": {
+      "frames": 4,
+      "frame_ms": 100,
+      "bob": [0, 0, 1, 0],
+      "order": [1, 2, 3, 2]
+    },
+    "attack": {
+      "frames": 7,
+      "frame_ms": 80,
+      "bob": [0, 0, 0, 0, 0, 0, 0],
+      "phases": ["attack", "attack", "attack", "recover", "recover", "recover", "recover"]
+    }
+  },
+  "check": {
+    "check": { "allow_alpha": "binary" }
+  },
+  "fixed": [],
+  "must": [],
+  "prompt": "pixel art {w}x{h} chibi character animation, {frames} frames, {frame_ms}ms per frame, feet stay on the bottom line, body bobs up and down, {outline}, {light}, palette {palette}, transparent background",
+  "steps": [
+    "f00 ~ 프레임 밑그림의 흰 덩어리 높이(bob)를 따라 머리 · 몸을 올리고 내린다. 발은 baseline 그대로",
+    "걷기 : contact 다음 장이 가장 낮고 passing 다음 장이 가장 높다. 팔은 반대 다리와",
+    "idle 은 그림 3장을 1-2-3-2 차례로 돌린다(order). 덩치는 그대로, 1px 만",
+    "공격은 준비 동작 없이 공격 3장 + 복귀 4장 — 플레이어 입력이 늦지 않게",
+    "머리카락 · 천 같은 매달린 것은 motion_guide 로 한두 장 늦게 따라오게"
+  ],
+  "sources": [
+    "도트강좌자료조사 3장 「애니메이션 — 캐릭터」 (걷기 6 · 8 · 12장 100ms · 달리기 8장 80ms · 몸 위아래 1~2px · 공격 3 + 복귀 4)",
+    "X도트강좌조사-다른작가 3절 「애니」 (흔들림 1-2-3-2 · 장당 약 100ms · 1px)"
+  ],
+  "layers": [
+    { "name": "body", "kind": "body" },
+    { "name": "cloth", "kind": "cloth" },
+    {
+      "name": "face",
+      "kind": "face",
+      "exclusive_with": ["hair"]
+    },
+    { "name": "hair", "kind": "hair" },
+    { "name": "deco", "kind": "deco", "optional": true }
+  ]
+}

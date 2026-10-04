@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "motion_guide",
+  "kind": "motion",
+  "title": "움직임 가이드 (점 N개 · 위상 지연 · 같은 진폭)",
+  "sizes": [[32, 32], [64, 64]],
+  "values": { "frame_ms": 100 },
+  "presets": {
+    "hair":  { "points": 4, "frames": 6, "delay": 1, "amp": 1, "path": "updown" },
+    "aura":  { "points": 4, "frames": 4, "delay": 1, "amp": 1, "path": "corner" },
+    "cloth": { "points": 3, "frames": 6, "delay": 1, "amp": 2, "path": "side", "shape": "circle" }
+  },
+  "fixed": [],
+  "must": [],
+  "prompt": "pixel art {w}x{h} looping secondary motion, {frames} frames, {frame_ms}ms per frame, {points} control points each one frame behind the previous, {light}",
+  "steps": [
+    "가이드 점(하늘색)을 먼저 깔고, 그 위에 실루엣을 점을 따라 그린다",
+    "머리카락(hair) : 위 점이 먼저, 아래 점이 한 장씩 늦게 — 매달린 것은 늦게 따라온다",
+    "오라 · 물결(aura) : 판 모서리 점이 박자를 달리해 오르내린다",
+    "천 끝(cloth) : 원이 아래 가장자리를 옆으로 지나가며 천을 밀어낸다",
+    "마지막 장 다음이 첫 장으로 바로 이어져야 한다 — 분홍 상자 밖으로 안 나간다"
+  ],
+  "sources": [
+    "X도트강좌조사-denchan 3절 「움직임 가이드를 먼저 만든다」 (머리카락 상자 4 · 오라 판 모서리 점 · 천 원)"
+  ],
+  "layers": [{ "name": "fx", "kind": "fx" }]
+}

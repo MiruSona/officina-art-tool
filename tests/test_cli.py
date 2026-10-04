@@ -141,6 +141,57 @@ def test_module_entry_point():
    import subprocess
    import sys
 
-   done = subprocess.run([sys.executable, "-m", "arttool", "--help"], capture_output=True, text=True)
+   # cli 가 늘 UTF-8 로 쓰므로 UTF-8 로 풀어 읽는다 (로캘 cp949 로 읽으면 한글 도움말에서 깨진다).
+   done = subprocess.run([sys.executable, "-m", "arttool", "--help"], capture_output=True, text=True, encoding="utf-8")
    assert done.returncode == 0
    assert "arttool" in done.stdout
+
+
+def _env_without_pythonioencoding():
+   import os
+
+   env = dict(os.environ)
+   env.pop("PYTHONIOENCODING", None)
+   env["PYTHONUTF8"] = "0"
+   return env
+
+
+def test_pipe_output_is_utf8(tmp_path):
+   """파이프로 나가도 UTF-8 이다. 예전엔 cp949 로 나가 한글이 깨졌다 (설계 3-1)."""
+   import subprocess
+   import sys
+
+   loose = tmp_path / "loose"
+   loose.mkdir()
+   from arttool import image
+
+   image.save(loose / "berry.png", helpers.blob(8, 8))
+   cmd = [sys.executable, "-m", "arttool", "--profile", "topdown_action", "check", "--in", str(loose), "--report", str(tmp_path / "c.json")]
+   done = subprocess.run(cmd, capture_output=True, env=_env_without_pythonioencoding())
+   assert done.returncode == 0
+   assert "낱장 모드" in done.stdout.decode("utf-8")
+   assert "낱장 모드" in done.stderr.decode("utf-8")
+
+
+def test_pipe_output_survives_dash(tmp_path):
+   """cp949 에 없는 `—` 가 출력에 들어가도 종료 0 이다. 예전엔 UnicodeEncodeError 로 종료 1 이었다."""
+   import subprocess
+   import sys
+
+   code = "import sys; from arttool import cli; cli._utf8_streams(); print('가 — 나'); sys.exit(0)"
+   done = subprocess.run([sys.executable, "-c", code], capture_output=True, env=_env_without_pythonioencoding())
+   assert done.returncode == 0
+   assert done.stdout.decode("utf-8").strip() == "가 — 나"
+
+
+def test_pythonioencoding_is_respected():
+   """PYTHONIOENCODING 을 준 사람은 그 값을 따른다 (비상구)."""
+   import os
+   import subprocess
+   import sys
+
+   env = dict(os.environ)
+   env["PYTHONIOENCODING"] = "cp949"
+   code = "import sys; from arttool import cli; cli._utf8_streams(); print(sys.stdout.encoding)"
+   done = subprocess.run([sys.executable, "-c", code], capture_output=True, env=env)
+   assert done.stdout.decode("ascii").strip().lower() == "cp949"

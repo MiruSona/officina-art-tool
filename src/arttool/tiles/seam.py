@@ -16,6 +16,9 @@ from ..paths import jailed_output
 
 VERSION = 1
 DEFAULT_K = 2.0
+SEAM_PX_DIFF = 16       # 칸 차이(RGBA 네 칸 합)가 이 이하면 눈에 안 띄는 차이로 보고 넘친 칸으로 안 센다
+SEAM_MIN_SHARE = 0.15   # 이음 줄 길이의 이 몫 이상이 넘쳐야 실패 (실물 256 바닥 타일 오탐이 12% 였다)
+SEAM_MIN_PX = 2         # …단 적어도 이 칸 수
 
 
 def _norm(arr: image.RGBA) -> np.ndarray:
@@ -38,10 +41,16 @@ def _inner(arr: np.ndarray, axis: int) -> np.ndarray:
 
 
 def _judge(name: str, line: dict, seam_d: np.ndarray, inner: float, k: float, point_key: str) -> dict:
-   """이음 줄 평균이 안쪽 평균의 k 배를 넘으면 실패. 실패한 줄에만 넘친 자리를 적는다."""
+   """이음 줄 평균이 안쪽 평균의 k 배를 넘고, **넘친 칸 수**도 `bad_px_min` 이상이면 실패. 실패한 줄에만 넘친 자리를 적는다.
+
+   바탕이 평평한 타일은 안쪽 평균이 아주 작아서 이음 줄을 지나는 묘사 몇 칸만으로 비율이 튄다 (실물 시험 #20, 비율 2.63).
+   그래서 비율과 함께 「눈에 띄게 다른 칸이 몇 개인가」 를 본다. 줄 길이의 `SEAM_MIN_SHARE` 몫(최소 `SEAM_MIN_PX` 칸).
+   """
    diff = float(seam_d.mean())
    limit = k * inner
-   ok = diff <= limit
+   bad_px = int(np.count_nonzero(seam_d > max(limit, SEAM_PX_DIFF)))
+   need = max(SEAM_MIN_PX, math.ceil(SEAM_MIN_SHARE * len(seam_d)))
+   ok = diff <= limit or bad_px < need
    ratio = 0.0 if diff == 0 else (diff / inner if inner > 0 else None)
    row = {
       "seam": name,
@@ -49,6 +58,8 @@ def _judge(name: str, line: dict, seam_d: np.ndarray, inner: float, k: float, po
       "diff": round(diff, 3),
       "inner": round(inner, 3),
       "ratio": None if ratio is None else round(ratio, 4),
+      "bad_px": bad_px,
+      "bad_px_min": need,
       "ok": ok,
    }
    if not ok:

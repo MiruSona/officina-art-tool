@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "name": "palette_ramp",
+  "kind": "palette",
+  "title": "램프 초안 (바탕색 + 재질 → 어두운 쪽부터 밝은 쪽까지)",
+  "sizes": [[16, 16], [24, 24]],
+  "values": { "base": "#3D5C9B", "steps": 6, "hue_step": "auto", "metal": false },
+  "presets": {
+    "cloth": { "steps": 4, "ramp_name": "cloth" },
+    "stone": { "steps": 5, "ramp_name": "stone" },
+    "wood": { "steps": 5, "ramp_name": "wood" },
+    "metal": { "steps": 5, "metal": true, "ramp_name": "metal" },
+    "ice": { "steps": 6, "ramp_name": "ice" },
+    "gem": { "steps": 7, "ramp_name": "gem" },
+    "goo": { "steps": 4, "ramp_name": "goo" },
+    "plain": { "steps": 6, "ramp_name": "ramp" }
+  },
+  "fixed": [],
+  "must": [],
+  "prompt": "pixel art color ramp of {steps} steps from base {base}, darker steps cooler, lighter steps warmer",
+  "steps": [
+    "색표를 먼저 정하고 그린다. 램프 하나를 여러 재질에 돌려 써도 된다",
+    "칸마다 색조를 조금씩 돌린다(칸마다 10° 이하, 처음 ~ 끝 36° 이하 — 5칸 9° · 6칸 7.2°) : 어두울수록 차갑게(파랑 쪽), 밝을수록 따뜻하게(노랑 쪽). 금속은 반대. 프로필 팔레트에 hue_step 이 있으면 그 값을 쓴다",
+    "프로필에 팔레트가 있으면 그 램프를 견본으로 보고, 새 램프는 같은 단 수 · 같은 걸음으로 만든다",
+    "나온 _ramp.json 은 palettes/ 꼴이다. 보고 고쳐서 팔레트 파일에 붙인다"
+  ],
+  "sources": [
+    "도트강좌자료조사 3장 「색 · 팔레트」 (hue shift 칸마다 · 금속은 반대)",
+    "도트강좌자료조사 3장 「재질」 표 (돌 5 · 얼음 6 · 보석 7 · 점액 4 · 나무 4~5)",
+    "실물시험 5장 (뽑은 팔레트 hue_step 실측 0.9 ~ 11.4° — 강좌 +20° 보다 작다)"
+  ]
+}

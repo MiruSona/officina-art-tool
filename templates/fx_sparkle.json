@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "name": "fx_sparkle",
+  "kind": "effect",
+  "title": "반짝임 (작은 판 16 · 5프레임 / 큰 판 17 · 7프레임 · 60ms · 3색)",
+  "sizes": [[16, 16]],
+  "values": { "frame_ms": 60, "colors": 1 },
+  "presets": {
+    "small": {
+      "sizes": [[16, 16]],
+      "frames": [
+        { "draw": [{ "shape": "diamond", "r": 4 }] },
+        { "draw": [{ "shape": "cross", "r": 4 }] },
+        { "draw": [{ "shape": "plus", "r": 4 }] },
+        { "draw": [{ "shape": "cross", "r": 2 }] },
+        { "draw": [{ "shape": "dot", "size": 1 }] }
+      ],
+      "check": { "frames": 5 }
+    },
+    "big": {
+      "title": "반짝임 큰 판 (17 · 7프레임 · 60ms · 흰 + 하늘 + 파랑)",
+      "sizes": [[17, 17]],
+      "values": { "frame_ms": 60, "colors": 3 },
+      "frames": [
+        { "draw": [{ "shape": "plus", "r": 8 }, { "shape": "diamond", "r": 3 }] },
+        { "draw": [{ "shape": "cross", "r": 6 }] },
+        { "draw": [{ "shape": "plus", "r": 5, "hollow": 2 }] },
+        { "draw": [{ "shape": "cross", "r": 3 }] },
+        { "draw": [{ "shape": "plus", "r": 2 }] },
+        { "draw": [
+          { "shape": "dot", "dx": -4, "dy": 0 }, { "shape": "dot", "dx": 4, "dy": 0 },
+          { "shape": "dot", "dx": 0, "dy": -4 }, { "shape": "dot", "dx": 0, "dy": 4 }
+        ] },
+        { "draw": [{ "shape": "dot", "size": 1 }] }
+      ],
+      "check": { "check": { "max_colors": 3 }, "frames": 7 }
+    }
+  },
+  "check": { "style": { "outline": "none" }, "check": { "max_colors": 1 } },
+  "fixed": ["style.outline"],
+  "must": [],
+  "prompt": "pixel art {w}x{h} sparkle effect, {frames} frames, {frame_ms}ms per frame, {colors} colors, star shrinking to a point, no outline, transparent background",
+  "steps": [
+    "작은 판 : ◆ → ✕ → ＋ → 작은 ✕ → 점. 흰 1색 모양을 먼저 맞춘다",
+    "큰 판 : 큰 별 → ✕ → 속 빈 ＋ → 작은 ✕ → 작은 ＋ → 점 넷 → 점 하나. 흰 · 하늘 · 파랑 3색",
+    "반복할 때는 길이가 다른 반짝임 여러 개를 시작을 어긋나게 둔다"
+  ],
+  "sources": [
+    "X도트강좌조사-denchan 3절 프레임 공식 「반짝임 축소」 · 「반짝임 큰 판」",
+    "도트강좌자료조사 3장 「애니메이션 — 이펙트」 (반복은 길이 다르게 · 시작 어긋나게)"
+  ],
+  "layers": [{ "name": "fx", "kind": "fx" }]
+}

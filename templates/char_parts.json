@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "name": "char_parts",
+  "kind": "parts",
+  "title": "캐릭터 파츠 마스크 (머리카락 · 얼굴 · 윗옷 · 아랫옷 · 본체, split.json 초안, 프리셋 sd · chibi · tall)",
+  "sizes": [[16, 16], [24, 24], [32, 32], [48, 48], [64, 64], [48, 64], [64, 80], [72, 88]],
+  "values": {},
+  "default_preset": { "16": "sd", "64": "tall", "48x64": "sd", "64x80": "sd", "72x88": "sd" },
+  "presets": {
+    "sd": {
+      "values": {
+        "heads": { "8": 1.5, "16": 2, "48x64": 1.7, "64x80": 2.1 },
+        "top_ratio": { "8": 0.0625, "48x64": 0.125, "64x80": 0.025 },
+        "foot_ratio": { "8": 0.0625, "64x80": 0.04 },
+        "head_aspect": { "8": 1.2, "32": 1.1, "48": 1.2, "64x80": 1.3 },
+        "torso_ratio": 0.68,
+        "crotch_ratio": { "8": 0.6, "24": 0.7, "48": 0.6 },
+        "knee_ratio": 0.1,
+        "eye_ratio": { "8": 0.6, "16": 0.75, "48x64": 0.8, "64x80": 0.65 },
+        "eye_h": { "8": 1, "16": 2, "48": 3, "64x80": 7 },
+        "eye_w": { "8": 1, "16": 1, "32": 2, "64x80": 5 },
+        "eye_gap": { "8": 2, "16": 2, "32": 4, "48": 8, "64x80": 9 },
+        "cheek": { "8": 0, "32": 2, "48": 4, "64x80": 5 },
+        "hair_side": { "8": 0, "16": 0.1, "48": 0.12 },
+        "waist_ratio": 0.25
+      }
+    },
+    "chibi": {
+      "values": {
+        "heads": { "8": 1.5, "16": 2.5, "32": 3 },
+        "top_ratio": 0.0625,
+        "foot_ratio": 0.0625,
+        "head_aspect": 1.1,
+        "torso_ratio": 0.75,
+        "crotch_ratio": 0.45,
+        "knee_ratio": 0.15,
+        "eye_ratio": 0.65,
+        "eye_h": { "8": 1, "16": 2, "32": 3 },
+        "eye_w": { "8": 1, "16": 1, "32": 2, "64": 3 },
+        "eye_gap": { "8": 2, "16": 2, "32": 4, "64": 6 },
+        "cheek": { "8": 0, "32": 2, "64": 3 },
+        "hair_side": { "8": 0, "32": 0.08 },
+        "waist_ratio": 0.15
+      }
+    },
+    "tall": {
+      "values": {
+        "heads": { "8": 1.5, "16": 2, "24": 2.5, "32": 3, "48": 3.5, "64": 4 },
+        "top_ratio": 0.0625,
+        "foot_ratio": 0.0625,
+        "head_aspect": 1.0,
+        "torso_ratio": 0.8,
+        "crotch_ratio": 0.33,
+        "knee_ratio": 0.25,
+        "eye_ratio": 0.5,
+        "eye_h": { "8": 1, "16": 2, "32": 3 },
+        "eye_w": { "8": 1, "16": 1, "32": 3, "64": 4 },
+        "eye_gap": { "8": 2, "16": 2, "32": 2, "64": 4 },
+        "waist_ratio": 0
+      }
+    }
+  },
+  "check": {
+    "check": { "allow_alpha": "binary" }
+  },
+  "fixed": [],
+  "must": [],
+  "prompt": "pixel art {w}x{h} chibi character base body, about {heads} heads tall, front view, plain parts that can be repainted one layer at a time, {outline}, {light}, palette {palette}, transparent background",
+  "steps": [
+    "기본체 한 장을 먼저 뽑거나 그린다(옷 · 머리 없이 덩어리만)",
+    "겹마다 _mask_<겹>.png 를 inpaint 마스크로 써서 그 자리만 다시 그린다. 얼굴 마스크는 눈 · 입 · 볼 칸뿐이다",
+    "아랫옷 마스크는 몸통 아래쪽(허리 ~ 가랑이) + 무릎 위 다리다. sd 는 반바지 꼴이라 허리 몫이 크다",
+    "네모 마스크가 앞머리를 일자로 자르면 layers mask(색 칸 마스크)로 바꾼다",
+    "다 모이면 layers diff 로 겹을 떼거나, 한 장이면 split.json 으로 split 한다"
+  ],
+  "sources": [
+    "도트강좌자료조사 3장 「작은 캐릭터 · 읽힘」 (크기별 등신)",
+    "X도트강좌조사-다른작가 3절 「몸」 (가랑이 · 무릎)",
+    "개선 설계 8-5 2번 (손님파츠 피드백 「네모 마스크 가장자리」)",
+    "실물시험 5장 (sd 캐릭터 겹 48×64 : 몸 폭 · 옆머리 · 볼)"
+  ],
+  "layers": [
+    { "name": "body", "kind": "body" },
+    { "name": "cloth_bottom", "kind": "cloth" },
+    { "name": "cloth_top", "kind": "cloth" },
+    {
+      "name": "face",
+      "kind": "face",
+      "exclusive_with": ["hair"]
+    },
+    { "name": "hair", "kind": "hair" },
+    { "name": "deco", "kind": "deco", "optional": true }
+  ]
+}

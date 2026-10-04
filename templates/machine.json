@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "name": "machine",
+  "kind": "prop",
+  "title": "큰 물건 틀 (바닥선 · 위판 / 몸통 / 받침 칸 · 바닥 그림자 · 외곽선 두께)",
+  "sizes": [[104, 110], [208, 220], [212, 241]],
+  "values": {
+    "top_ratio": 0.037,
+    "foot_ratio": 0.092,
+    "side_ratio": 0.077,
+    "bands": [["top", 0.22], ["body", 0.64], ["foot", 0.14]],
+    "door": null,
+    "shadow_ratio": 0.03,
+    "outline_px": 2
+  },
+  "check": {
+    "check": { "allow_alpha": "binary" }
+  },
+  "fixed": [],
+  "must": [],
+  "prompt": "pixel art {w}x{h} front view large object, top plate on the upper part, main body in the middle, base plate at the bottom, standing on the ground line, small ground shadow, {outline_text} dark outline, {outline}, {light}, palette {palette}, transparent background",
+  "steps": [
+    "분홍 바닥선이 땅에 닿는 줄이다. 받침 아래 끝을 이 줄에 맞춘다",
+    "몸통 → 위판 → 받침 순서로 겹마다 그린다 (칸 {band_list}). 위판은 몸통보다 조금 넓어도 된다",
+    "외곽선은 {outline_text} 두께로 한 바퀴 — 왼쪽 위 하늘색 ㄱ 자가 그 두께 견본이다",
+    "몸통 모서리는 둥글게 2~3px 깎으면 덩어리가 부드럽게 읽힌다",
+    "바닥 그림자(노란 타원)는 shadow 겹에 어두운 한 색으로"
+  ],
+  "sources": ["실물시험 5장 (큰 물건 208×220 급 : 위 8px · 좌 16px 여백, 바닥선 y199 아래 20줄은 비움 · 둥근 몸통 · 위판 · 받침 · 진한 2px 외곽선)"],
+  "layers": [
+    { "name": "shadow", "kind": "deco", "optional": true },
+    { "name": "body", "kind": "base" },
+    { "name": "top", "kind": "structure" },
+    { "name": "foot", "kind": "structure" }
+  ]
+}

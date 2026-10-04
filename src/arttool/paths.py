@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path, PureWindowsPath
 
-from .errors import PathJailError
+from .errors import PathJailError, UsageError
 
 
 def resolve_root(root: str | os.PathLike) -> Path:
@@ -96,3 +96,43 @@ def is_plain_file(path: Path) -> bool:
    if path.is_symlink():
       return False
    return path.is_file()
+
+
+def same_key(path: str | os.PathLike) -> str:
+   """두 경로가 같은 파일인지 견줄 열쇠. 링크를 풀고 윈도 대소문자를 맞춘다."""
+   return os.path.normcase(str(Path(path).resolve()))
+
+
+def guard_overwrite(writes, reads, what: str = "--out") -> None:
+   """쓸 경로 가운데 하나라도 읽은 경로와 같으면 UsageError. **아무것도 쓰기 전에** 부른다.
+
+   원본 보호의 한 곳이다 — cutout · trim · intake · sheet · layers · split · ui preview 가 같이 쓴다.
+   writes · reads 는 경로 목록(문자열이나 Path). None 은 건너뛴다.
+   """
+   sources = {same_key(p) for p in reads if p is not None}
+   for out in writes:
+      if out is not None and same_key(out) in sources:
+         raise UsageError(f"{what} 이 원본을 덮어쓴다 : {out}. 다른 자리를 준다")
+
+
+def guard_outside(writes, folders, what: str = "--out") -> None:
+   """쓸 경로가 folders 가운데 하나의 안(그 폴더 자신 포함)이면 UsageError.
+
+   겹 묶음 폴더 안에 미리보기를 쓰거나, 검수할 폴더 안에 비교판을 쓰는 사고를 막는다.
+   """
+   roots = [Path(f).resolve() for f in folders if f is not None]
+   for out in writes:
+      if out is None:
+         continue
+      real = Path(out).resolve()
+      for root in roots:
+         if _under(root, real):
+            raise UsageError(f"{what} 이 읽는 폴더 안이다 : {out} (폴더 {root}). 그 밖에 쓴다")
+
+
+def png_files(source: Path) -> list[Path]:
+   """폴더 바로 아래 PNG 만 이름순으로. 확장자 대소문자는 가리지 않고 하위 폴더는 안 본다.
+
+   check · cutout · trim · ui icons · style extract 가 같이 쓰는 한 곳이다 (sheet 는 링크를 빼는 `is_plain_file` 을 따로 쓴다).
+   """
+   return sorted(p for p in source.iterdir() if p.is_file() and p.suffix.lower() == ".png")

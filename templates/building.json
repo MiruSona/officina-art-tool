@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "name": "building",
+  "kind": "prop",
+  "title": "건물 틀 (바닥선 · 지붕 / 벽 칸 · 문 칸 · 바닥 그림자 · 외곽선 두께)",
+  "sizes": [[92, 77], [135, 144], [212, 241], [250, 203]],
+  "values": {
+    "top_ratio": { "8": 0, "212x241": 0.015 },
+    "foot_ratio": 0,
+    "side_ratio": { "8": 0, "212x241": 0.015 },
+    "bands": [["roof", 0.32], ["wall", 0.68]],
+    "door": [0.22, 0.45, "center"],
+    "shadow_ratio": 0,
+    "outline_px": { "8": 1, "128": 2 }
+  },
+  "check": {
+    "check": { "allow_alpha": "binary" }
+  },
+  "fixed": [],
+  "must": [],
+  "prompt": "pixel art {w}x{h} front view building, roof on the upper part, wall with a door at the bottom, standing on the ground line, {outline_text} dark outline, {outline}, {light}, palette {palette}, transparent background",
+  "steps": [
+    "분홍 바닥선이 땅에 닿는 줄이다. 건물 아래 끝을 이 줄(판 맨 아래)에 맞춘다 — 땅 · 그림자는 바닥 타일 쪽이 그린다",
+    "지붕 → 벽 → 문 순서로 겹마다 그린다 (칸 {band_list} · 문). 지붕 처마는 벽보다 1~2px 밖으로 내도 된다",
+    "외곽선은 {outline_text} 두께로 한 바퀴 — 왼쪽 위 하늘색 ㄱ 자가 그 두께 견본이다",
+    "문 · 창은 벽 칸 안에. 문은 바닥선에 붙인다",
+    "그림자가 필요하면 shadow 겹(있어도 되고 없어도 된다)에 어두운 한 색으로, 바닥선 위쪽 판 안에"
+  ],
+  "sources": ["실물시험 5장 (건물 92×77 ~ 250×203 · 아래 끝이 판 맨 아래 줄 · 212×241 은 둘레 3px 여백 · 진한 외곽선)"],
+  "layers": [
+    { "name": "shadow", "kind": "deco", "optional": true },
+    { "name": "wall", "kind": "base" },
+    { "name": "roof", "kind": "structure" },
+    { "name": "door", "kind": "deco" }
+  ]
+}

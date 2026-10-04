@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "name": "char_small",
+  "kind": "character",
+  "title": "작은 캐릭터 밑판 (등신 · 머리 상자 · 눈 줄 · baseline · 가랑이 · 무릎, 프리셋 sd · chibi · tall)",
+  "sizes": [[8, 8], [16, 16], [24, 24], [32, 32], [48, 48], [64, 64], [48, 64], [64, 80], [72, 88]],
+  "values": {
+    "note": {
+      "8": "8px : 기호처럼. 눈은 1px 점 하나, 몸은 덩어리 둘(머리 · 몸)",
+      "16": "16px : 눈은 2px 높이 카드, 볼 · 머리 모양까지. 머리 : 몸 = 1 : 1",
+      "32": "32px : 눈 카드 2~3px, 머리결 · 옷 장식부터 그려도 된다",
+      "48": "48px 넘게 : 손 · 옷 주름 같은 디테일은 덩어리를 먼저 맞춘 뒤"
+    }
+  },
+  "default_preset": { "8": "sd", "64": "tall", "48x64": "sd", "64x80": "sd", "72x88": "sd" },
+  "presets": {
+    "sd": {
+      "title": "작은 캐릭터 밑판 — sd (약 2등신 · 큰 머리 · 눈은 머리 아래쪽 · 짧은 다리)",
+      "prompt": "pixel art {w}x{h} super-deformed chibi character, about {heads} heads tall, very big head, eyes low on the face, short body and short legs, front view, standing on the bottom line, {outline}, {light}, palette {palette}, transparent background",
+      "values": {
+        "heads": { "8": 1.5, "16": 2, "48x64": 1.7, "64x80": 2.1 },
+        "top_ratio": { "8": 0.0625, "48x64": 0.125, "64x80": 0.025 },
+        "foot_ratio": { "8": 0.0625, "64x80": 0.04 },
+        "head_aspect": { "8": 1.2, "32": 1.1, "48": 1.2, "64x80": 1.3 },
+        "torso_ratio": 0.68,
+        "crotch_ratio": { "8": 0.6, "24": 0.7, "48": 0.6 },
+        "knee_ratio": 0.1,
+        "eye_ratio": { "8": 0.6, "16": 0.75, "48x64": 0.8, "64x80": 0.65 },
+        "eye_h": { "8": 1, "16": 2, "48": 3, "64x80": 7 },
+        "eye_w": { "8": 1, "16": 1, "32": 2, "64x80": 5 },
+        "eye_gap": { "8": 2, "16": 2, "32": 4, "48": 8, "64x80": 9 },
+        "cheek": { "8": 0, "32": 2, "48": 4, "64x80": 5 },
+        "hair_side": { "8": 0, "16": 0.1, "48": 0.12 }
+      }
+    },
+    "chibi": {
+      "title": "작은 캐릭터 밑판 — chibi (2.5~3등신)",
+      "prompt": "pixel art {w}x{h} chibi character, about {heads} heads tall, big head, short legs, front view, standing on the bottom line, {outline}, {light}, palette {palette}, transparent background",
+      "values": {
+        "heads": { "8": 1.5, "16": 2.5, "32": 3 },
+        "top_ratio": 0.0625,
+        "foot_ratio": 0.0625,
+        "head_aspect": 1.1,
+        "torso_ratio": 0.75,
+        "crotch_ratio": 0.45,
+        "knee_ratio": 0.15,
+        "eye_ratio": 0.65,
+        "eye_h": { "8": 1, "16": 2, "32": 3 },
+        "eye_w": { "8": 1, "16": 1, "32": 2, "64": 3 },
+        "eye_gap": { "8": 2, "16": 2, "32": 4, "64": 6 },
+        "cheek": { "8": 0, "32": 2, "64": 3 },
+        "hair_side": { "8": 0, "32": 0.08 }
+      }
+    },
+    "tall": {
+      "title": "작은 캐릭터 밑판 — tall (크기별 2~4등신, 64px 에서 4등신)",
+      "prompt": "pixel art {w}x{h} small character, about {heads} heads tall, front view, standing on the bottom line, {outline}, {light}, palette {palette}, transparent background",
+      "values": {
+        "heads": { "8": 1.5, "16": 2, "24": 2.5, "32": 3, "48": 3.5, "64": 4 },
+        "top_ratio": 0.0625,
+        "foot_ratio": 0.0625,
+        "head_aspect": 1.0,
+        "torso_ratio": 0.8,
+        "crotch_ratio": 0.33,
+        "knee_ratio": 0.25,
+        "eye_ratio": 0.5,
+        "eye_h": { "8": 1, "16": 2, "32": 3 },
+        "eye_w": { "8": 1, "16": 1, "32": 3, "64": 4 },
+        "eye_gap": { "8": 2, "16": 2, "32": 2, "64": 4 }
+      }
+    }
+  },
+  "check": {
+    "check": { "allow_alpha": "binary" }
+  },
+  "fixed": [],
+  "must": [],
+  "prompt": "pixel art {w}x{h} chibi character, about {heads} heads tall, front view, standing on the bottom line, {outline}, {light}, palette {palette}, transparent background",
+  "steps": [
+    "실루엣 먼저 : 머리 상자 · 몸 · 다리를 한 색으로 채워 덩어리가 읽히는지 본다. sd 는 머리가 몸 높이의 반쯤이다",
+    "눈 줄에 눈 카드를 놓는다. sd 는 머리 아래쪽(위에서 0.75 쯤) — 이마가 넓어야 어려 보인다. 작은 크기는 모양을 외워 둔 카드로",
+    "볼(점 칸)은 눈 바로 아래에 1~2색. 입은 눈 사이 가운데 1~2칸",
+    "흑백 도트 선화 → 색 입히기 → 외곽선 방식 맞추기 순서로",
+    "발은 baseline 위에. 땅 닿는 쪽 외곽선은 지워도 된다",
+    "마지막에 외톨이 픽셀 · 비슷한 색을 치운다"
+  ],
+  "sources": [
+    "도트강좌자료조사 3장 「작은 캐릭터 · 읽힘」 (크기별 등신 8 : 1~1.5 · 16 : 2~3 · 32 : 3~4 · 귀여움은 4등신 미만)",
+    "도트강좌자료조사 「SD(2등신) 기본값」 (머리 : 몸 = 1 : 1)",
+    "X도트강좌조사-denchan 3절 「크기와 추상화」 (눈 카드 2~3px)",
+    "X도트강좌조사-다른작가 3절 「몸」 (가랑이 · 무릎)",
+    "실물시험 5장 (게임 캐릭터 48×64 · 시안 64×80 : 1.65~2.1등신 · 눈 줄은 머리의 0.65~0.8 · 다리는 몸의 약 0.2)"
+  ],
+  "layers": [
+    { "name": "body", "kind": "body" },
+    { "name": "cloth", "kind": "cloth" },
+    {
+      "name": "face",
+      "kind": "face",
+      "exclusive_with": ["hair"]
+    },
+    { "name": "hair", "kind": "hair" },
+    { "name": "deco", "kind": "deco", "optional": true }
+  ]
+}

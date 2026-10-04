@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import os
 import sys
 from pathlib import Path
@@ -24,6 +25,11 @@ UI_STATES = ("normal", "pressed", "disabled", "hover")
 SCALE_MODES = ("integer",)
 HOTSPOTS = ("center", "top_left")
 PRESET_NAMES = ("platformer", "beltscroll", "topdown_action", "iso")
+# style 칸 (2026-10-04 개선 설계 7-1). 「이 게임은 이렇게 그린다」
+STYLE_OUTLINES = ("unset", "none", "black", "solid", "selout", "selout+light")   # solid = 검정이 아닌 한 색 선
+STYLE_LIGHTS = ("top_left", "top", "top_right")
+MATERIALS = ("metal", "ice", "gem", "goo", "stone", "wood", "cloth")
+WARN_RULES = ("integer_scale", "outline", "isolated", "color_cap", "near_colors", "ramp_shape", "loop_seam")
 
 DIRECTION_NAMES = {
    1: ["south"],
@@ -31,13 +37,24 @@ DIRECTION_NAMES = {
    8: ["south", "southwest", "west", "northwest", "north", "northeast", "east", "southeast"],
 }
 
-TOP_KEYS = ("name", "preset", "axes", "canvas", "palette", "anim", "rigs", "tiles", "check", "sprite", "ui")
+TOP_KEYS = ("name", "preset", "axes", "canvas", "palette", "anim", "rigs", "tiles", "check", "sprite", "ui", "style")
 
 # rig 와 anim 은 이름이 사람 마음이라 DEFAULTS 로 못 검사한다. 안쪽 칸 이름만 정해 둔다.
 ANIM_KEYS = ("frames", "dirs")
 RIG_KEYS = ("method", "layer_order", "anchors", "marker_colors", "anchor_z")
-# 값이 사람이 정한 이름표라 안쪽을 안 들여다보는 칸
-FREE_MAPS = ("rigs.*.marker_colors", "rigs.*.anchor_z")
+# 값이 사람이 정한 이름표라 안쪽을 안 들여다보는 칸. 열쇠가 크기 숫자인 표도 여기 둔다(값은 validate 가 본다).
+FREE_MAPS = ("rigs.*.marker_colors", "rigs.*.anchor_z", "check.warn.color_cap.table")
+
+# 새 검사 일곱의 문턱값. isolated · color_cap · near_colors 는 실물 시험(2026-10-04, 기준 무리 146장)으로 맞췄다.
+WARN_DEFAULTS: dict = {
+   "integer_scale": {"enabled": True, "block_ratio": 0.95, "smooth_ratio": 0.15},
+   "outline": {"enabled": True, "black_ratio": 0.8},
+   "isolated": {"enabled": True, "max_ratio": 0.15},      # 0.03 이면 기준 무리 40% 가 걸렸다 → 0.15 면 8%
+   "color_cap": {"enabled": True, "table": {8: 4, 16: 8, 32: 16, 48: 44, 64: 48, 128: 48, 256: 64}},   # 48 칸 p90 42 · 64 칸 p90 48 · 64 초과 p90 55. 칸이 커지면 한도도 줄지 않게
+   "near_colors": {"enabled": True, "max_delta": 4, "min_pairs": 20},   # 짝이 20 개 넘어야 경고 (기준 38% → 3.4%)
+   "ramp_shape": {"enabled": True, "steps": [4, 6], "hue_min": 5, "hue_max": 30},
+   "loop_seam": {"enabled": True, "k": 2.0, "anims": ["idle", "walk", "run"]},
+}
 
 UI_DEFAULTS: dict = {
    "ppu": 16,
@@ -95,18 +112,38 @@ DEFAULTS: dict = {
    "anim": {"idle": {"frames": 2, "dirs": 4}},
    "rigs": {},
    "tiles": {"size": 16, "blob": 47, "mirror_east_from_west": True},
-   "check": {"max_colors": 48, "allow_alpha": "binary", "baseline_tolerance": 0, "bbox_drift": 1},
+   "check": {
+      "max_colors": 48,
+      "allow_alpha": "binary",
+      "baseline_tolerance": 0,
+      "bbox_drift": 1,
+      "warn": WARN_DEFAULTS,
+      # 투명 칸이 하나도 없고 짧은 변이 min_side 이상이면 배경으로 본다
+      "background": {"auto": True, "min_side": 128, "color_cap": 64, "max_colors": None},
+   },
    "sprite": {},
    "ui": UI_DEFAULTS,
+   # unset 이면 외곽선 검사가 「방식 미정이라 건너뜀」으로 지나간다 — 옛 프로필에서 오탐을 안 낸다
+   "style": {"outline": "unset", "light": "top_left", "scale": 1, "materials": {}},
 }
 
 
+HOME_COPY = "_home"     # 휠 설치 때 profiles/ · palettes/ · templates/ 사본이 들어가는 꾸러미 안 폴더 (pyproject 참고)
+
+
 def tool_home() -> Path:
-   """ArtTool 폴더. profiles/ · palettes/ 가 여기 있다."""
+   """ArtTool 폴더. profiles/ · palettes/ · templates/ 가 여기 있다.
+
+   찾는 차례 : ① ARTTOOL_HOME ② 소스 폴더(편집 설치 · 저장소에서 바로 돌릴 때) ③ 휠로 설치한 꾸러미 안 `_home` 사본.
+   """
    env = os.environ.get("ARTTOOL_HOME")
    if env:
       return Path(env).resolve()
-   return Path(__file__).resolve().parents[2]
+   source = Path(__file__).resolve().parents[2]
+   # profiles/ 하나로 판정한다. templates/ 까지 요구하면 템플릿 폴더가 없는 소스 사본이 _home 으로 빠진다 (리뷰 R1-L4)
+   if (source / "profiles").is_dir():
+      return source
+   return Path(__file__).resolve().parent / HOME_COPY
 
 
 def profiles_dir() -> Path:
@@ -238,6 +275,26 @@ class Profile:
       return self.data["check"]
 
    @property
+   def style(self) -> dict:
+      return self.data["style"]
+
+   def warn(self, rule: str) -> dict:
+      """새 검사 하나의 문턱값 묶음. 예 : warn("isolated")["max_ratio"]"""
+      if rule not in WARN_RULES:
+         raise ProfileError(f"모르는 경고 검사 : {rule} (쓸 수 있는 것 : {' · '.join(WARN_RULES)})")
+      return self.check["warn"][rule]
+
+   def color_cap_table(self) -> dict[int, int]:
+      """크기 → 색 수 한도 표를 정수 열쇠로, 크기 순으로.
+
+      YAML 은 열쇠가 정수, JSON(템플릿)을 겹치면 문자열이라 둘이 섞일 수 있다. 뒤에 겹친 쪽이 이긴다.
+      """
+      merged: dict[int, int] = {}
+      for key, value in self.warn("color_cap")["table"].items():
+         merged[int(key)] = int(value)
+      return dict(sorted(merged.items()))
+
+   @property
    def frame(self) -> tuple[int, int]:
       w, h = self.canvas["frame"]
       return int(w), int(h)
@@ -298,9 +355,25 @@ def load_profile(name_or_path: str | None = None, overrides: dict[str, object] |
    return Profile(data, source)
 
 
-def _reject_unknown_top(raw: dict, source: Path | None) -> None:
-   where = source or "(인자)"
+def load_profile_args(args) -> Profile:
+   """CLI 인자(argparse 결과)에서 프로필을 읽는다. 새 명령 모듈은 이것만 부른다.
+
+   `--profile` 과 `--directions` 를 본다. 칸이 없는 args 도 받는다(안 준 것으로 본다).
+   """
+   overrides = {}
+   directions = getattr(args, "directions", None)
+   if directions:
+      overrides["axes.directions"] = directions
+   return load_profile(getattr(args, "profile", None), overrides)
+
+
+def reject_unknown(raw: dict, where) -> None:
+   """프로필 꼴 사전(일부만 있어도 된다)에서 DEFAULTS 에 없는 칸을 거절한다. 템플릿 · 검사가 같이 쓴다."""
    _reject_unknown(raw, DEFAULTS, "", where)
+
+
+def _reject_unknown_top(raw: dict, source: Path | None) -> None:
+   reject_unknown(raw, source or "(인자)")
 
 
 def _reject_unknown(raw: dict, allowed: dict, path: str, where) -> None:
@@ -312,7 +385,9 @@ def _reject_unknown(raw: dict, allowed: dict, path: str, where) -> None:
    unknown = [] if names == () else sorted(str(k) for k in raw if str(k) not in names)
    if unknown:
       spot = path or "맨 위"
-      raise ProfileError(f"모르는 항목이 있다 : {', '.join(unknown)} ({spot}) - {where}")
+      # YAML 1.1 은 on · off · yes · no 열쇠를 참거짓으로 읽는다. 오타보다 이쪽이 흔해 따로 알린다.
+      hint = " — YAML 은 on · off · yes · no 를 참거짓으로 읽는다. 켜고 끄기는 enabled 칸이다" if any(isinstance(k, bool) for k in raw) else ""
+      raise ProfileError(f"모르는 항목이 있다 : {', '.join(unknown)} ({spot}){hint} - {where}")
 
    for key, value in raw.items():
       if not isinstance(value, dict):
@@ -387,6 +462,110 @@ def validate(data: dict) -> None:
       raise ProfileError(f"tiles.size 는 양수여야 한다 : {tiles['size']}")
    if int(tiles["blob"]) != 47:
       raise ProfileError(f"tiles.blob 은 47 만 된다 : {tiles['blob']}")
+
+   validate_style(data["style"])
+   validate_warn(data["check"]["warn"])
+   validate_background(data["check"]["background"])
+
+
+def _is_int(value) -> bool:
+   return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_number(value) -> bool:
+   return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _ratio(node: dict, key: str, where: str) -> float:
+   value = node.get(key)
+   if not _is_number(value) or not 0 <= value <= 1:
+      raise ProfileError(f"{where}.{key} 는 0 ~ 1 사이 수여야 한다 : {value}")
+   return float(value)
+
+
+def _positive_int(node: dict, key: str, where: str) -> int:
+   value = node.get(key)
+   if not _is_int(value) or value <= 0:
+      raise ProfileError(f"{where}.{key} 는 양의 정수여야 한다 : {value}")
+   return value
+
+
+def _flag(node: dict, key: str, where: str) -> bool:
+   value = node.get(key)
+   if not isinstance(value, bool):
+      raise ProfileError(f"{where}.{key} 는 true · false 다 : {value}")
+   return value
+
+
+def validate_style(style: dict) -> None:
+   _one_of(style, "outline", STYLE_OUTLINES, "style")
+   _one_of(style, "light", STYLE_LIGHTS, "style")
+   _positive_int(style, "scale", "style")
+   materials = style.get("materials")
+   if not isinstance(materials, dict):
+      raise ProfileError(f"style.materials 는 「램프 이름 : 재질」 사전이다 : {materials}")
+   bad = sorted(f"{name}={kind}" for name, kind in materials.items() if kind not in MATERIALS)
+   if bad:
+      raise ProfileError(f"style.materials 의 재질은 {' · '.join(MATERIALS)} 중 하나다 : {', '.join(bad)}")
+
+
+def validate_warn(warn: dict) -> None:
+   where = "check.warn"
+   for rule in WARN_RULES:
+      node = warn.get(rule)
+      if not isinstance(node, dict):
+         raise ProfileError(f"{where}.{rule} 는 사전이다 : {node}")
+      _flag(node, "enabled", f"{where}.{rule}")
+
+   _ratio(warn["integer_scale"], "block_ratio", f"{where}.integer_scale")
+   _ratio(warn["integer_scale"], "smooth_ratio", f"{where}.integer_scale")
+   _ratio(warn["outline"], "black_ratio", f"{where}.outline")
+   _ratio(warn["isolated"], "max_ratio", f"{where}.isolated")
+   _validate_color_cap(warn["color_cap"].get("table"), f"{where}.color_cap.table")
+
+   delta = warn["near_colors"].get("max_delta")
+   if not _is_int(delta) or not 0 <= delta <= 255:
+      raise ProfileError(f"{where}.near_colors.max_delta 는 0 ~ 255 정수다 : {delta}")
+   _positive_int(warn["near_colors"], "min_pairs", f"{where}.near_colors")
+
+   _validate_ramp_shape(warn["ramp_shape"], f"{where}.ramp_shape")
+
+   seam = warn["loop_seam"]
+   if not _is_number(seam.get("k")) or seam["k"] <= 0:
+      raise ProfileError(f"{where}.loop_seam.k 는 양수여야 한다 : {seam.get('k')}")
+   anims = seam.get("anims")
+   if not isinstance(anims, list) or not all(isinstance(a, str) and a for a in anims):
+      raise ProfileError(f"{where}.loop_seam.anims 는 애니 이름 목록이다 : {anims}")
+
+
+def _validate_color_cap(table, where: str) -> None:
+   """열쇠 = 크기(양의 정수, JSON 에서 온 숫자 글자도 받는다), 값 = 색 수 한도(양의 정수)."""
+   if not isinstance(table, dict) or not table:
+      raise ProfileError(f"{where} 는 「크기 : 색 수」 사전이고 비면 안 된다 : {table}")
+   for key, value in table.items():
+      size_ok = (_is_int(key) and key > 0) or (isinstance(key, str) and key.isdigit() and int(key) > 0)
+      if not size_ok:
+         raise ProfileError(f"{where} 의 열쇠는 양의 정수 크기다 : {key}")
+      if not _is_int(value) or value <= 0:
+         raise ProfileError(f"{where}.{key} 는 양의 정수다 : {value}")
+
+
+def _validate_ramp_shape(node: dict, where: str) -> None:
+   steps = node.get("steps")
+   if not isinstance(steps, list) or len(steps) != 2 or not all(_is_int(s) and s > 0 for s in steps) or steps[0] > steps[1]:
+      raise ProfileError(f"{where}.steps 는 [최소, 최대] 양의 정수 두 칸이다 : {steps}")
+   low, high = node.get("hue_min"), node.get("hue_max")
+   if not _is_number(low) or not _is_number(high) or not 0 <= low <= high <= 180:
+      raise ProfileError(f"{where}.hue_min · hue_max 는 0 ≤ 최소 ≤ 최대 ≤ 180 이다 : {low} · {high}")
+
+
+def validate_background(node: dict) -> None:
+   where = "check.background"
+   _flag(node, "auto", where)
+   _positive_int(node, "min_side", where)
+   _positive_int(node, "color_cap", where)
+   if node.get("max_colors") is not None:
+      _positive_int(node, "max_colors", where)
 
 
 def _one_of(node: dict, key: str, allowed: tuple[str, ...], where: str) -> None:

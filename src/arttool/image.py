@@ -84,17 +84,32 @@ def has_soft_alpha(arr: RGBA) -> bool:
    return bool(np.any((alpha != 0) & (alpha != 255)))
 
 
-def opaque_colors(arr: RGBA) -> set[tuple[int, int, int]]:
+BITMAP_MIN_PIXELS = 1 << 16   # 칸이 이보다 많으면 색 세기를 2²⁴ 표시판으로 한다 (작은 그림은 표시판 만드는 값이 더 든다)
+
+
+def _opaque_keys_raw(arr: RGBA) -> np.ndarray:
+   """알파 > 0 칸의 RGB 를 수 하나(R<<16 | G<<8 | B)로 엮은 값들 (겹침 있음)."""
    mask = arr[:, :, 3] > 0
-   if not np.any(mask):
-      return set()
-   rgb = arr[:, :, :3][mask]
-   uniq = np.unique(rgb.reshape(-1, 3), axis=0)
-   return {tuple(int(v) for v in row) for row in uniq}
+   rgb = arr[:, :, :3][mask].astype(np.uint32)
+   return (rgb[:, 0] << 16) | (rgb[:, 1] << 8) | rgb[:, 2]
+
+
+def opaque_colors(arr: RGBA) -> set[tuple[int, int, int]]:
+   # np.unique(axis=0) 은 줄 비교라 큰 그림에서 몇 초 걸린다. 수 하나로 엮어 세면 수십 배 빠르다
+   return {(int(k) >> 16, (int(k) >> 8) & 0xFF, int(k) & 0xFF) for k in np.unique(_opaque_keys_raw(arr))}
 
 
 def count_colors(arr: RGBA) -> int:
-   return len(opaque_colors(arr))
+   """불투명 색 가짓수 (알파 > 0 칸의 RGB). `checks.pixels.color_count` 도 이것을 부른다.
+
+   큰 그림은 2²⁴ 칸 표시판(16MB)에 찍어 센다 — 정렬이 없어 945×2048 한 장이 0.1초 안팎이다.
+   """
+   keys = _opaque_keys_raw(arr)
+   if keys.size < BITMAP_MIN_PIXELS:
+      return int(np.unique(keys).size)
+   seen = np.zeros(1 << 24, dtype=bool)
+   seen[keys] = True
+   return int(np.count_nonzero(seen))
 
 
 def bbox(arr: RGBA) -> tuple[int, int, int, int] | None:
@@ -186,3 +201,88 @@ def contact_sheet(items: list[RGBA], scale: int = 1, cols: int | None = None, ga
       col, row = index % count, index // count
       paste(sheet, item, col * (cell_w + gap), row * (cell_h + gap))
    return sheet
+
+
+# ── 비교판(sheet)이 쓰는 것 : 흐림 · 밝기 · 밝기 단계 · 딱지 글자 ──
+
+# 딱지 글꼴. 패키지 안에 넣어 설치해도 따라간다 (설계 5-1). 라이선스 글은 같은 폴더 OFL-Pretendard.txt.
+LABEL_FONT = Path(__file__).parent / "assets" / "fonts" / "Pretendard-Medium.otf"
+LABEL_PX = 13
+_FONT_CACHE: dict[int, object] = {}  # 글자 크기 → 읽은 글꼴
+
+
+def luma(arr: RGBA) -> np.ndarray:
+   """칸마다 밝기 (높이, 너비) float. 0.299R + 0.587G + 0.114B, 0~255."""
+   rgb = arr[:, :, :3].astype(np.float64)
+   return rgb[:, :, 0] * 0.299 + rgb[:, :, 1] * 0.587 + rgb[:, :, 2] * 0.114
+
+
+def quantize_luma(arr: RGBA, levels: int = 4) -> RGBA:
+   """불투명 칸을 밝기 순으로 칸 수가 고르게 levels 덩이로 나눠 회색 levels 개로 칠한다.
+
+   밝기 값마다 「칸 수로 센 순위의 가운데」(0~1)를 구해 levels 칸으로 자른다.
+   분위수 경계를 그대로 쓰면 한 밝기가 칸을 많이 차지할 때 이웃 밝기와 한 덩이로 뭉개지므로 이렇게 한다.
+   같은 밝기는 늘 같은 덩이로 가므로 색 수는 levels 이하다. 투명 칸 · 알파 값은 그대로 둔다.
+   """
+   if levels < 2:
+      raise ArtToolError(f"밝기 단계는 2 이상이다 : {levels}")
+   out = arr.copy()
+   mask = arr[:, :, 3] > 0
+   if not np.any(mask):
+      return out
+   values = np.round(luma(arr)[mask], 6)
+   _, inverse, counts = np.unique(values, return_inverse=True, return_counts=True)
+   centers = (np.cumsum(counts) - counts / 2.0) / values.size
+   level_of = np.minimum(levels - 1, (centers * levels).astype(np.int64))
+   grays = np.linspace(24, 232, levels).round().astype(np.uint8)
+   shade = grays[level_of[inverse.reshape(-1)]]
+   out[mask, 0] = shade
+   out[mask, 1] = shade
+   out[mask, 2] = shade
+   return out
+
+
+def blur(arr: RGBA, radius: float) -> RGBA:
+   """가우스 흐림. 투명 칸까지 같이 흐리므로 보통은 배경 위에 얹은 뒤 부른다."""
+   from PIL import ImageFilter
+
+   if radius <= 0:
+      return arr.copy()
+   img = Image.fromarray(arr, mode="RGBA").filter(ImageFilter.GaussianBlur(radius))
+   return np.array(img, dtype=np.uint8)
+
+
+def has_label_font() -> bool:
+   return LABEL_FONT.is_file()
+
+
+def _label_font(px: int):
+   from PIL import ImageFont
+
+   cached = _FONT_CACHE.get(px)
+   if cached is None:
+      if not has_label_font():
+         raise ArtToolError(f"딱지 글꼴이 없다 (설치가 깨졌다) : {LABEL_FONT}")
+      cached = ImageFont.truetype(str(LABEL_FONT), px)
+      _FONT_CACHE[px] = cached
+   return cached
+
+
+def label_width(text: str, px: int = LABEL_PX) -> int:
+   """딱지 글자를 찍었을 때 가로 픽셀 수."""
+   return int(np.ceil(_label_font(px).getlength(text)))
+
+
+def draw_label(arr: RGBA, text: str, x: int, y: int, px: int = LABEL_PX, color: tuple[int, int, int, int] = (255, 255, 255, 255)) -> None:
+   """arr 위 (x, y) 에 글자를 찍는다 (제자리). 흑백 두 값으로 찍어 반투명 칸이 안 생긴다.
+
+   arr 밖으로 나가는 글자는 잘린다. 띠 안에만 찍고 싶으면 띠 부분 배열(view)을 넘긴다.
+   """
+   from PIL import ImageDraw
+
+   font = _label_font(px)
+   img = Image.fromarray(arr, mode="RGBA")
+   draw = ImageDraw.Draw(img)
+   draw.fontmode = "1"
+   draw.text((x, y), text, font=font, fill=tuple(color))
+   arr[:, :] = np.array(img, dtype=np.uint8)

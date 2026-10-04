@@ -11,7 +11,7 @@ from pathlib import Path
 from .. import image
 from ..errors import ArtToolError
 from ..jsonio import write_json
-from ..paths import resolve_root, safe_join
+from ..paths import png_files, resolve_root, safe_join
 from ..profile import Profile
 
 VERSION = 1
@@ -97,11 +97,6 @@ def fit_square(arr: image.RGBA, side: int, where: str) -> image.RGBA:
    canvas = image.new(side, side)
    image.paste(canvas, content, math.floor(center - width / 2.0 + 0.5), math.floor(center - height / 2.0 + 0.5))
    return canvas
-
-
-def png_files(source: Path) -> list[Path]:
-   """폴더 바로 아래 PNG 만 이름순으로. 확장자 대소문자는 가리지 않고 하위 폴더는 안 본다."""
-   return sorted(p for p in source.iterdir() if p.is_file() and p.suffix.lower() == ".png")
 
 
 def gather(prof: Profile, in_dir: str | Path, out_dir: str | Path, family: str | None = None, fit: int | None = None) -> dict:

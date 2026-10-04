@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "name": "screen_piece",
+  "kind": "background",
+  "title": "화면 조각 틀 (가로 540 : 천장 · 벽 · 바닥 띠, 안전 영역 없음)",
+  "sizes": [[540, 60], [540, 145], [540, 360], [540, 720]],
+  "values": {
+    "sky_ratio": 0.4,
+    "far_ratio": 0.2,
+    "front_ratio": 0.15,
+    "sky_colors": 2,
+    "far_colors": 3,
+    "front_colors": 4,
+    "safe_top": 0,
+    "safe_side": 0,
+    "safe_bottom": 0,
+    "crops": [],
+    "scene": "indoor",
+    "ceiling_ratio": 0.17,
+    "floor_ratio": 0.44,
+    "ceiling_colors": 3,
+    "wall_colors": 4,
+    "floor_colors": 4
+  },
+  "check": {
+    "check": {
+      "background": { "auto": true }
+    }
+  },
+  "fixed": [],
+  "must": [],
+  "prompt": "pixel art {w}x{h} horizontal screen piece of an indoor room, ceiling band at the top with {ceiling_colors} colors, wall in the middle with {wall_colors} colors, floor at the bottom with {floor_colors} colors, left and right edges continue to the next piece, low contrast, {light}, palette {palette}, no characters",
+  "steps": [
+    "천장 띠 → 벽 → 바닥 순서로 겹마다 그린다. 분홍 줄이 띠 경계다",
+    "조각은 위아래로 이어 붙여 한 화면이 된다 — 왼쪽 · 오른쪽 끝은 판 끝까지 채운다",
+    "벽-바닥 경계(아래 분홍 줄) 높이는 이어 붙는 조각끼리 맞춘다",
+    "소품은 deco 겹에 따로"
+  ],
+  "sources": ["실물시험 5장 (화면 조각 540×60 · 540×720 · 실내 천장 띠 약 0.15~0.2 · 벽-바닥 경계 약 0.55~0.57)"],
+  "layers": [
+    { "name": "ceiling", "kind": "base" },
+    { "name": "wall", "kind": "base" },
+    { "name": "floor", "kind": "structure" },
+    { "name": "deco", "kind": "deco", "optional": true }
+  ]
+}

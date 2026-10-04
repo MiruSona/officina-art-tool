@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "name": "bg_screen",
+  "kind": "background",
+  "title": "화면 배경 층 틀 (야외 : 하늘 · 먼 층 · 앞 층 / 실내 : 천장 · 벽 · 바닥, 화면비 자르는 줄 · 안전 영역)",
+  "sizes": [[180, 320], [180, 400], [360, 640], [360, 800], [540, 960], [540, 1200], [320, 180]],
+  "values": {
+    "sky_ratio": 0.4,
+    "far_ratio": 0.2,
+    "front_ratio": 0.15,
+    "sky_colors": 2,
+    "far_colors": 3,
+    "front_colors": 4,
+    "safe_top": 0.06,
+    "safe_side": 0.04,
+    "safe_bottom": 0.04,
+    "crops": {
+      "8": [[9, 16], [9, 20]],
+      "320x180": [[16, 9], [20, 9]]
+    }
+  },
+  "presets": {
+    "outdoor": {},
+    "indoor": {
+      "title": "화면 배경 층 틀 — 실내 (천장 · 벽 · 바닥 띠, 벽-바닥 경계 약 0.56)",
+      "values": { "scene": "indoor", "ceiling_ratio": 0.17, "floor_ratio": 0.44, "ceiling_colors": 3, "wall_colors": 4, "floor_colors": 4 },
+      "prompt": "pixel art {w}x{h} front view indoor room background, ceiling band at the top with {ceiling_colors} colors, wall in the middle with {wall_colors} colors, floor in the lower part with {floor_colors} colors seen from slightly above, low contrast, {light}, palette {palette}, no characters",
+      "steps": [
+        "천장 띠 → 벽 → 바닥 순서로 겹마다 그린다. 벽-바닥 경계(분홍 줄)가 캐릭터가 서는 바닥의 맨 뒤다",
+        "바닥은 화면의 아래 40% 넘게 — 캐릭터 · 손님이 서고 걸어 다니는 자리다. 판자 · 타일 줄은 가로로 반복",
+        "벽 아랫부분(허리 판) · 계산대 같은 붙박이는 floor 가 아니라 wall 겹이나 deco 겹에",
+        "소품(등 · 액자 · 선반)은 deco 겹에 따로 — 벽만 다시 그릴 일이 생긴다",
+        "점선은 다른 화면비(9:16 · 9:20)에서 잘리는 줄이다. 중요한 것은 노란 안전 영역 안에"
+      ],
+      "layers": [
+        { "name": "ceiling", "kind": "base" },
+        { "name": "wall", "kind": "base" },
+        { "name": "floor", "kind": "structure" },
+        { "name": "deco", "kind": "deco", "optional": true },
+        { "name": "front", "kind": "front", "optional": true }
+      ]
+    }
+  },
+  "check": {
+    "check": {
+      "background": { "auto": true }
+    }
+  },
+  "fixed": [],
+  "must": [],
+  "prompt": "pixel art {w}x{h} front view game background, layered: sky with {sky_colors} colors, far layer with {far_colors} colors faded toward the sky color, structures in the middle, front band at the bottom, low contrast far layers, {light}, palette {palette}, no characters",
+  "steps": [
+    "하늘(2색) → 먼 층(3색, 하늘 쪽으로 바래게) → 구조물 → 앞 층 띠 순서로 겹마다 그린다",
+    "먼 층일수록 밝기 · 채도 · 대비를 낮춘다. 100% 검정 바탕은 피한다",
+    "소품은 structure 가 아니라 deco 겹에 따로 — 구조물만 다시 그릴 일이 생긴다",
+    "점선은 다른 화면비(9:16 · 9:20)에서 잘리는 줄이다. 중요한 것은 노란 안전 영역 안에",
+    "그린 뒤 밝은 색을 더해 배경 대비를 낮춘다 — 캐릭터가 앞에 읽히게"
+  ],
+  "sources": [
+    "도트강좌자료조사 3장 「타일 · 배경」 (하늘 2색 · 먼 배경 3색 · 먼 층은 바래게 · 배경 대비 낮추기)",
+    "개선 설계 10-3 (배경 겹 base · structure · deco · front)",
+    "실물시험 5장 (실내 화면 배경 360×800 · 540×1200 : 천장 띠 약 0.15~0.2 · 벽-바닥 경계 약 0.55~0.57)"
+  ],
+  "layers": [
+    { "name": "base", "kind": "base" },
+    { "name": "structure", "kind": "structure" },
+    { "name": "deco", "kind": "deco", "optional": true },
+    { "name": "front", "kind": "front" }
+  ]
+}

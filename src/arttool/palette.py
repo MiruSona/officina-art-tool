@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import colorsys
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ import numpy as np
 
 from . import image
 from .errors import ArtToolError
+from .jsonio import write_json
 
 RGB = tuple[int, int, int]
 
@@ -134,6 +136,72 @@ def save_lut(path: str | os.PathLike, ramps: Ramps, names: list[str] | None = No
    return lut
 
 
+WARM_HUE = 60.0    # 노랑. 밝은 쪽이 다가가는 색조
+COOL_HUE = 240.0   # 파랑. 어두운 쪽이 다가가는 색조
+DEFAULT_HUE_STEP = 10.0   # shade 기본 색조 걸음의 위 한도 (도)
+HUE_BUDGET = 36.0         # 기본 걸음일 때 램프 처음 ~ 끝 색조 차 한도. style extract 램프 상한 40° 아래로, RGB 반올림 몫을 남긴다
+
+
+def auto_hue_step(steps: int) -> float:
+   """기본 색조 걸음 : 칸마다 10° 를 넘지 않고, 처음 ~ 끝이 36° 를 넘지 않게. 4칸 10° · 5칸 9° · 6칸 7.2° · 7칸 6°."""
+   return round(min(DEFAULT_HUE_STEP, HUE_BUDGET / max(1, steps - 1)), 2)
+
+
+def _toward(hue: float, target: float, amount: float) -> float:
+   """색조를 target 쪽으로 amount 도만큼 짧은 길로 돌린다. target 을 넘어가지 않는다."""
+   gap = (target - hue + 180.0) % 360.0 - 180.0
+   step = min(abs(gap), amount)
+   return (hue + (step if gap >= 0 else -step)) % 360.0
+
+
+def shade(base: str | RGB, steps: int = 6, hue_step: float | None = None, metal: bool = False, base_index: int | None = None) -> list[RGB]:
+   """밑색 하나 → 어두운 쪽부터 밝은 쪽까지 램프 한 줄 (그늘 계산).
+
+   `hue_step` 을 안 주면 `auto_hue_step(steps)` — 칸마다 10° 이하, 처음 ~ 끝 36° 이하.
+   옛 기본 20° 는 6칸이면 처음 ~ 끝이 100° 벌어져 `style extract` 가 램프 상한(40°)에 걸려 둘로 갈랐다.
+   10° 고정도 6칸이면 50° 라 갈린다 — 그래서 칸 수에 맞춰 줄인다.
+
+   - 밑색은 `base_index` 칸에 그대로 들어간다. 안 주면 가운데(steps // 2).
+   - 밝은 칸은 색조를 노랑(60°) 쪽으로, 어두운 칸은 파랑(240°) 쪽으로 칸마다 `hue_step` 도씩 돌린다(어두울수록 차갑게).
+     목표 색조를 넘어가지는 않는다. `metal` 이면 방향이 반대다.
+   - 밝기는 어두운 끝이 밑색의 40%, 밝은 끝이 남은 몫의 80% 까지. 밝은 쪽은 채도를 반까지 덜어 하얗게 간다.
+   - 회색(채도 0)은 색조가 뜻이 없어 밝기만 바뀐다. 아주 밝은 밑색은 위쪽 칸이 같은 색으로 나올 수 있다.
+   `palette_ramp` 템플릿 처리기와 `arttool.draw` 가 같이 쓴다.
+   """
+   if isinstance(steps, bool) or not isinstance(steps, int) or steps < 2:
+      raise ArtToolError(f"램프 칸 수는 2 이상 정수다 : {steps}")
+   if hue_step is None:
+      hue_step = auto_hue_step(steps)
+   if not 0 <= hue_step <= 180:
+      raise ArtToolError(f"색조 걸음은 0 ~ 180 도다 : {hue_step}")
+   index = steps // 2 if base_index is None else base_index
+   if not 0 <= index < steps:
+      raise ArtToolError(f"밑색 자리가 램프 밖이다 : {index} (칸 수 {steps})")
+
+   r, g, b = parse_hex(base) if isinstance(base, str) else base
+   hue, sat, val = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+   hue *= 360.0
+   light_target, dark_target = (COOL_HUE, WARM_HUE) if metal else (WARM_HUE, COOL_HUE)
+
+   out: list[RGB] = []
+   for i in range(steps):
+      offset = i - index
+      if offset == 0:
+         out.append((int(r), int(g), int(b)))
+         continue
+      if offset > 0:
+         t = offset / (steps - 1 - index)
+         h = _toward(hue, light_target, offset * hue_step)
+         s, v = sat * (1.0 - 0.5 * t), val + (1.0 - val) * 0.8 * t
+      else:
+         t = -offset / index
+         h = _toward(hue, dark_target, -offset * hue_step)
+         s, v = min(1.0, sat + 0.1 * t), val * (1.0 - 0.6 * t)
+      fr, fg, fb = colorsys.hsv_to_rgb(h / 360.0, s, v)
+      out.append((round(fr * 255), round(fg * 255), round(fb * 255)))
+   return out
+
+
 def ramp_asset_json(ramps: Ramps, names: list[str] | None = None) -> dict:
    """Unity PaletteRampAsset 용. 수치만 담는다."""
    picked = names or ramps.names()
@@ -144,3 +212,35 @@ def ramp_asset_json(ramps: Ramps, names: list[str] | None = None) -> dict:
       "outline": to_hex(ramps.outline) if ramps.outline else None,
       "ramps": [{"name": n, "colors": [to_hex(c) for c in ramps.ramp(n)]} for n in picked],
    }
+
+
+# 램프 파일의 본 칸. `save_ramps` 의 덧칸이 이 이름을 덮지 못한다.
+RAMP_FILE_KEYS = ("version", "name", "ramp_len", "outline", "ramps")
+
+
+def save_ramps(path: str | os.PathLike, ramps: Ramps, extra: dict | None = None) -> Path:
+   """램프 묶음을 `palettes/` 꼴 JSON 으로 쓴다 (`load_ramps` 의 짝).
+
+   `extra` 는 덧칸(`comment` · `usage` · `hue_step` 등). `load_ramps` 는 모르는 칸을 무시하므로 같이 적어도 읽힌다.
+   덧칸이 본 칸 이름과 겹치면 거절한다. 길이가 다른 램프도 쓰기 전에 막는다(읽을 때 터지므로).
+   """
+   if not ramps.ramps:
+      raise ArtToolError("쓸 램프가 하나도 없다")
+   lengths = {len(colors) for colors in ramps.ramps.values()}
+   if len(lengths) > 1 or lengths != {ramps.ramp_len}:
+      raise ArtToolError(f"램프 길이가 ramp_len {ramps.ramp_len} 과 다르다 : {sorted(lengths)}")
+   clash = sorted(set(extra or {}) & set(RAMP_FILE_KEYS))
+   if clash:
+      raise ArtToolError(f"덧칸이 램프 파일 본 칸과 겹친다 : {', '.join(clash)}")
+
+   data = {
+      "version": 1,
+      "name": ramps.name,
+      "ramp_len": ramps.ramp_len,
+      "outline": to_hex(ramps.outline) if ramps.outline is not None else None,
+      "ramps": {name: [to_hex(c) for c in colors] for name, colors in ramps.ramps.items()},
+      **(extra or {}),
+   }
+   file = Path(path)
+   write_json(file, data)
+   return file

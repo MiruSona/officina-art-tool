@@ -73,6 +73,28 @@ def test_colors_ignore_transparent():
    assert image.count_colors(arr) == 2
 
 
+def test_count_colors_matches_row_unique_and_is_fast():
+   """수 하나로 엮어 세도 줄 비교(np.unique axis=0)와 같은 값이다. 945×2048 잡음 한 장이 1초 안에 끝난다."""
+   import time
+
+   rng = np.random.default_rng(5)
+   arr = rng.integers(0, 256, size=(300, 200, 4), dtype=np.uint8)
+   arr[::7, :, 3] = 0                                          # 투명 칸은 안 센다
+   mask = arr[:, :, 3] > 0
+   rows = np.unique(arr[:, :, :3][mask].reshape(-1, 3), axis=0)
+   assert image.count_colors(arr) == len(rows)
+   assert image.opaque_colors(arr) == {tuple(int(v) for v in r) for r in rows}
+   big = rng.integers(0, 256, size=(2048, 945, 4), dtype=np.uint8)
+   big[:, :, 3] = 255
+   big[0, 0, 3] = 0
+   start = time.perf_counter()
+   count = image.count_colors(big)                             # 큰 그림은 표시판 길
+   assert time.perf_counter() - start < 1.0
+   mask = big[:, :, 3] > 0
+   rgb = big[:, :, :3][mask].astype(np.uint32)
+   assert count == np.unique((rgb[:, 0] << 16) | (rgb[:, 1] << 8) | rgb[:, 2]).size
+
+
 def test_find_color():
    arr = image.new(4, 4)
    arr[1, 2] = (255, 0, 255, 255)
