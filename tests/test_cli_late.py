@@ -60,6 +60,52 @@ CONTRACT = [
       {"in_dir": "raw", "out_dir": "clean", "key": "edge", "tol": 10, "shave": 0, "pad": 0, "square": False, "template": None, "sheet": None, "report": None,
        "no_cutout": False, "no_trim": False, "no_check": False},
    ),
+   # 피드백 후속 설계(2026-10-04) 새 명령 10개
+   (
+      ["style", "ref", "--in", "a.png", "--canvas", "128x128", "--out", "r.png"],
+      {"sub": "ref", "in_file": "a.png", "canvas": "128x128", "out_file": "r.png", "crop": None, "colors": 32, "b64": None, "max_kb": 12.0, "report": None},
+   ),
+   (["bands", "--in", "raw.png"], {"in_file": "raw.png", "axis": "y", "top": 8, "mark": None, "report": None}),
+   (
+      ["stitch", "--in", "top.png:0-180", "mid.png", "--out", "w.png"],
+      {"in_specs": ["top.png:0-180", "mid.png"], "out_file": "w.png", "axis": "y", "report": None},
+   ),
+   (
+      ["tile", "offset", "--in", "g.png", "--out", "s.png", "--mask", "m.png"],
+      {"sub": "offset", "in_file": "g.png", "out_file": "s.png", "mask": "m.png", "band": 16, "report": None},
+   ),
+   (
+      ["extend", "period", "--in", "f.png"],
+      {"sub": "period", "in_file": "f.png", "axis": "x", "tile": None, "out_file": None, "fit": None, "report": None},
+   ),
+   (
+      ["extend", "ring", "--in", "r.png", "--border", "3", "--size", "40x20", "--out", "o.png"],
+      {"sub": "ring", "in_file": "r.png", "border": "3", "size": "40x20", "out_file": "o.png", "snap": False, "report": None},
+   ),
+   (
+      ["extend", "canvas", "--in", "bg.png", "--size", "360x800", "--out", "o.png"],
+      {"sub": "canvas", "in_file": "bg.png", "size": "360x800", "out_file": "o.png", "anchor": "bottom", "band": 1, "report": None},
+   ),
+   (
+      ["ui", "glyphs", "--font", "f.ttf", "--text", "가—"],
+      {"sub": "glyphs", "font": "f.ttf", "text": "가—", "text_file": None, "size": 16, "report": None},
+   ),
+   (
+      ["reline", "--in", "raw", "--out", "o"],
+      {"in_dir": "raw", "out_dir": "o", "color": None, "pick": "dark", "scope": "ring", "tol": 40, "report": None},
+   ),
+   (
+      ["tint", "--in", "white", "--colors", "#E85D5D,#5DA0E8", "--out", "t"],
+      {"in_dir": "white", "colors": "#E85D5D,#5DA0E8", "out_dir": "t", "sheet": None, "scale": 4, "report": None},
+   ),
+   # 이미 LATE 인 명령에 붙인 새 인자
+   (
+      ["layers", "diff", "--base", "b.png", "--in", "inp", "--out", "set", "--drop", "hair:#F2C9A0,#3A5BD9", "--drop", "hat:#112233"],
+      {"sub": "diff", "drop": ["hair:#F2C9A0,#3A5BD9", "hat:#112233"], "drop_tol": 24},
+   ),
+   (["layers", "diff", "--base", "b.png", "--in", "inp", "--out", "set"], {"drop": None, "drop_tol": 24}),
+   (["sheet", "--in", "a.png", "--out", "s.png"], {"grid": 0, "grid_color": None}),
+   (["sheet", "--in", "a.png", "--out", "s.png", "--grid", "8", "--grid-color", "#00FF00"], {"grid": 8, "grid_color": "#00FF00"}),
 ]
 
 

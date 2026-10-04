@@ -11,9 +11,10 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 | 더 볼 것 | 언제 |
 | --- | --- |
 | `기준.md` | 「좋은 도트」 기준 · 검사 일곱이 무엇을 보나 · 색 수 · 외곽선 · 램프 · 프레임 |
-| `뽑기-pixellab.md` | PixelLab 으로 뽑을 때 — 도구 고르기 · 흔한 사고 · 겹 떼기 |
+| `뽑기-pixellab.md` | PixelLab 으로 뽑을 때 — 도구 고르기 · 흔한 사고 · 겹 떼기 · 크기 한도 · 그림 넘기기(id · 주소 · base64) · 통한 글귀 |
 | `그리기-pil.md` | PIL 로 그릴 때 — `arttool.draw` 표 · 겹별로 그리는 순서 · 예시 스크립트 셋 |
 | `<ArtTool>/README.md` | 명령 전체 · 프로필 칸 · 보고 꼴 |
+| `<ArtTool>/Docs/Guide/명령안내.md` | 명령마다 자세한 인자 · 경고 · 한계 (9~12절이 피드백 후속 판) |
 | `<ArtTool>/Docs/Guide/AI-그래픽-캐릭터-배경-가이드.html` | 사람이 보는 그림 안내 (예전 것) |
 
 `<ArtTool>` 은 ArtTool 폴더다 (서브모듈이면 보통 `Tools/ArtTool`). 처음이면 그 폴더에서 `setup.ps1` 을 한 번 돌린다.
@@ -64,7 +65,14 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 | 「이 색 칸만」 마스크 | `arttool layers mask --in base.png --colors #2B2233 --grow 1 --out m.png` |
 | 겹 켜고 끄며 보기 | `arttool layers view --in set --each --scale 8 --out v.png` |
 | 겹 검사 · 내보내기 | `arttool layers check --in set --template t.json` · `arttool layers export --in set --out unity --flat` |
-| 타일 이음매 | `arttool tile seam --in tiles --pairs --report seam.json` |
+| 타일 이음매 | `arttool tile seam --in tiles --pairs --report seam.json` (변종끼리 바탕색이 다른 것도 `--pairs` 가 잡는다) |
+| 화풍 그림 준비 (자르기 · 색 줄이기 · base64 파일) | `arttool style ref --in a.png --canvas 128x128 --out ref.png --b64 ref.txt` |
+| 흰 띠 · 이을 줄 찾기 → 조각 잇기 | `arttool bands --in raw.png --mark m.png` → `arttool stitch --in top.png:0-180 mid.png:20-400 --out wall.png` |
+| 바탕 타일 이음매 지우기 | `arttool tile offset --in g.png --out s.png --mask cross.png` → 둘을 inpaint → `tile seam` |
+| 되풀이 단위 · 한 바퀴 그림 · 배경 늘리기 | `arttool extend period --in fence.png --tile 32` · `extend ring … --snap` · `extend canvas --in bg.png --size 360x1000 --out o.png` |
+| 외곽선 한 색 · 흰 겹에 색 곱하기 | `arttool reline --in raw --out o [--color #hex]` · `arttool tint --in white --colors #E85D5D,#5DA0E8 --out t --sheet s.png` |
+| 겹 떼기에서 뺨 · 옷 점 빼기 | `layers diff … --drop hair:#F2C9A0` |
+| 좌표 읽는 눈금 판 · 글꼴에 없는 글자 | `arttool sheet --in a.png --grid 8 --out g.png` · `arttool ui glyphs --font f.ttf --text-file chars.txt` |
 | 프로필 값 보기 | `arttool --profile P profile show` |
 
 ## 꼭 지킬 것
@@ -76,3 +84,4 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 - `template render` 로 만든 `work/guide` 폴더는 커밋하지 않는다(이 PC 의 절대 경로가 박힌다).
 - 숫자 문턱의 정본은 프로필 · 템플릿 파일이다. 이 스킬에 적힌 숫자는 「왜 그 값인가」를 위한 것 — 실제 값은 `profile show` · `template show` 로 본다.
 - 한 화면에 도트 굵기는 하나다. 키우거나 줄인 그림을 섞지 않는다 (`check` 의 `integer_scale` 이 잡는다).
+- **시안(게임에 안 넣는 그림 · 목업)은 `sheet` 로 눈으로만 본다. `check` 는 게임에 넣을 그림에만 돌린다.**

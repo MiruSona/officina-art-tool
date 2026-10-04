@@ -4,7 +4,7 @@
 Unity 가 바로 쓸 데이터로 굽는 툴이다. 그림을 그려 주는 툴은 아니다.
 **그림 뽑기는 PixelLab MCP(또는 PIL · 손그림)로 하고, ArtTool 은 그 뒤 손질 · 규격 · 검수를 맡는다. ArtTool 이 PixelLab 을 부르지는 않는다.**
 
-**상태 : 스프라이트 · 타일 · UI 1차 끝 + 2026-10-04 개선 판(손질 · 비교판 · 경고 검사 · 템플릿 · 화풍 · 겹) 구현 · 보강 끝, 커밋 대기**
+**상태 : 스프라이트 · 타일 · UI 1차 끝 + 2026-10-04 개선 판(손질 · 비교판 · 경고 검사 · 템플릿 · 화풍 · 겹) 구현 · 보강 끝, 커밋 · 푸시 끝(`c5fa2ec`) + 2026-10-04 피드백 후속 판(새 명령 10개 · 옵션 2개) 구현 · 배선 · 실물 확인 끝, 커밋 전**
 
 ## 설치
 
@@ -45,7 +45,7 @@ ArtTool/.venv/Scripts/python -m pip install -e ArtTool
 ArtTool/.venv/Scripts/python -m pytest ArtTool/tests -q
 ```
 
-시험은 **1375개가 다 통과해야** 한다.
+시험은 **1527개가 다 통과해야** 한다.
 
 `profiles/` · `palettes/` 는 이 폴더를 기준으로 찾는다. 다른 자리에 두려면 `ARTTOOL_HOME` 을 정한다.
 
@@ -67,6 +67,8 @@ ArtTool/.venv/Scripts/python -m pytest ArtTool/tests -q
 **`frames.json` 이 없는 폴더를 주면 말없이 낱장 모드로 내려간다.** 그것이 앞 단계(`normalize`)가 실패한
 판일 수도 있어, 낱장으로 들어갈 때 「frames.json 이 없어 낱장 모드로 본다」를 stderr 에 찍는다.
 그 보고로는 `bake` 가 `--force` 없이 안 돈다.
+
+**시안(게임에 안 넣는 그림 · 목업)에는 `check` 를 안 돌린다.** 시안은 `sheet` 비교판으로 눈으로만 본다. `check` 는 게임에 넣을 그림만이다.
 
 **`check` 는 준 폴더 바로 아래 `.png` 만 본다.** 하위 폴더는 안 들어가고, 확장자는 대소문자를 안 가린다.
 (`ui icons` 의 낱장 폴더도 같다.)
@@ -138,6 +140,25 @@ arttool provider make  --kind character --spec req.json --out gen/ --dry-run
 | `layers compose\|diff\|mask\|view\|check\|export` | 겹 묶음 명령. `diff --carve report\|common\|apply`. 옛 `layers --profile …` 줄은 `layers compose` 로 |
 | `ui preview --in panel.png --border N\|L,B,R,T --size WxH` | 안내선 없는 9조각 늘려 보기 |
 | `tile seam` | 새 칸 `bad_px` · `bad_px_min` — 이음 줄에서 크게 다른 칸이 한 줄의 15%(최소 2px) 미만이면 통과 |
+
+### 피드백 후속 판 명령 (2026-10-04)
+
+받은 그림을 사람이 PIL 스크립트로 손질하던 자리를 명령으로 옮겼다. 자세한 것은 `Docs/Guide/명령안내.md` 9~12절.
+
+| 명령 | 하는 일 |
+| --- | --- |
+| `style ref --in a.png --canvas 128x128 --out ref.png [--crop X,Y,W,H] [--colors 32] [--b64 ref.txt]` | PixelLab 화풍 그림 준비 — 캔버스로 자르기 · 색 줄이기 · 팔레트 PNG · base64 파일 |
+| `bands --in raw.png [--axis y] [--top 8] [--mark m.png]` | 흰 띠 · 몰딩 줄(조각을 이을 자리) 찾기 |
+| `stitch --in top.png:0-180 mid.png:20-400 floor.png:12- --out wall.png [--axis y]` | 조각 잇기. 이음 차 24 넘으면 경고 |
+| `tile offset --in grass.png --out shifted.png --mask cross.png [--band 16]` | 반 칸 밀기 + 가운데 십자 가림판 (inpaint 로 이음매 지우기) |
+| `extend period --in fence.png [--axis x] [--tile 32] [--out unit.png] [--fit N]` | 되풀이 단위 찾기 · 타일 배수 검사 · 한 단위 잘라 맞추기 |
+| `extend ring --in ring.png --border N\|L,B,R,T --size WxH --out o.png [--snap]` | 한 바퀴 그림 늘리기. 단위가 잘리면 경고, `--snap` 이면 맞는 크기로 |
+| `extend canvas --in bg.png --size WxH --out o.png [--anchor bottom] [--band 1]` | 배경 늘리기 — 가장자리 줄 · 띠를 바깥으로 되풀이 |
+| `reline --in raw/ --out o/ [--color #hex] [--pick dark\|all] [--scope ring\|colors] [--tol 40]` | 외곽선을 한 색으로 |
+| `tint --in white/ --colors #E85D5D,#5DA0E8 --out t/ [--sheet s.png]` | 흰 겹 × 색 곱하기 → 색마다 한 장 |
+| `ui glyphs --font f.ttf (--text "…" \| --text-file t.txt)` | 글꼴에 없는 글자 찾기. 있으면 `fail`(종료 4) |
+| `layers diff … --drop 겹:#hex[,#hex] [--drop-tol 24]` | 겹 떼기에서 그 겹의 이 색 칸을 뺀다 (뺨 · 옷 점이 머리 겹에 묻을 때) |
+| `sheet … --grid 8 [--grid-color #hex]` | zoom 판에 원본 N 칸 눈금 · 좌표 (배율 4 이상) |
 
 **`arttool.draw`** 는 PIL 로 겹별로 그리는 파이썬 공개 모듈이다(`Canvas` · `shade` · 도형 · `outline`). 쓰는 법은 스킬의 `그리기-pil.md`.
 

@@ -252,6 +252,44 @@ def blur(arr: RGBA, radius: float) -> RGBA:
    return np.array(img, dtype=np.uint8)
 
 
+def quantize_rgb(rgb: np.ndarray, colors: int) -> np.ndarray:
+   """(높이, 너비, 3) RGB 를 colors 색 이하로. FASTOCTREE · 디더 없음 (`style ref`)."""
+   quant = Image.fromarray(rgb, mode="RGB").quantize(colors=colors, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.NONE)
+   return np.array(quant.convert("RGB"), dtype=np.uint8)
+
+
+def palette_png_bytes(index: np.ndarray, palette: list[int], transparency: int | None = None) -> bytes:
+   """색 번호 판(uint8) + 팔레트 [r, g, b, …] → 팔레트 PNG(mode P) 바이트. transparency 는 투명으로 칠 번호."""
+   import io
+
+   img = Image.fromarray(index, mode="P")
+   img.putpalette(palette)
+   save_args: dict = {"format": "PNG", "optimize": True}
+   if transparency is not None:
+      save_args["transparency"] = transparency
+   buffer = io.BytesIO()
+   img.save(buffer, **save_args)
+   return buffer.getvalue()
+
+
+def truetype(path: str | os.PathLike, px: int):
+   """ttf · otf 글꼴을 읽는다. 못 읽으면 Pillow 의 OSError 를 그대로 올린다 (`ui glyphs`)."""
+   from PIL import ImageFont
+
+   return ImageFont.truetype(str(path), px)
+
+
+def text_mask(font, text: str, width: int, height: int, x: int, y: int) -> np.ndarray:
+   """width×height 판 (x, y) 에 글자를 흑백 두 값(0 · 255)으로 그린 (높이, 너비) uint8."""
+   from PIL import ImageDraw
+
+   canvas = Image.new("L", (width, height), 0)
+   draw = ImageDraw.Draw(canvas)
+   draw.fontmode = "1"
+   draw.text((x, y), text, font=font, fill=255)
+   return np.array(canvas, dtype=np.uint8)
+
+
 def has_label_font() -> bool:
    return LABEL_FONT.is_file()
 

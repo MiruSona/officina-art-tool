@@ -21,7 +21,7 @@ dev = ["pytest>=7"]
 # 하위 꾸러미를 새로 만들면 아래 packages 목록에 한 줄 더한다.
 [tool.setuptools]
 packages = [
-   "arttool", "arttool.checks", "arttool.draw", "arttool.edit", "arttool.providers",
+   "arttool", "arttool.checks", "arttool.draw", "arttool.edit", "arttool.extend", "arttool.providers",
    "arttool.sprite", "arttool.style", "arttool.template", "arttool.tiles", "arttool.ui",
    "arttool._home.profiles", "arttool._home.profiles.presets", "arttool._home.palettes", "arttool._home.templates",
 ]

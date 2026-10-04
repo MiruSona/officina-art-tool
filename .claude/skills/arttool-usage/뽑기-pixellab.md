@@ -35,7 +35,7 @@ arttool template render char_small --size 48x64 --profile P --out work/guide
 - **방향은 참고 그림이 통째로 정한다.** 글로 「3/4 view」를 적어도 첫 참고 그림이 정면이면 다 정면이다.
 - **타일 묶음 도구(`create_topdown_tileset` · `create_tiles_pro`)는 색과 이음매를 못 믿는다.** 색을 지켜야 하면 `create_image_pro_flash` 에 hex 를 적어 뽑고, 이음매는 `arttool tile seam` 으로 잰다. 바닥 타일은 PIL 이 낫다.
 - **「~ 하지 마라」는 잘 안 듣는다.** 덮일 밑판(맨몸 · 빈 선반)은 AI 가 엉뚱한 것을 그려 넣는다 — PIL 로 메우는 쪽이 낫다.
-- 화풍 그림은 캔버스보다 크면 거절된다 → 캔버스 크기 투명 판에 채워 넣는다. 32색으로 줄인 PNG 는 base64 가 작아 인자로 싣기 좋다.
+- 화풍 그림은 캔버스보다 크면 거절된다 → `arttool style ref --in a.png --canvas WxH --out ref.png --b64 ref.txt` 가 잘라 · 32색으로 줄여 · base64 를 파일로 낸다.
 - 실내 정면 배경 글머리 : `flat 2D side-scroller game background, flat elevation of one back wall only, no side walls, no ceiling, no perspective`. 「front view」만으로는 아이소메트릭 방이 섞여 온다.
 - 자리를 번호 매겨 적으면(「왼쪽 70% 는 계산대 · 오른쪽 끝은 문 · 아래 3분의 1 은 빈 바닥」) 배치를 잘 따른다.
 
@@ -66,6 +66,12 @@ arttool template render char_small --size 48x64 --profile P --out work/guide
    ```
    `layer_poke`(아래 겹이 1칸 삐짐) · `layer_exclusive`(얼굴과 머리카락이 같은 칸) · `layer_mask`(마스크 밖) 를 본다.
    나눈 겹에 **붙어 있지 않은 자잘한 조각**(옷 색이 머리 겹으로 샌 점)이 남기 쉽다 — `--each` 판에서 겹 하나씩 본다.
+   겹을 다 합친 한 장도 검사하려면 세 줄이다 (반투명 · 색 수 · 도트 굵기 · 떨어진 덩이) :
+   ```
+   arttool layers export --in set --out flat --flat
+   arttool check --in flat --report flat.json          # integer_scale · isolated · color_cap 경고를 본다
+   arttool sheet --in flat --kinds zoom --scale 4 --label --out flat_x4.png
+   ```
 6. 한 장으로 받은 그림을 나눌 때는 `arttool split` 에 템플릿의 `split.json` 초안을 준다.
 
 ## 5. 받은 그림 손질 — `intake` 한 줄
@@ -96,7 +102,7 @@ arttool intake --in raw --out clean --no-trim --template work/guide/template.jso
 
 | 사고 | 증상 | 잡는 법 |
 | --- | --- | --- |
-| **흰 띠 · 흰 바탕** | `no_background` 를 줘도 불투명 흰 바탕, 또는 위아래 수십 줄 흰 띠 | `intake --key corner --shave 2`. 띠 줄 수는 `trim --report` 의 `offset` 으로 잰다 |
+| **흰 띠 · 흰 바탕** | `no_background` 를 줘도 불투명 흰 바탕, 또는 위아래 수십 줄 흰 띠 | `intake --key corner --shave 2`. 불투명 배경의 띠 줄 수 · 이을 줄은 `bands --mark` 로 잰다 |
 | **±2 잡색** | 낱색이 수백 개 (같은 색이 RGB ±2 로 흔들림) | `check` 의 `near_colors` 가 합칠 쌍을 낸다. 화풍을 뽑을 때 `style extract` 는 알아서 합친다 |
 | **도트 굵기 섞임** | 크기가 다른 그림을 키워 한 화면에 섞음 | `check` 의 `integer_scale` · `must.scale`. 그림마다 그 크기로 다시 뽑는다 |
 | **반투명 가장자리** | 줄이거나 편집한 그림의 가장자리 알파가 중간값 | `check` 의 `alpha`(실패) · `must.alpha`. `cutout` 으로 다시 따거나 PIL 로 알파를 0/255 로 |
@@ -108,7 +114,64 @@ arttool intake --in raw --out clean --no-trim --template work/guide/template.jso
 - **`wait_for_jobs` 는 계정 전체의 일을 본다.** 다른 세션 일이 끝나도 깨어난다. **내 job id 를 적어 두고 그것만 `get_image`** 한다.
 - 동시 작업은 계정 전체로 10개가 상한이다 (rate limit 이 나면 끝난 뒤 다시 건다).
 - `get_image` 가 떨어뜨린 파일은 이름이 임의다. **받는 즉시 뜻 있는 이름으로 복사**한다 (`raw/hair.png`).
-- 앞 판의 내려받기 주소를 다음 inpaint · 편집의 그림 인자로 그대로 넘길 수 있다. 갤러리 id 로는 안 될 때가 있다(job id 로 받는다).
+- 앞 판의 내려받기 주소를 다음 inpaint · 편집의 그림 인자로 그대로 넘길 수 있다. 내려받기 주소는 job id 로만 된다(갤러리 id 로 만든 주소는 404). 갤러리 id 는 `source_image_id` 로 쓴다 — 8-2.
 - `wait_for_jobs` 의 `eta` 는 한참 부풀어 있다. eta 를 보고 일을 접지 않는다.
 - 서버 사정으로 한 판이 실패하면 같은 인자로 다시 돌린다.
 - 값 : 작은 아이콘 한 장 5회 남짓 · 큰 그림(`create_image_pro`) 40회. 많이 뽑기 전에 `get_balance` 를 본다.
+
+## 8. 더 모은 요령 (10-03 ~ 04 피드백)
+
+### 8-1. 크기 · 캔버스
+
+| 요령 | 메모 |
+| --- | --- |
+| **`create_image_pro` 크기 한도는 비율마다 다르다** | 받은 크기 : 508×428 · 540×440 · 540×360 · 576×384 · 272×480 · 272×608. 거절 : 540×480 (「too large for this aspect ratio (max 512x512)」). 도구 설명엔 512×512 · 16:9 는 688×384 만 있다 |
+| **받아들여진 뒤 취소해도 값이 든다** | 40회 판을 바로 취소해도 25회가 빠졌다. 거절은 공짜다 → 크기 시험도 진짜 프롬프트로 건다 |
+| 그림이 캔버스보다 작게 오거나 흰 띠가 둘러 온다 | 「fills the whole canvas edge to edge, no border」를 넣으면 대개 꽉 찬다 (늘 그렇진 않다 — 받은 뒤 `trim --report` 로 잰다) |
+| 아래끝에서 잘려 온다 (`create_image_pro` 큰 물건) | 처음부터 위아래 여백을 넉넉히 준다. 잘린 뒤 캔버스를 늘려 inpaint 로 닫는 것보다 싸다 |
+| `create_image_pro_flash` 는 캔버스를 키워도 캐릭터가 안 커진다 | 조금 큰 판이 필요하면 **기존 그림을 NEAREST 로 키워 `edit_image_pro_flash` 에 「이 크기의 1px 도트로 다시」**. 같은 사람 · 자세로 결만 고와진다. 물건은 화풍 그림 + 「same machine, bigger」 도 됐다 |
+| 상태 조각(서랍 열림 등)을 한 캔버스에 맞출 때 | 편집이 물건을 아래로 밀 수 있다 — 피벗 둘레에 여유를 둔다 |
+| 큰 배경을 조각으로 뽑아 이을 때 | **몰딩 · 걸레받이 같은 가로 나무 띠에서** 잇는다. 프롬프트에 「몰딩이 맨 위/아래 가장자리를 따라 곧게」를 넣어 이을 자리를 미리 만든다. 이을 줄은 `bands`, 잇기는 `stitch`. 위로만 늘리면 되면 `extend canvas` |
+| 이어 붙는 바탕 (바탕 있는 256 그림) | 「seamless」 글로는 네 변이 안 이어진다. **반 칸 밀기 → 가운데 십자 16px inpaint** 가 통했다. `arttool tile offset --in g.png --out s.png --mask cross.png` 가 민 그림과 가림판을 낸다. 맨 바깥 1줄에 테두리가 와도 이 길로 지워진다 |
+
+### 8-2. 그림 넘기기 — id · 주소 · base64
+
+| 넘길 것 | 되는 길 | 안 되는 길 |
+| --- | --- | --- |
+| 앞서 뽑은 그림 | `source_image_id` (판이 **끝난 뒤**). 갤러리 그림은 `list_images` 의 `gallery:<uuid>` 에서 앞말을 뗀 uuid | 판이 끝나기 전 id → 「not found」 |
+| 앞 판 결과를 다음 판에 | 내려받기 주소 `https://api.pixellab.ai/mcp/images/<job_id>/download` 를 `image_url` · `style_image_url` · `reference_images` 에 그대로 | — |
+| workbench(`pixelart_workbench`) 결과 | `https://api.pixellab.ai/mcp/pixel-tools/<id>/image.png` 를 `image_url` 로 (404 가 난 날도 있다 → 갤러리 id 로) | workbench 결과 id 를 `source_image_id` 로 |
+| 내 PNG | **팔레트 PNG(16~40색)로 줄여 base64.** 3~9KB 면 통과. `arttool style ref … --b64 ref.txt` 가 만든다(12KB 넘으면 경고) | 큰 RGBA PNG(57KB 급) → 잘려서 「Could not decode image」 · 「keyframe image is incomplete」. 문구에 까닭이 안 나온다 |
+
+- 화풍 그림은 캔버스 안에 들어가야 한다 — 큰 그림은 **필요한 부분만 캔버스 크기 이하로 잘라** 넣는다(256 풀밭 → 64×64 1.4KB). 작은 화풍 그림은 가운데 놓인다.
+- 돌려받은 `image_id` 와 `source_image_id` 가 같은 값으로 올 때가 있다. 원본으로 다시 편집하려면 원본의 id · 주소를 따로 적어 둔다.
+
+### 8-3. 프롬프트 글귀 — 통한 것
+
+| 하고 싶은 것 | 글귀 · 설정 |
+| --- | --- |
+| 화풍 그림의 얼룩 · 장식을 덜 따라오게 | `style_options` 에서 **detail · shading 을 끈다.** 색 · 외곽선은 따라오고 장식만 준다(80색 → 38색). 「팔레트 복사」를 끄고 외곽선 · 음영 · 결만 따라가게 하면 화풍 그림의 구멍 · 선반이 복사되지 않는다 |
+| 천장 · 윗부분만 | **천장만 있는 조각을 화풍 그림(`style_image_url`)으로** + 「ONLY the top part … Nothing else: no …」. 벽 그림을 `reference_images` 로 주면 방 전체가 다시 나온다 |
+| 한 색 면 (하늘) | 「flat even color #D4EEFA, no gradient」 → 정말 한 색 |
+| 얼룩 없는 바닥 | 「Even, uniform lighting everywhere: no light spots, no bright circles」 + 앞서 뽑은 바닥 조각을 화풍 그림으로 (그래도 둥근 얼룩이 오는 판이 있다) |
+| 방향 돌리기 (`edit_image_pro_flash`) | 「Same character, same size, same art style, same outfit (옷을 낱낱이), same hair. Change only the pose: …」 |
+| 표정 inpaint | 「keep eye color」를 꼭 넣는다 (안 넣으면 눈동자 색이 바뀐다) |
+| 곱슬머리 | 「round scallop bumps (not spikes)」 · 「closed solid dark 1-pixel outline」 |
+| 색 입히기용 원본 | 「흰색 ~ 밝은 회색으로」 시키면 그대로 온다 (곱하기 색 겹) |
+
+### 8-4. 편집 · inpaint · 움직임의 버릇
+
+- **`edit_image_pro_flash` 는 모든 점을 조금씩 다시 칠한다** (「pixel for pixel」이라 써도). 자리 · 모양은 남는다. 그래서 살 위의 작은 부위(얼굴만)를 떼면 딸려 온 살색이 달라 네모로 보인다 → 머리통 전체를 한 겹으로 뗀다.
+- 겹을 얻는 다른 길 : `edit_image_pro_flash` 로 「입히기 → 그 파츠만 남기고 나머지 투명 · 잘린 자리 외곽선을 닫아라」 두 번. 가장자리 외곽선까지 그려 준다.
+- inpaint 의 **「only changes」 출력은 바뀐 점이 아니라 마스크 칸 전체**를 준다. 겹 떼기에는 일반 출력 + `layers diff` 가 깨끗하다.
+- 머리 inpaint 가 마스크 안의 귀 · 뺨 · 깃까지 다시 그린다 → 차이를 머리 겹으로 쓰면 색 바꿀 때 뺨이 물든다. 마스크를 「이 색 칸만」(4절 2번)으로 좁힌다.
+- `no_background=true` 는 밝은 면(크림 종이 · 밝은 윗판 줄)까지 투명으로 뚫는다. 그런 그림은 `false` 로 받아 `arttool intake`(cutout)로 지운다. 「solid teal background」 같은 바탕색 지시도 흰 바탕으로 올 때가 많다.
+- inpaint 로 고친 띠는 밝기가 +2 쯤 다르게 온다. 눈엔 안 보여도 `tile seam` 에는 잡힐 수 있다.
+- `animate_image` 는 싸고(6~7회) 받침 자리를 지킨다. 다만 창 · 유리 속에 덩이를 그려 넣는다(「stays plain」을 적어도) → 프레임마다 그 칸을 쉬는 그림으로 덮는 손질이 필요하다.
+- 같은 씨앗(seed)을 다시 쓰면 분위기가 이어진다.
+
+### 8-5. 값 · 일
+
+- `create_image_pro_flash` 맞춤 크기는 판당 9회로 고정이었다. 미리 보려면 `get_pro_flash_capabilities`.
+- **실제 차감이 어림보다 1.7배쯤 컸다** (보고는 `pricing_provisional` 뿐이고, 잔액은 다른 세션과 같이 줄어든다). 예산은 넉넉히 잡는다.
+- `search_knowledge` 에는 그림 요령이 없다(게임 엔진 지식뿐). 도구 설명을 직접 읽는다.

@@ -34,6 +34,9 @@ BASE_LAYER = "body"
 # 기본이 report 인 까닭 : 머리 파츠가 여럿이면 서로 다른 칸을 깎아, 다 빼면 본체에 구멍이 쌓인다.
 CARVE_MODES = ("report", "common", "apply")
 
+# diff --drop : 겹에서 뺄 색과의 RGB 각 칸 차 최댓값 기본.
+DROP_TOL = 24
+
 # diff 에서 겹 이름이 정해진 낱말이 아닐 때 쌓는 순서 · 종류를 정하는 기본 (10-3 캐릭터 줄).
 CHAR_ORDER = ("body", "cloth", "face", "hair", "deco")
 
@@ -245,6 +248,39 @@ def _diff_inputs(in_dir, base: Path | None = None) -> tuple[dict[str, Path], boo
    return files, base_inside
 
 
+def _parse_drop(specs, drop_tol, layer_names: list[str]) -> dict[str, list[tuple[int, int, int]]]:
+   """`--drop 겹:#hex,#hex` (여러 번) → {겹: [색…]}. 같은 겹을 두 번 주면 색을 합친다. 기본체에는 못 쓴다."""
+   if not specs:
+      return {}
+   if isinstance(specs, str):
+      specs = [specs]
+   if not 0 <= int(drop_tol) <= 255:
+      raise UsageError(f"--drop-tol 은 0~255 다 : {drop_tol}")
+   out: dict[str, list[tuple[int, int, int]]] = {}
+   for spec in specs:
+      name, sep, text = str(spec).partition(":")
+      name = name.strip()
+      if not sep or not text.strip():
+         raise UsageError(f"--drop 은 겹이름:#RRGGBB[,#RRGGBB…] 꼴이다 : {spec}")
+      if name not in layer_names:
+         raise UsageError(f"--drop 에 inpaint 결과에 없는 겹 : {name} (있는 겹 : {', '.join(layer_names)})")
+      try:
+         colors = [parse_hex(part) for part in text.split(",") if part.strip()]
+      except ArtToolError as exc:
+         raise UsageError(f"--drop 색을 못 읽었다 : {spec} (#RRGGBB 꼴)") from exc
+      out.setdefault(name, []).extend(colors)
+   return out
+
+
+def _near_colors(arr: image.RGBA, colors: list[tuple[int, int, int]], tol: int) -> np.ndarray:
+   """불투명 칸 중 colors 가운데 하나와 RGB 각 칸 차가 모두 tol 이하인 칸."""
+   rgb = arr[:, :, :3].astype(np.int16)
+   hit = np.zeros(arr.shape[:2], dtype=bool)
+   for color in colors:
+      hit |= np.abs(rgb - np.array(color, dtype=np.int16)).max(axis=2) <= tol
+   return hit & _opaque(arr)
+
+
 def run_diff(args) -> dict:
    if args.carve not in CARVE_MODES:
       raise UsageError(f"--carve 는 {' · '.join(CARVE_MODES)} 중 하나다 : {args.carve}")
@@ -260,6 +296,8 @@ def run_diff(args) -> dict:
    masks = _template_masks(args.template, (width, height))
    order = _diff_order(list(files), _template_layerset(args.template))
    names = [layer.name for layer in order]
+   drop_tol = int(getattr(args, "drop_tol", DROP_TOL))
+   drops = _parse_drop(getattr(args, "drop", None), drop_tol, list(files))
 
    # 쓸 자리가 읽은 파일(기본체 · inpaint 결과 · 템플릿)을 덮으면 아무것도 쓰기 전에 거절한다 (R1-H3)
    root = resolve_root(Path(args.out_dir))
@@ -294,6 +332,14 @@ def run_diff(args) -> dict:
          row["outside_mask"] = int(np.count_nonzero(outside))
          if row["outside_mask"]:
             warnings.append(warning("diff_outside_mask", f"{name} : 마스크 밖이 바뀐 칸 {row['outside_mask']}개 (inpaint 면 0 이어야 한다)", _points(outside)))
+      if name in drops:
+         # 마스크 안에서 다시 그려진 뺨 · 옷 점 같은 색을 이 겹에서 뺀다. 뺀 칸은 아래 본체가 보인다.
+         dropped = _near_colors(layer, drops[name], drop_tol)
+         layer[dropped] = 0
+         row["dropped"] = int(np.count_nonzero(dropped))
+         row["pixels"] = int(np.count_nonzero(_opaque(layer)))
+         if row["dropped"]:
+            warnings.append(warning("diff_dropped", f"{name} : --drop 색에 가까운 칸 {row['dropped']}개를 겹에서 뺐다 (--drop-tol {drop_tol})", _points(dropped)))
       layer_rows[name] = row
 
    # 겹끼리 같은 칸을 칠했으면 쌓는 순서상 위 겹이 갖는다.

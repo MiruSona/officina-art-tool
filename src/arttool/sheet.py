@@ -241,6 +241,76 @@ def layout_rows(
    return sheet
 
 
+# ── 격자 눈금 (--grid N, 피드백 후속 설계 3-7) ──
+# zoom 판에만 원본 N 칸마다 1px 선과 위 · 왼 여백에 원본 좌표 숫자. 기본 0 = 끔이라 예전 출력과 바이트까지 같다.
+
+GRID_COLOR = "#FF00FF"
+GRID_MIN_SCALE = 4          # 선이 원본 칸을 다 덮지 않으려면 4배는 돼야 한다
+
+
+def grid_options(args, kinds: list[str]) -> tuple[int, tuple[int, int, int, int] | None]:
+   """(N, 선 색). 끔이면 (0, None). 배선 전에도 돌게 getattr 로 읽는다."""
+   grid = int(getattr(args, "grid", 0) or 0)
+   if grid == 0:
+      return 0, None
+   if grid < 2:
+      raise UsageError(f"--grid 는 2 이상이다 (끄려면 0) : {grid}")
+   if "zoom" not in kinds:
+      raise UsageError("--grid 는 zoom 판에만 긋는다. --kinds 에 zoom 을 넣는다")
+   text = getattr(args, "grid_color", None) or GRID_COLOR
+   try:
+      color = (*parse_hex(text), 255)
+   except ArtToolError as exc:
+      raise UsageError(f"--grid-color 는 #RRGGBB 다 : {text}") from exc
+   return grid, color
+
+
+def grid_marks(length: int, grid: int) -> list[int]:
+   """눈금을 긋는 원본 좌표 — 0, N, 2N … (길이 안)."""
+   return list(range(0, length, grid))
+
+
+def grid_margin(items: list[np.ndarray], grid: int) -> tuple[int, int]:
+   """(왼 여백 폭, 위 여백 높이). 딱지 글꼴이 없으면 숫자 없이 선만 긋는다."""
+   if not image.has_label_font():
+      return 0, 0
+   longest = max(max(grid_marks(arr.shape[0], grid)) for arr in items)
+   return image.label_width(str(longest)) + 4, image.LABEL_PX + 4
+
+
+def draw_grid(cell: np.ndarray, scale: int, grid: int, color: tuple[int, int, int, int], margin: tuple[int, int]) -> np.ndarray:
+   """확대 칸에 선을 긋고 위 · 왼에 여백을 붙여 원본 좌표 숫자를 찍는다. 숫자가 겹칠 자리는 건너뛴다."""
+   left, top = margin
+   height, width = cell.shape[0], cell.shape[1]
+   out = image.new(width + left, height + top, SHEET_BACK)
+   lined = cell.copy()
+   xs = grid_marks(width // scale, grid)
+   ys = grid_marks(height // scale, grid)
+   for x in xs:
+      lined[:, x * scale] = color
+   for y in ys:
+      lined[y * scale, :] = color
+   out[top:, left:] = lined
+   if left == 0 or top == 0:
+      return out
+
+   free = 0
+   for x in xs:
+      at = left + x * scale + 1
+      if at < free:
+         continue
+      image.draw_label(out[:top], str(x), at, 1, image.LABEL_PX, LABEL_COLOR)
+      free = at + image.label_width(str(x)) + 2
+   free = 0
+   for y in ys:
+      at = top + y * scale + 1
+      if at < free:
+         continue
+      image.draw_label(out[:, :left], str(y), 1, at, image.LABEL_PX, LABEL_COLOR)
+      free = at + image.LABEL_PX + 2
+   return out
+
+
 # ── 재기 (판정 없음) ──
 # 검사(checks/)의 재기 함수를 그대로 부른다 — 비교판 숫자와 check 경고가 같은 정의로 센다 (설계 7-2 ② · ③).
 
@@ -270,10 +340,18 @@ def run(args) -> dict:
       raise UsageError(f"--tile 은 2 또는 4 다 : {tile}")
    out_file = jailed_output(args.out_file)
 
+   grid, grid_color = grid_options(args, kinds)
+
    files, warnings = collect_inputs(list(args.in_paths))
    guard_overwrite([out_file], files)          # 비교판이 입력 PNG 를 덮지 않게 (R1-H1)
    items = [image.load(path) for path in files]
    scale = pick_scale(args.scale, items)
+   margin = (0, 0)
+   if grid:
+      if scale < GRID_MIN_SCALE:
+         warnings.append(_warn("grid_scale", f"--grid 라 배율을 {scale} 에서 {GRID_MIN_SCALE} 로 올렸다", [scale]))
+         scale = GRID_MIN_SCALE
+      margin = grid_margin(items, grid)
 
    label = bool(args.label)
    if label and not image.has_label_font():
@@ -282,9 +360,15 @@ def run(args) -> dict:
 
    # 판 크기를 그리기 전에 셈해 상한을 먼저 본다 — 칸을 다 그린 뒤에 거절하면 메모리를 이미 다 썼다 (R1-M3)
    sizes = [[kind_size(arr.shape[1], arr.shape[0], kind, scale, tile) for kind in kinds] for arr in items]
+   if grid:
+      sizes = [[(w + margin[0], h + margin[1]) if kind == "zoom" else (w, h) for kind, (w, h) in zip(kinds, row)]
+               for row in sizes]
    image.check_pixels(*layout_size(sizes, label, label), "비교판")
 
    rows =[[render_kind(arr, kind, scale, tile, bg) for kind in kinds] for arr in items]
+   if grid:
+      rows = [[draw_grid(cell, scale, grid, grid_color, margin) if kind == "zoom" else cell for kind, cell in zip(kinds, row)]
+              for row in rows]
    report_items = []
    row_labels = []
    for index, (path, arr) in enumerate(zip(files, items), start=1):
@@ -297,7 +381,7 @@ def run(args) -> dict:
    sheet = layout_rows(rows, row_labels if label else None, titles if label else None)
    image.save(out_file, sheet)
 
-   return {
+   result = {
       "status": "ok",
       "out": str(out_file),
       "size": list(image.size(sheet)),
@@ -309,3 +393,6 @@ def run(args) -> dict:
       "items": report_items,
       "warnings": warnings,
    }
+   if grid:
+      result.update({"grid": grid, "grid_color": getattr(args, "grid_color", None) or GRID_COLOR, "grid_margin": list(margin)})
+   return result

@@ -20,6 +20,9 @@
 | `style extract` | `arttool.style.extract.run` |
 | `layers diff` · `mask` · `view` · `check` · `export` | `arttool.sprite.layerops.run` (`args.sub` 로 가른다) |
 | `intake` | `arttool.intake.run` |
+| `style ref` · `bands` · `stitch` · `tile offset` | `arttool.style.ref` · `edit.bands` · `edit.stitch` · `tiles.offset` 의 `run` (피드백 후속 설계) |
+| `extend period` · `ring` · `canvas` | `arttool.extend.period` · `ring` · `canvas` 의 `run` |
+| `ui glyphs` · `reline` · `tint` | `arttool.ui.glyphs` · `sprite.reline` · `sprite.tint` 의 `run` |
 | `layers compose` | 여기서 `sprite.layers.compose_sheets` 를 바로 부른다 (옛 `layers`) |
 | `check --no-warn · --mode · --template` | `check.run(prof, in_dir, no_ramps, *, warn, mode, template)` — 그 세 칸을 받게 되면 넘긴다 |
 """
@@ -42,6 +45,7 @@ from .errors import EXIT_CHECK_FAIL, EXIT_ERROR, EXIT_OK, ArtToolError, UsageErr
 from .jsonio import read_json, write_json
 from .paths import guard_overwrite, jailed_output
 from .profile import load_profile_args
+from .extend import canvas as extend_canvas_mod
 from .sprite import anchors as anchors_mod
 from .sprite import layers as layers_mod
 from .sprite import normalize as normalize_mod
@@ -77,6 +81,17 @@ LATE: dict[tuple[str, str | None], tuple[str, str]] = {
    ("layers", "check"): ("arttool.sprite.layerops", "run"),
    ("layers", "export"): ("arttool.sprite.layerops", "run"),
    ("intake", None): ("arttool.intake", "run"),
+   # 피드백 후속 설계(2026-10-04)
+   ("style", "ref"): ("arttool.style.ref", "run"),
+   ("bands", None): ("arttool.edit.bands", "run"),
+   ("stitch", None): ("arttool.edit.stitch", "run"),
+   ("tile", "offset"): ("arttool.tiles.offset", "run"),
+   ("extend", "period"): ("arttool.extend.period", "run"),
+   ("extend", "ring"): ("arttool.extend.ring", "run"),
+   ("extend", "canvas"): ("arttool.extend.canvas", "run"),
+   ("ui", "glyphs"): ("arttool.ui.glyphs", "run"),
+   ("reline", None): ("arttool.sprite.reline", "run"),
+   ("tint", None): ("arttool.sprite.tint", "run"),
 }
 
 # check.run 이 이 세 칸을 키워드로 받게 되면(D 갈래) 새 인자를 넘긴다.
@@ -145,6 +160,11 @@ def build_parser() -> argparse.ArgumentParser:
    _add_template(subs)
    _add_style(subs)
    _add_intake(subs)
+   _add_bands(subs)
+   _add_stitch(subs)
+   _add_extend(subs)
+   _add_reline(subs)
+   _add_tint(subs)
    return parser
 
 
@@ -205,6 +225,9 @@ def _add_layers(subs) -> None:
    diff.add_argument("--template", dest="template", help="template.json. 마스크 밖이 바뀐 칸을 센다")
    diff.add_argument("--carve", dest="carve", default="report", choices=["report", "common", "apply"],
                      help="깎인 윤곽 : report 본체 그대로 · 세기만(기본) · common 모든 겹이 깎은 칸만 뺀다 · apply 하나라도 깎은 칸을 다 뺀다")
+   diff.add_argument("--drop", dest="drop", action="append",
+                     help="겹이름:#RRGGBB[,#RRGGBB…] 그 겹에서 이 색에 가까운 칸을 뺀다 (본체가 보인다). 여러 번 줄 수 있다")
+   diff.add_argument("--drop-tol", dest="drop_tol", type=int, default=24, help="--drop 색 폭. RGB 각 칸 차이의 최댓값 (기본 24)")
    diff.add_argument("--report", dest="report", help="보고 JSON")
 
    mask = inner.add_parser("mask", help="기본체에서 이 색 칸만 마스크로", parents=[COMMON])
@@ -268,6 +291,8 @@ def _add_sheet(subs) -> None:
    node.add_argument("--tile", dest="tile", type=int, default=2, choices=[2, 4], help="tile 판의 반복 수 (기본 2)")
    node.add_argument("--bg", dest="bg", default="checker", help="checker 또는 #RRGGBB (기본 checker)")
    node.add_argument("--label", dest="label", action="store_true", help="이름 · 크기 · 색 수 딱지")
+   node.add_argument("--grid", dest="grid", type=int, default=0, help="zoom 판에 원본 N 칸마다 눈금선 · 좌표 (기본 0 = 끔, 배율은 4 이상으로 올린다)")
+   node.add_argument("--grid-color", dest="grid_color", help="눈금선 색 #RRGGBB (기본 #FF00FF)")
    node.add_argument("--report", dest="report", help="보고 JSON")
 
 
@@ -311,6 +336,16 @@ def _add_style(subs) -> None:
    pull.add_argument("--mode", dest="mode", default="auto", choices=list(CHECK_MODES))
    pull.add_argument("--with-backgrounds", dest="with_backgrounds", action="store_true", help="배경 그림 색도 팔레트에 섞는다")
 
+   ref = inner.add_parser("ref", help="PixelLab 에 넘길 화풍 그림 준비 (자르기 · 색 줄이기 · 팔레트 PNG · base64)", parents=[COMMON])
+   ref.add_argument("--in", dest="in_file", required=True, help="화풍 그림 PNG")
+   ref.add_argument("--canvas", dest="canvas", required=True, help="뽑을 캔버스 WxH. 이보다 크면 불투명 칸 가운데로 자른다 (키우기 · 줄이기는 안 한다)")
+   ref.add_argument("--out", dest="out_file", required=True, help="팔레트 PNG")
+   ref.add_argument("--crop", dest="crop", help="먼저 이 칸만 X,Y,W,H")
+   ref.add_argument("--colors", dest="colors", type=int, default=32, help="색 상한 2~256 (기본 32)")
+   ref.add_argument("--b64", dest="b64", help="base64 한 줄을 쓸 파일 (stdout · 보고에는 안 싣는다)")
+   ref.add_argument("--max-kb", dest="max_kb", type=float, default=12.0, help="base64 가 이 KB 를 넘으면 경고 (기본 12)")
+   ref.add_argument("--report", dest="report", help="보고 JSON")
+
 
 def _add_intake(subs) -> None:
    node = subs.add_parser("intake", help="받은 그림 한 번에 손질 (cutout → trim → check → sheet)", parents=[COMMON])
@@ -327,6 +362,76 @@ def _add_intake(subs) -> None:
    node.add_argument("--no-trim", dest="no_trim", action="store_true", help="여백 걷기를 건너뛴다")
    node.add_argument("--no-check", dest="no_check", action="store_true", help="검수를 건너뛴다")
    node.add_argument("--report", dest="report", help="보고 JSON (넷을 묶은 것)")
+
+
+def _add_bands(subs) -> None:
+   node = subs.add_parser("bands", help="흰 띠 · 몰딩 줄 찾기 (조각을 이을 자리)", parents=[COMMON])
+   node.add_argument("--in", dest="in_file", required=True, help="PNG 한 장")
+   node.add_argument("--axis", dest="axis", default="y", choices=["y", "x"], help="y 가로줄(기본) · x 세로줄")
+   node.add_argument("--top", dest="top", type=int, default=8, help="후보 줄 수 (기본 8)")
+   node.add_argument("--mark", dest="mark", help="원본 ×2 에 줄 번호 눈금을 찍은 PNG")
+   node.add_argument("--report", dest="report", help="보고 JSON (stdout 에도 같은 것)")
+
+
+def _add_stitch(subs) -> None:
+   node = subs.add_parser("stitch", help="조각 잇기 (파일:시작-끝 을 차례로)", parents=[COMMON])
+   node.add_argument("--in", dest="in_specs", required=True, nargs="+",
+                     help="파일[:시작-끝] 여럿. 끝은 안 넣고, 비우면 끝까지(12-), 구간을 빼면 그림 전체")
+   node.add_argument("--out", dest="out_file", required=True, help="이은 PNG")
+   node.add_argument("--axis", dest="axis", default="y", choices=["y", "x"], help="y 위→아래(기본) · x 왼→오른")
+   node.add_argument("--report", dest="report", help="보고 JSON")
+
+
+def _add_extend(subs) -> None:
+   node = subs.add_parser("extend", help="늘리기 묶음 (줄 · 칸을 되풀이하거나 빼기만, 보간 없음)")
+   inner = node.add_subparsers(dest="sub", required=True)
+
+   period = inner.add_parser("period", help="되풀이 단위 찾기 · 타일 배수 검사 · 한 단위 맞추기", parents=[COMMON])
+   period.add_argument("--in", dest="in_file", required=True, help="띠 그림 PNG (울타리 · 난간 …)")
+   period.add_argument("--axis", dest="axis", default="x", choices=["x", "y"], help="x 가로로 되풀이(기본) · y 세로로")
+   period.add_argument("--tile", dest="tile", type=int, help="단위가 이 값의 배수인지 본다")
+   period.add_argument("--out", dest="out_file", help="한 단위를 잘라 쓴 PNG")
+   period.add_argument("--fit", dest="fit", type=int, help="잘라 낸 단위 길이를 N 으로 맞춘다 (단위의 ±25%% 안)")
+   period.add_argument("--report", dest="report", help="보고 JSON")
+
+   ring = inner.add_parser("ring", help="한 바퀴 그림(모서리 · 변 단위) 늘리기", parents=[COMMON])
+   ring.add_argument("--in", dest="in_file", required=True, help="한 바퀴 그림 PNG")
+   ring.add_argument("--border", dest="border", required=True, help="N 또는 L,B,R,T ([왼, 아래, 오른, 위])")
+   ring.add_argument("--size", dest="size", required=True, help="만들 크기 WxH")
+   ring.add_argument("--out", dest="out_file", required=True)
+   ring.add_argument("--snap", dest="snap", action="store_true", help="변 단위가 딱 맞는 가까운 크기로 바꿔 만든다 (기본은 경고만)")
+   ring.add_argument("--report", dest="report", help="보고 JSON")
+
+   canvas = inner.add_parser("canvas", help="배경 캔버스 늘리기 (가장자리 줄 · 띠를 바깥으로 되풀이)", parents=[COMMON])
+   canvas.add_argument("--in", dest="in_file", required=True, help="배경 PNG")
+   canvas.add_argument("--size", dest="size", required=True, help="만들 크기 WxH (원본보다 작은 변은 안 된다)")
+   canvas.add_argument("--out", dest="out_file", required=True)
+   canvas.add_argument("--anchor", dest="anchor", default="bottom", choices=list(extend_canvas_mod.ANCHORS),
+                       help="원본을 둘 자리 (기본 bottom — 위로 늘린다)")
+   canvas.add_argument("--band", dest="band", type=int, default=1, help="되풀이할 가장자리 줄 수 (기본 1)")
+   canvas.add_argument("--report", dest="report", help="보고 JSON")
+
+
+def _add_reline(subs) -> None:
+   node = subs.add_parser("reline", help="받은 그림의 외곽선을 한 색으로", parents=[COMMON])
+   node.add_argument("--in", dest="in_dir", required=True, help="PNG 한 장 또는 폴더(바로 아래 .png)")
+   node.add_argument("--out", dest="out_dir", required=True, help="결과 폴더")
+   node.add_argument("--color", dest="color",
+                     help="외곽선 색 #RRGGBB. 안 주면 --profile 의 palette.outline, 그것도 없으면 고리의 어두운 칸에서 가장 많은 색")
+   node.add_argument("--pick", dest="pick", default="dark", choices=["dark", "all"], help="dark 고리의 어두운 칸만(기본) · all 고리 전부")
+   node.add_argument("--scope", dest="scope", default="ring", choices=["ring", "colors"], help="ring 고른 칸만(기본) · colors 그 색을 그림 전체에서")
+   node.add_argument("--tol", dest="tol", type=int, default=40, help="dark 폭. 고리의 가장 어두운 밝기 + N 까지 (기본 40)")
+   node.add_argument("--report", dest="report", help="보고 JSON")
+
+
+def _add_tint(subs) -> None:
+   node = subs.add_parser("tint", help="흰 겹 × 색 곱하기 → 색마다 한 장", parents=[COMMON])
+   node.add_argument("--in", dest="in_dir", required=True, help="흰 ~ 밝은 회색 겹 PNG 한 장 또는 폴더")
+   node.add_argument("--colors", dest="colors", required=True, help="#RRGGBB[,#RRGGBB…]")
+   node.add_argument("--out", dest="out_dir", required=True, help="결과 폴더. 이름은 <원래이름>_<RRGGBB>.png")
+   node.add_argument("--sheet", dest="sheet", help="원본 + 색마다 늘어놓은 비교판 PNG")
+   node.add_argument("--scale", dest="scale", type=int, default=4, help="비교판 배율 (기본 4)")
+   node.add_argument("--report", dest="report", help="보고 JSON")
 
 
 def _add_split(subs) -> None:
@@ -388,6 +493,13 @@ def _add_tile(subs) -> None:
    join.add_argument("--sheet", help="3×3 으로 이은 그림을 늘어놓은 PNG")
    join.add_argument("--scale", type=int, help="--sheet 배율")
 
+   shift = inner.add_parser("offset", help="반 칸 밀기 + 가운데 십자 가림판 (inpaint 로 이음매 지우기)", parents=[COMMON])
+   shift.add_argument("--in", dest="in_file", required=True, help="바탕 타일 PNG")
+   shift.add_argument("--out", dest="out_file", required=True, help="반 칸 민 PNG")
+   shift.add_argument("--mask", dest="mask", required=True, help="가림판 PNG (검정 바탕 + 흰 십자 = 다시 그릴 자리)")
+   shift.add_argument("--band", dest="band", type=int, default=16, help="십자 띠 폭, 짝수 (기본 16)")
+   shift.add_argument("--report", dest="report", help="보고 JSON")
+
 
 def _add_ui(subs) -> None:
    node = subs.add_parser("ui", help="UI 명령 묶음")
@@ -439,6 +551,13 @@ def _add_ui(subs) -> None:
    stretch.add_argument("--mode", dest="mode", default="stretch", choices=["stretch", "tile"], help="stretch(Unity Sliced, 기본) · tile")
    stretch.add_argument("--scale", dest="scale", type=int, default=1, help="배율 (기본 1)")
 
+   glyphs = inner.add_parser("glyphs", help="글꼴에 없는 글자 찾기 (없으면 fail)", parents=[COMMON])
+   glyphs.add_argument("--font", dest="font", required=True, help="ttf · otf 글꼴 파일")
+   glyphs.add_argument("--text", dest="text", help="검사할 글자 (--text-file 과 둘 중 하나)")
+   glyphs.add_argument("--text-file", dest="text_file", help="글자 파일 (ui font 가 낸 것 그대로)")
+   glyphs.add_argument("--size", dest="size", type=int, default=16, help="그려 볼 글자 크기 (기본 16)")
+   glyphs.add_argument("--report", dest="report", help="보고 JSON")
+
 
 def _add_provider(subs) -> None:
    node = subs.add_parser("provider", help="제공자")
@@ -487,7 +606,8 @@ def _run_late(args, module_name: str, func_name: str) -> dict:
 
 # --report 와 견줄 인자들 — 읽는 파일 · 쓰는 그림. 보고 JSON 이 이 중 하나를 덮으면 안 된다 (리뷰 R1-M5)
 REPORT_GUARDED = ("in_dir", "in_file", "base", "original", "template", "spec", "manifest", "layout", "tileset",
-                  "rules", "map_file", "skeleton", "markers", "out_file", "out_dir", "sheet", "out")
+                  "rules", "map_file", "skeleton", "markers", "out_file", "out_dir", "sheet", "out",
+                  "b64", "mark", "mask", "font", "text_file")
 
 
 def _guard_report(args) -> None:
