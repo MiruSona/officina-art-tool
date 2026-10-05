@@ -26,7 +26,7 @@ from .. import image
 from ..checks import warning
 from ..errors import ArtToolError, UsageError
 from ..palette import parse_hex, to_hex
-from . import list_inputs, plan_outputs
+from . import dry_run_fields, is_dry_run, list_inputs, plan_outputs
 
 VERSION = 1
 # 이만큼 넘게 지웠으면 키가 바탕이 아니라 그림 색이었을 수 있다.
@@ -246,16 +246,19 @@ def run(args) -> dict:
    if shave < 0:
       raise UsageError(f"--shave 는 0 이상이다 : {shave}")
 
+   dry_run = is_dry_run(args)
    inputs = list_inputs(args.in_dir)
    outs = plan_outputs(inputs, args.in_dir, args.out_dir)
    rows, warnings = [], []
    for source, target in zip(inputs, outs):
       result, info = cutout(image.load(source), key, tol, shave)
-      image.save(target, result)
-      rows.append({"file": source.name, "out": str(target), **info})
+      if not dry_run:
+         image.save(target, result)
+      rows.append({"file": source.name, "out": None if dry_run else str(target), **info})
       warnings += image_warnings(source.name, info)
 
    return {
+      **dry_run_fields(dry_run, outs),
       "version": VERSION,
       "status": "warn" if warnings else "ok",
       "key": args.key,

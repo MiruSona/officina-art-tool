@@ -80,6 +80,7 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 ## 꼭 지킬 것
 
 - **비교판 PNG 는 직접 열어서 본다.** 검사가 `ok` 여도 실루엣 · 4색 판에서 무엇인지 안 읽히면 다시 그린다.
+- **쓰기 전에 `--dry-run` 으로 본다.** `cutout` · `trim` · `reline` · `tint` · `merge-colors` 다섯은 아무것도 안 쓰고 보고(`would_write` · 경고)만 낸다. 다른 쓰는 명령에 붙이면 종료 2 다.
 - **원본은 안 고친다.** 손질 · 겹 명령은 모두 `--out` 새 폴더에 쓴다. 받은 그림은 `raw/` 에 그대로 둔다.
   쓸 자리가 읽은 그림과 겹치면 명령이 아무것도 안 쓰고 종료 2 로 멈춘다 — 다른 폴더를 준다.
 - **캐릭터 크기 · 비율** : 기본 본보기는 48×64 `sd`(약 2등신 · 큰 머리). `char_small` 은 64 미만이면 sd, 64 는 `tall`(4등신)이 기본이다 — 다른 비율은 `--preset sd|chibi|tall`.

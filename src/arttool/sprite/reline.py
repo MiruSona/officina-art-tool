@@ -24,7 +24,7 @@ import numpy as np
 
 from .. import image
 from ..checks import warning
-from ..edit import list_inputs, plan_outputs
+from ..edit import dry_run_fields, is_dry_run, list_inputs, plan_outputs
 from ..errors import ArtToolError, UsageError
 from ..palette import parse_hex, to_hex
 from ..paths import guard_outside
@@ -114,7 +114,9 @@ def _target(args) -> tuple[int, int, int] | None:
    if getattr(args, "color", None):
       return _parse(args.color, "--color")
    if getattr(args, "profile", None):
-      return _parse(str(load_profile_args(args).palette.get("outline") or ""), "프로필 palette.outline")
+      outline = load_profile_args(args).palette.get("outline")
+      if outline:        # null · 빈 글이면 「외곽선 색 없음」 — 다음 순서(고리의 어두운 색)로 간다. merge-colors 와 같은 읽기
+         return _parse(str(outline), "프로필 palette.outline")
    return None
 
 
@@ -169,6 +171,7 @@ def run(args) -> dict:
    if not 0 <= tol <= 255:
       raise UsageError(f"--tol 은 0~255 다 : {tol}")
    target = _target(args)
+   dry_run = is_dry_run(args)
 
    inputs = list_inputs(args.in_dir)
    outs = plan_outputs(inputs, args.in_dir, args.out_dir)
@@ -177,14 +180,16 @@ def run(args) -> dict:
    rows, warnings = [], []
    for source, dest in zip(inputs, outs):
       result, info = reline(image.load(source), target, pick, scope, tol, from_colors)
-      image.save(dest, result)
+      if not dry_run:
+         image.save(dest, result)
       warnings += image_warnings(source.name, info)
       info.pop("no_alpha")
       info.pop("no_target", None)
       info.pop("from_missing", None)       # 경고 reline.from_missing 에 싣는다
-      rows.append({"file": source.name, "out": str(dest), **info})
+      rows.append({"file": source.name, "out": None if dry_run else str(dest), **info})
 
    return {
+      **dry_run_fields(dry_run, outs),
       "version": VERSION,
       "status": "warn" if warnings else "ok",
       "pick": pick,

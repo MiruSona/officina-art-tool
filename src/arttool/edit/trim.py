@@ -17,7 +17,7 @@ from pathlib import Path
 from .. import image
 from ..checks import warning
 from ..errors import ArtToolError, UsageError
-from . import list_inputs, plan_outputs
+from . import dry_run_fields, is_dry_run, list_inputs, plan_outputs
 
 VERSION = 1
 Box = tuple[int, int, int, int]
@@ -96,9 +96,11 @@ def run(args) -> dict:
       raise UsageError(f"--pad 는 0 이상이다 : {pad}")
    square, common = bool(args.square), bool(args.common)
 
+   dry_run = is_dry_run(args)
    inputs = list_inputs(args.in_dir)
    outs = plan_outputs(inputs, args.in_dir, args.out_dir)
    arrs = [image.load(f) for f in inputs]
+   would_write = []
 
    if common:
       _check_same_size(inputs, arrs)
@@ -117,12 +119,15 @@ def run(args) -> dict:
          rows.append({**row, "out": None, "skipped": True})
          continue
       cut, offset = result
-      image.save(target, cut)
+      would_write.append(target)
+      if not dry_run:
+         image.save(target, cut)
       if common and image.bbox(arr) is None:
          warnings.append(warning("trim.empty", f"{source.name} : 빈 그림이다 (--common 이라 같은 자리로 잘라 썼다)", [source.name]))
-      rows.append({**row, "out": str(target), "size": list(image.size(cut)), "offset": list(offset), "skipped": False})
+      rows.append({**row, "out": None if dry_run else str(target), "size": list(image.size(cut)), "offset": list(offset), "skipped": False})
 
    return {
+      **dry_run_fields(dry_run, would_write),
       "version": VERSION,
       "status": "warn" if warnings else "ok",
       "pad": pad,

@@ -13,6 +13,18 @@ from ..errors import ArtToolError, UsageError
 from ..paths import guard_overwrite, jailed_output, png_files, resolve_root, safe_join
 
 
+def is_dry_run(args) -> bool:
+   """`--dry-run` 이면 쓰기 앞 검사까지 다 돌고 쓰는 자리만 건너뛴다 (cutout · trim · reline · tint · merge-colors)."""
+   return bool(getattr(args, "dry_run", False))
+
+
+def dry_run_fields(dry_run: bool, would_write) -> dict:
+   """dry-run 일 때만 보고에 더할 칸 {dry_run, would_write}. 아닐 때는 빈 dict 라 보고 꼴이 그대로다."""
+   if not dry_run:
+      return {}
+   return {"dry_run": True, "would_write": [str(p) for p in would_write if p is not None]}
+
+
 def list_inputs(path: str | Path) -> list[Path]:
    source = Path(path)
    if not source.exists():

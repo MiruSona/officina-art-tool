@@ -138,9 +138,11 @@ COMMON = _common()
 def build_parser() -> argparse.ArgumentParser:
    parser = argparse.ArgumentParser(prog="arttool", description="2D 그림 규격 맞추기 · 앵커 · 검수 · 굽기")
    parser.add_argument("--profile", help="프로필 이름 또는 yaml 경로")
-   parser.add_argument("--provider", default=providers.DEFAULT, help="그림을 만들 제공자")
-   parser.add_argument("--dry-run", action="store_true", help="부르지 말고 견적만")
-   parser.add_argument("--force", action="store_true", help="검수를 건너뛴다")
+   # 기본값을 None 으로 둔다 — 「안 줬다」를 가려야 provider make 밖에서 준 것을 거절할 수 있다. 기본 제공자는 _run_provider 가 채운다
+   parser.add_argument("--provider", default=None, help=f"그림을 만들 제공자 (기본 {providers.DEFAULT}). provider make 만 받는다")
+   parser.add_argument("--dry-run", action="store_true",
+                       help="쓰지 않고 보고만 낸다 (생성 명령은 요청 JSON 만 쓴다). 받는 명령이 정해져 있고 그 밖이면 종료 2")
+   parser.add_argument("--force", action="store_true", help="검수를 건너뛴다. bake · ui bake · style extract 만 받는다")
    parser.add_argument("--json", action="store_true", dest="as_json", help="사람용 표 대신 JSON")
    parser.add_argument("--directions", type=int, help="방향 수를 덮어쓴다")
 
@@ -650,8 +652,52 @@ def _guard_report(args) -> None:
    guard_overwrite([report], reads, "--report")
 
 
+# 공통 인자를 실제로 쓰는 명령 (2026-10-05). 표 밖 명령에 그 인자가 오면 조용히 무시하지 않고 종료 2 로 거절한다.
+# dry-run 은 세 무리로 나눈다. 새 명령은 셋 중 한 곳에 꼭 넣는다 — 빠뜨리면 test_dry_run 이 깨진다.
+DRY_RUN_TAKES = {
+   ("cutout", None), ("trim", None), ("reline", None), ("tint", None), ("merge-colors", None),   # 안 쓰고 보고만
+   ("tile", "place"), ("provider", "make"),                                                      # 바깥을 안 부르고 요청 JSON 만
+}
+# 파일을 안 쓰는 명령 — 쓸 것이 없어 dry-run 을 그대로 받는다 (--report 는 cli 가 쓴다)
+DRY_RUN_HARMLESS = {
+   ("profile", "show"), ("check", None), ("layers", "check"), ("tile", "inspect"), ("ui", "check"), ("ui", "glyphs"),
+   ("template", "list"), ("template", "show"), ("provider", "list"),
+}
+# 파일을 쓰는데 dry-run 을 지원하지 않는 명령. 옵션에 따라서만 쓰는 명령(bands --mark · extend period --out · tile seam --sheet)도 여기
+DRY_RUN_REFUSED = {
+   ("normalize", None), ("anchors", None), ("bake", None), ("split", None), ("recolor", None), ("sheet", None),
+   ("intake", None), ("bands", None), ("stitch", None),
+   ("layers", "compose"), ("layers", "diff"), ("layers", "mask"), ("layers", "view"), ("layers", "export"),
+   ("tile", "blob"), ("tile", "ldtk"), ("tile", "preview"), ("tile", "seam"), ("tile", "offset"),
+   ("ui", "frame"), ("ui", "import"), ("ui", "icons"), ("ui", "bake"), ("ui", "screen"), ("ui", "font"), ("ui", "preview"),
+   ("template", "render"), ("style", "extract"), ("style", "ref"),
+   ("extend", "period"), ("extend", "ring"), ("extend", "canvas"),
+}
+FORCE_TAKES = {("bake", None), ("ui", "bake"), ("style", "extract")}
+PROVIDER_TAKES = {("provider", "make")}
+
+
+def _label(key: tuple[str, str | None]) -> str:
+   return " ".join(part for part in key if part)
+
+
+def _guard_common(args) -> None:
+   """공통 인자를 안 쓰는 명령에 그 인자가 오면 UsageError. 명령 앞에 붙인 전역 자리도 같은 칸이라 같이 걸린다."""
+   key = _command_key(args)
+   checks = (
+      ("--dry-run", getattr(args, "dry_run", False), DRY_RUN_TAKES | DRY_RUN_HARMLESS, DRY_RUN_TAKES),
+      ("--force", getattr(args, "force", False), FORCE_TAKES, FORCE_TAKES),
+      ("--provider", getattr(args, "provider", None) is not None, PROVIDER_TAKES, PROVIDER_TAKES),
+   )
+   for flag, given, takes, shown in checks:
+      if given and key not in takes:
+         names = " · ".join(sorted(_label(k) for k in shown))
+         raise UsageError(f"이 명령({_label(key)})은 {flag} 인자를 안 받는다 (받는 명령 : {names})")
+
+
 def run(args) -> dict:
    _guard_report(args)
+   _guard_common(args)
    late = LATE.get(_command_key(args))
    if late is not None:
       return _run_late(args, *late)
@@ -837,7 +883,9 @@ def _run_provider(args) -> dict:
       seed=spec.get("seed"),
       dry_run=args.dry_run,
    )
-   return providers.get(args.provider).make(req).to_json()
+   # 안 준 것(None)만 기본 제공자. 빈 이름 "" 은 그대로 넘겨 「모르는 제공자」 오류가 나게 한다
+   name = providers.DEFAULT if args.provider is None else args.provider
+   return providers.get(name).make(req).to_json()
 
 
 def _print_human(data) -> None:

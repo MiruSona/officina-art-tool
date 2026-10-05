@@ -4,7 +4,7 @@
 Unity 가 바로 쓸 데이터로 굽는 툴이다. 그림을 그려 주는 툴은 아니다.
 **그림 뽑기는 PixelLab MCP(또는 PIL · 손그림)로 하고, ArtTool 은 그 뒤 손질 · 규격 · 검수를 맡는다. ArtTool 이 PixelLab 을 부르지는 않는다.**
 
-**상태 : 스프라이트 · 타일 · UI 1차 끝 + 2026-10-04 개선 판(손질 · 비교판 · 경고 검사 · 템플릿 · 화풍 · 겹) 구현 · 보강 끝, 커밋 · 푸시 끝(`c5fa2ec`) + 2026-10-04 피드백 후속 판(새 명령 10개 · 옵션 2개) 구현 · 배선 · 실물 확인 끝, 커밋 · 푸시 끝(`e0f9c9e`) + 2026-10-05 피드백 판(외곽선 accept · `reline --from` · 보고 칸 더함) · `merge-colors` 구현 끝(시험 1590), 커밋 전**
+**상태 : 스프라이트 · 타일 · UI 1차 끝 + 2026-10-04 개선 판(손질 · 비교판 · 경고 검사 · 템플릿 · 화풍 · 겹) 구현 · 보강 끝, 커밋 · 푸시 끝(`c5fa2ec`) + 2026-10-04 피드백 후속 판(새 명령 10개 · 옵션 2개) 구현 · 배선 · 실물 확인 끝, 커밋 · 푸시 끝(`e0f9c9e`) + 2026-10-05 피드백 판(외곽선 accept · `reline --from` · 보고 칸 더함) · `merge-colors` 커밋 끝(`cc41deb`) + 2026-10-05 `--dry-run` 판(받는 명령 표 · 손질 넷 지원) 구현 끝(시험 1614), 커밋 전**
 
 ## 설치
 
@@ -205,6 +205,15 @@ check:
 
 공통 인자 `--profile` `--provider` `--dry-run` `--force` `--json` `--directions` 는
 명령 앞에도 뒤에도 붙는다. `--json` 이면 사람용 표 대신 JSON 을 찍는다.
+**`--dry-run` · `--force` · `--provider` 는 받는 명령이 정해져 있다.** 그 밖의 명령에 주면 종료 2 로 멈춘다(2026-10-05, 전에는 조용히 무시).
+
+| 인자 | 받는 명령 |
+| --- | --- |
+| `--dry-run` | `cutout` · `trim` · `reline` · `tint` · `merge-colors`(아무것도 안 쓰고 보고만, `would_write`) · `tile place` · `provider make`(요청 JSON 만). 파일을 안 쓰는 `check` 류 · `profile show` · `template list`/`show` · `provider list` 는 받아도 같다 |
+| `--force` | `bake` · `ui bake` · `style extract` |
+| `--provider` | `provider make` |
+
+자세한 것은 `Docs/Guide/명령안내.md` 0절.
 
 **출력은 늘 UTF-8 이다.** 파이프 · 파일로 나가도 한글이 안 깨진다(cp949 로 받아야 하면 `PYTHONIOENCODING` 을 준다).
 PowerShell 5.1 에서 `$x = arttool …` 로 받으면 콘솔 인코딩(cp949)으로 읽어 깨질 수 있다 —

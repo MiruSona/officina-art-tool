@@ -25,7 +25,7 @@ import numpy as np
 from .. import image
 from ..checks import LOW_SAT, hue_gap, hue_sat, warning
 from ..checks.pixels import close_pair_arrays
-from ..edit import list_inputs, plan_outputs
+from ..edit import dry_run_fields, list_inputs, plan_outputs
 from ..errors import ArtToolError, UsageError
 from ..palette import load_ramps, parse_hex, to_hex
 from ..paths import guard_outside, guard_overwrite, jailed_output
@@ -391,7 +391,10 @@ def run(args) -> dict:
    status = "warn" if warnings else "ok"
    if any(r["position_diff"] for r in rows):
       status = "fail"
+   # dry_run 칸은 처음부터 늘 실었다(그대로 둔다). would_write 는 다른 손질 명령처럼 dry-run 일 때만
+   extra = dry_run_fields(dry_run, [*outs, sheet_path])
    return {
+      **extra,
       "version": VERSION,
       "status": status,
       "mode": mode,

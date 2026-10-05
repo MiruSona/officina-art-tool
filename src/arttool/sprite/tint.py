@@ -13,7 +13,7 @@ import numpy as np
 
 from .. import image
 from ..checks import warning
-from ..edit import list_inputs
+from ..edit import dry_run_fields, is_dry_run, list_inputs
 from ..errors import ArtToolError, UsageError
 from ..palette import parse_hex, to_hex
 from ..paths import guard_outside, guard_overwrite, jailed_output, resolve_root, safe_join
@@ -89,28 +89,31 @@ def run(args) -> dict:
    if Path(args.in_dir).is_dir():
       guard_outside([*writes, sheet_path], [args.in_dir])
 
+   dry_run = is_dry_run(args)
    rows, warnings, board = [], [], []
    for source, targets in zip(inputs, plan):
       arr = image.load(source)
       made = [tint(arr, rgb) for rgb in colors]
-      for path, result in zip(targets, made):
-         image.save(path, result)
+      if not dry_run:
+         for path, result in zip(targets, made):
+            image.save(path, result)
       luma = mean_luma(arr)
       if luma is not None and luma < DARK_SOURCE:
          warnings.append(warning("tint.dark_source", f"{source.name} : 평균 밝기 {luma:.0f} < {DARK_SOURCE} — 곱하면 탁해진다. 흰 · 밝은 회색으로 뽑는다", [source.name]))
       rows.append({"file": source.name, "outputs": [p.name for p in targets], "mean_luma": None if luma is None else round(luma, 1)})
       board.append([arr, *made])
 
-   if sheet_path is not None:
+   if sheet_path is not None and not dry_run:
       cells = [cell for row in board for cell in row]
       image.save(sheet_path, image.contact_sheet(cells, scale, cols=len(colors) + 1))
 
    return {
+      **dry_run_fields(dry_run, [*writes, sheet_path]),
       "version": VERSION,
       "status": "warn" if warnings else "ok",
       "colors": [to_hex(c) for c in colors],
       "images": rows,
-      "sheet": str(sheet_path) if sheet_path else None,
+      "sheet": str(sheet_path) if sheet_path and not dry_run else None,
       "warnings": warnings,
       "out": str(resolve_root(args.out_dir)),
    }
