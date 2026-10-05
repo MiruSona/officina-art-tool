@@ -99,6 +99,12 @@ CONTRACT = [
       ["tint", "--in", "white", "--colors", "#E85D5D,#5DA0E8", "--out", "t"],
       {"in_dir": "white", "colors": "#E85D5D,#5DA0E8", "out_dir": "t", "sheet": None, "scale": 4, "report": None},
    ),
+   (
+      ["merge-colors", "--in", "raw", "--out", "o"],
+      # tol · max_colors 는 None — 셋 다 안 준 것(near_colors 문턱)과 --palette 와 같이 준 것을 merge.run 이 가린다
+      {"in_dir": "raw", "out_dir": "o", "tol": None, "max_colors": None, "palette": False, "keep": None, "per_image": False,
+       "sheet": None, "scale": 4, "report": None},
+   ),
    # 이미 LATE 인 명령에 붙인 새 인자
    (
       ["layers", "diff", "--base", "b.png", "--in", "inp", "--out", "set", "--drop", "hair:#F2C9A0,#3A5BD9", "--drop", "hat:#112233"],
@@ -282,6 +288,26 @@ def test_reline_from_through_cli(tmp_path):
    assert cli.main(base + ["--pick", "all"]) == errors.EXIT_USAGE
    assert cli.main(base + ["--tol", "10"]) == errors.EXIT_USAGE
    assert cli.main(["reline", "--in", str(src), "--out", str(tmp_path / "o2"), "--from", "#GGGGGG"]) == errors.EXIT_USAGE
+
+
+def test_merge_colors_through_cli(tmp_path):
+   """merge-colors 는 CLI 를 거쳐 돈다. --palette 와 --tol 을 같이 주면 종료 2, --dry-run 은 아무 그림도 안 쓴다."""
+   src = tmp_path / "in"
+   src.mkdir()
+   arr = image.new(4, 1)
+   arr[0, 0:3] = (0, 0, 0, 255)
+   arr[0, 3] = (2, 2, 2, 255)
+   image.save(src / "a.png", arr)
+   base = ["merge-colors", "--in", str(src), "--out", str(tmp_path / "o")]
+   assert cli.main(base + ["--dry-run", "--report", str(tmp_path / "r.json")]) == errors.EXIT_OK
+   assert not (tmp_path / "o").exists()
+   assert read_json(tmp_path / "r.json")["dry_run"] is True
+   assert cli.main(base + ["--report", str(tmp_path / "r.json")]) == errors.EXIT_OK
+   report = read_json(tmp_path / "r.json")
+   assert report["merge_table"] == {"#020202": "#000000"} and report["tol_from"] == "near_colors.max_delta"
+   assert image.count_colors(image.load(tmp_path / "o" / "a.png")) == 1
+   assert cli.main(base + ["--palette", "--tol", "3"]) == errors.EXIT_USAGE
+   assert cli.main(base + ["--keep", "#GGGGGG"]) == errors.EXIT_USAGE
 
 
 def test_reline_without_pick_tol_reports_defaults(tmp_path):

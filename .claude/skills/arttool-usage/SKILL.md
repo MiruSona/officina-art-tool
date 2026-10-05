@@ -73,6 +73,7 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 | 되풀이 단위 · 한 바퀴 그림 · 배경 늘리기 | `arttool extend period --in fence.png --tile 32` · `extend ring … --snap` · `extend canvas --in bg.png --size 360x1000 --out o.png` |
 | 외곽선 한 색 · 흰 겹에 색 곱하기 | `arttool reline --in raw --out o [--color #hex] [--from #hex,#hex]` (`--from` 은 바꿀 선 색을 직접 고른다 — 밝기가 같은 다른 선은 그대로. `--scope colors` 를 더하면 그림 전체의 그 색) · `arttool tint --in white --colors #E85D5D,#5DA0E8 --out t --sheet s.png` |
 | 겹 떼기에서 뺨 · 옷 점 빼기 | `layers diff … --drop hair:#F2C9A0` |
+| 가까운 색 합치기 (`check` 가 `max_colors` · `near_colors` 로 걸리면) | `arttool merge-colors --in raw --out o [--max-colors 24] [--keep #hex] --sheet s.png` (아무것도 안 주면 `near_colors` 문턱으로. 평균색은 안 만든다. `--dry-run` 으로 `merge_table` 먼저 보기) |
 | 좌표 읽는 눈금 판 · 글꼴에 없는 글자 | `arttool sheet --in a.png --grid 8 --out g.png` · `arttool ui glyphs --font f.ttf --text-file chars.txt` |
 | 프로필 값 보기 | `arttool --profile P profile show` |
 

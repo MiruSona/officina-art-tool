@@ -4,7 +4,7 @@
 Unity 가 바로 쓸 데이터로 굽는 툴이다. 그림을 그려 주는 툴은 아니다.
 **그림 뽑기는 PixelLab MCP(또는 PIL · 손그림)로 하고, ArtTool 은 그 뒤 손질 · 규격 · 검수를 맡는다. ArtTool 이 PixelLab 을 부르지는 않는다.**
 
-**상태 : 스프라이트 · 타일 · UI 1차 끝 + 2026-10-04 개선 판(손질 · 비교판 · 경고 검사 · 템플릿 · 화풍 · 겹) 구현 · 보강 끝, 커밋 · 푸시 끝(`c5fa2ec`) + 2026-10-04 피드백 후속 판(새 명령 10개 · 옵션 2개) 구현 · 배선 · 실물 확인 끝, 커밋 · 푸시 끝(`e0f9c9e`) + 2026-10-05 피드백 판(외곽선 accept · `reline --from` · 보고 칸 더함) 구현 끝, 커밋 전**
+**상태 : 스프라이트 · 타일 · UI 1차 끝 + 2026-10-04 개선 판(손질 · 비교판 · 경고 검사 · 템플릿 · 화풍 · 겹) 구현 · 보강 끝, 커밋 · 푸시 끝(`c5fa2ec`) + 2026-10-04 피드백 후속 판(새 명령 10개 · 옵션 2개) 구현 · 배선 · 실물 확인 끝, 커밋 · 푸시 끝(`e0f9c9e`) + 2026-10-05 피드백 판(외곽선 accept · `reline --from` · 보고 칸 더함) · `merge-colors` 구현 끝(시험 1590), 커밋 전**
 
 ## 설치
 
@@ -157,6 +157,7 @@ arttool provider make  --kind character --spec req.json --out gen/ --dry-run
 | `reline --in raw/ --out o/ [--color #hex] [--pick dark\|all] [--scope ring\|colors] [--tol 40]` | 외곽선을 한 색으로 |
 | `reline … --from #hex[,#hex…]` | 바꿀 선 색을 직접 준다 — 고리 칸 중 그 색만(`--scope colors` 면 그림 전체의 그 색). `--pick` · `--tol` 과 같이 못 쓴다 (2026-10-05) |
 | `tint --in white/ --colors #E85D5D,#5DA0E8 --out t/ [--sheet s.png]` | 흰 겹 × 색 곱하기 → 색마다 한 장 |
+| `merge-colors --in raw/ --out o/ [--tol N \| --max-colors N \| --palette] [--keep #hex,…] [--per-image] [--sheet s.png] [--dry-run]` | 가까운 색을 많이 쓰인 쪽으로 합친다 — `check` 가 `max_colors` · `near_colors` 로 걸릴 때. 평균색은 안 만든다 (2026-10-05) |
 | `ui glyphs --font f.ttf (--text "…" \| --text-file t.txt)` | 글꼴에 없는 글자 찾기. 있으면 `fail`(종료 4) |
 | `layers diff … --drop 겹:#hex[,#hex] [--drop-tol 24]` | 겹 떼기에서 그 겹의 이 색 칸을 뺀다 (뺨 · 옷 점이 머리 겹에 묻을 때) |
 | `sheet … --grid 8 [--grid-color #hex]` | zoom 판에 원본 N 칸 눈금 · 좌표 (배율 4 이상) |

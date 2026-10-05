@@ -106,16 +106,26 @@ def measure_near_colors(arr: np.ndarray, max_delta: int = 4) -> list[dict]:
    return pairs
 
 
-def _close_pairs(colors: np.ndarray, max_delta: int) -> list[tuple[int, int, int]]:
-   """색 번호 쌍 (a < b, 차이). 색을 (max_delta + 1) 크기 상자에 나눠 이웃 상자끼리만 견준다.
+def close_pairs(colors: np.ndarray, max_delta: int) -> list[tuple[int, int, int]]:
+   """색 번호 쌍 (a < b, 차이). 셈은 `close_pair_arrays`, 여기서는 파이썬 목록으로 바꾸기만 한다. 돌려주는 차례는 (a, b) 순이다."""
+   a, b, gap = close_pair_arrays(colors, max_delta)
+   return [(int(x), int(y), int(g)) for x, y, g in zip(a, b, gap)]
+
+
+_close_pairs = close_pairs   # 옛 이름. 이미 부르는 자리를 그대로 둔다
+
+
+def close_pair_arrays(colors: np.ndarray, max_delta: int, limit: int | None = None):
+   """색 번호 쌍을 numpy 배열 셋 (a, b, 차이) 으로. 짝이 limit 을 넘으면 None. 색을 (max_delta + 1) 크기 상자에 나눠 이웃 상자끼리만 견준다.
 
    가까운 두 색은 각 칸에서 상자 하나 이상 떨어질 수 없다. 색이 수만 가지인 그림(도트가 아닌 그림)도 메모리가 안 터진다.
    상자 번호로 색을 정렬해 두고, 이웃 상자 27 개마다 「그 상자에 든 색 구간」을 searchsorted 로 한 번에 찾는다 — 파이썬 줄 돌기가 없다.
-   돌려주는 차례는 (a, b) 순이다.
+   짝 수를 먼저 보고 목록으로 바꿀지 정하려는 쪽(`merge-colors`)이 이것을 바로 부른다. 차례는 (a, b) 순이다.
    """
    colors = np.asarray(colors, dtype=np.int64)
+   empty = np.zeros(0, dtype=np.int64)
    if len(colors) < 2:
-      return []
+      return empty, empty, empty
    step = max_delta + 1
    box = colors // step + 1                         # +1 : 이웃 상자 -1 도 음수가 안 되게
    span = int(box.max()) + 2
@@ -123,6 +133,7 @@ def _close_pairs(colors: np.ndarray, max_delta: int) -> list[tuple[int, int, int
    order = np.argsort(key, kind="stable")
    sorted_key = key[order]
    found_a, found_b = [], []
+   seen = 0
    for dr in (-1, 0, 1):
       for dg in (-1, 0, 1):
          for db in (-1, 0, 1):
@@ -141,13 +152,16 @@ def _close_pairs(colors: np.ndarray, max_delta: int) -> list[tuple[int, int, int
             near = np.abs(colors[a] - colors[b]).max(axis=1) <= max_delta    # 상자마다 바로 걸러 메모리를 작게
             found_a.append(a[near])
             found_b.append(b[near])
+            seen += int(near.sum())
+            if limit is not None and seen > limit:
+               return None     # 상한을 넘으면 나머지 상자는 안 본다 (짝이 수천만인 그림에서 메모리 · 시간을 아낀다)
    if not found_a:
-      return []
+      return empty, empty, empty
    a = np.concatenate(found_a)
    b = np.concatenate(found_b)
    gap = np.abs(colors[a] - colors[b]).max(axis=1)
    pick = np.lexsort((b, a))
-   return [(int(x), int(y), int(g)) for x, y, g in zip(a[pick], b[pick], gap[pick])]
+   return a[pick], b[pick], gap[pick]
 
 
 def judge_near_colors(pairs: list[dict], min_pairs: int = 1) -> list[str]:

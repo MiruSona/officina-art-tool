@@ -23,6 +23,7 @@
 | `style ref` · `bands` · `stitch` · `tile offset` | `arttool.style.ref` · `edit.bands` · `edit.stitch` · `tiles.offset` 의 `run` (피드백 후속 설계) |
 | `extend period` · `ring` · `canvas` | `arttool.extend.period` · `ring` · `canvas` 의 `run` |
 | `ui glyphs` · `reline` · `tint` | `arttool.ui.glyphs` · `sprite.reline` · `sprite.tint` 의 `run` |
+| `merge-colors` | `arttool.sprite.merge.run` (2026-10-05) |
 | `layers compose` | 여기서 `sprite.layers.compose_sheets` 를 바로 부른다 (옛 `layers`) |
 | `check --no-warn · --mode · --template` | `check.run(prof, in_dir, no_ramps, *, warn, mode, template)` — 그 세 칸을 받게 되면 넘긴다 |
 """
@@ -92,6 +93,7 @@ LATE: dict[tuple[str, str | None], tuple[str, str]] = {
    ("ui", "glyphs"): ("arttool.ui.glyphs", "run"),
    ("reline", None): ("arttool.sprite.reline", "run"),
    ("tint", None): ("arttool.sprite.tint", "run"),
+   ("merge-colors", None): ("arttool.sprite.merge", "run"),
 }
 
 # check.run 이 이 세 칸을 키워드로 받게 되면(D 갈래) 새 인자를 넘긴다.
@@ -165,6 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
    _add_extend(subs)
    _add_reline(subs)
    _add_tint(subs)
+   _add_merge(subs)
    return parser
 
 
@@ -433,6 +436,21 @@ def _add_tint(subs) -> None:
    node.add_argument("--colors", dest="colors", required=True, help="#RRGGBB[,#RRGGBB…]")
    node.add_argument("--out", dest="out_dir", required=True, help="결과 폴더. 이름은 <원래이름>_<RRGGBB>.png")
    node.add_argument("--sheet", dest="sheet", help="원본 + 색마다 늘어놓은 비교판 PNG")
+   node.add_argument("--scale", dest="scale", type=int, default=4, help="비교판 배율 (기본 4)")
+   node.add_argument("--report", dest="report", help="보고 JSON")
+
+
+def _add_merge(subs) -> None:
+   node = subs.add_parser("merge-colors", help="가까운 색 합치기 → 색 수 줄이기", parents=[COMMON])
+   node.add_argument("--in", dest="in_dir", required=True, help="PNG 한 장 또는 폴더(바로 아래 .png)")
+   node.add_argument("--out", dest="out_dir", required=True, help="결과 폴더 (한 장이면 .png 도 된다)")
+   # tol · max_colors 는 None 으로 받는다 — 셋 다 안 준 것(near_colors 문턱)과 --palette 와 같이 준 것을 merge.run 이 가린다
+   node.add_argument("--tol", dest="tol", type=int, help="RGB 각 칸 차이의 최댓값 ≤ N 이면 합친다 (0~255). 셋 다 안 주면 프로필 near_colors.max_delta")
+   node.add_argument("--max-colors", dest="max_colors", type=int, help="가장 가까운 짝부터 N 색까지 합친다. --tol 을 같이 주면 그 안의 짝만")
+   node.add_argument("--palette", dest="palette", action="store_true", help="프로필 ramps_file 색 중 가장 가까운 색으로 (--tol · --max-colors 와 같이 못 쓴다)")
+   node.add_argument("--keep", dest="keep", help="지킬 색 #RRGGBB[,#RRGGBB…] — 남는 색으로만 쓴다")
+   node.add_argument("--per-image", dest="per_image", action="store_true", help="장마다 따로 합친다 (기본은 입력 전체로 표 하나)")
+   node.add_argument("--sheet", dest="sheet", help="장마다 전 · 후를 늘어놓은 비교판 PNG")
    node.add_argument("--scale", dest="scale", type=int, default=4, help="비교판 배율 (기본 4)")
    node.add_argument("--report", dest="report", help="보고 JSON")
 
