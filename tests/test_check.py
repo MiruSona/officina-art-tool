@@ -232,6 +232,21 @@ def test_outline_against_style(tmp_path):
    assert unset["info"][0]["items"][0]["verdict"] == "black"
 
 
+def test_outline_accept_and_measured_values(tmp_path):
+   """accept 안의 판정은 통과 · 걸린 항목에는 solid_share · inner_share · hue_diff 를 싣는다 (피드백 2026-10-05)."""
+   arr = image.new(24, 24)
+   arr[2:22, 2:22] = (200, 80, 60, 255)
+   arr[2, 2:22] = arr[21, 2:22] = (0, 0, 0, 255)
+   arr[2:22, 2] = arr[2:22, 21] = (0, 0, 0, 255)
+   pics = folder(tmp_path, {"black.png": arr})
+   hit = check.run(helpers.tiny_profile(tmp_path, **{"style.outline": "selout", "check.warn.outline.accept": ["solid"]}), pics, no_ramps=True)
+   item = next(w for w in hit["warnings"] if w["rule"] == "outline")["items"][0]
+   assert {"solid_share", "inner_share", "hue_diff"} <= set(item)
+   assert item["solid_share"] == 1.0
+   ok = check.run(helpers.tiny_profile(tmp_path, **{"style.outline": "selout", "check.warn.outline.accept": ["black"]}), pics, no_ramps=True)
+   assert "outline" not in rules_of(ok)
+
+
 def test_isolated_color_cap_near_colors_in_one_run(tmp_path):
    arr = image.new(34, 34)
    arr[1:33, 1:33] = (90, 120, 160, 255)
@@ -303,6 +318,8 @@ def test_ramp_shape_runs_on_profile_ramps(tmp_path):
    prof = helpers.tiny_profile(tmp_path)
    report = check.run(prof, loose_dir(tmp_path))
    assert "ramp_shape" in rules_of(report)        # lpc_cloth 는 hue shift 가 없다
+   item = next(w for w in report["warnings"] if w["rule"] == "ramp_shape")["items"][0]
+   assert len(item["luma"]) == item["steps"]      # 칸마다 잰 밝기(luma)를 싣는다
    assert "ramp_shape" not in rules_of(check.run(prof, loose_dir(tmp_path), no_ramps=True))
 
 
@@ -335,6 +352,22 @@ def test_background_color_cap_and_max_colors(tmp_path):
    assert report["status"] == "fail"                       # 기존 max_colors 48 은 그대로 실패
    loose = helpers.tiny_profile(tmp_path, **{"check.background.max_colors": 100})
    assert check.run(loose, pics, no_ramps=True)["status"] == "ok"
+
+
+def test_max_colors_items_carry_ok_and_limit(tmp_path):
+   """max_colors items 마다 그 그림에 쓴 한도(limit)와 ok. 통과한 그림도 items 에 남는다 (피드백 2026-10-05)."""
+   bg = np.zeros((128, 128, 4), dtype=np.uint8)
+   bg[:, :, 3] = 255
+   for i in range(80):
+      bg[i, :, 0] = i * 3                                   # 80색 배경
+   pics = folder(tmp_path, {"a_small.png": helpers.blob(8, 8), "b_many.png": noise(16, 16, 1), "c_bg.png": bg})
+   prof = helpers.tiny_profile(tmp_path, **{"check.max_colors": 3, "check.background.max_colors": 100})
+   rule = next(r for r in check.run(prof, pics, no_ramps=True)["rules"] if r["rule"] == "max_colors")
+   by = {i["where"]: i for i in rule["items"]}
+   assert (by["a_small.png"]["limit"], by["a_small.png"]["ok"]) == (3, True)
+   assert (by["b_many.png"]["limit"], by["b_many.png"]["ok"]) == (3, False)
+   assert (by["c_bg.png"]["limit"], by["c_bg.png"]["ok"]) == (100, True)
+   assert rule["ok"] is False
 
 
 # --- 가이드 파일 건너뛰기 ---

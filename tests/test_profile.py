@@ -192,6 +192,12 @@ def test_color_cap_table_string_keys_from_json():
    assert P.Profile(data).color_cap_table()[16] == 5
 
 
+def test_outline_accept_default_and_list(tmp_path):
+   assert P.load_profile("topdown_action").warn("outline")["accept"] == []
+   prof = P.load_profile(_write(tmp_path, "check: { warn: { outline: { accept: [solid, selout+light] } } }\n"))
+   assert prof.warn("outline")["accept"] == ["solid", "selout+light"]
+
+
 @pytest.mark.parametrize(
    "text, word",
    [
@@ -204,6 +210,9 @@ def test_color_cap_table_string_keys_from_json():
       ("check: { warn: { isolated: { enabled: yes_please } } }\n", "enabled"),
       ("check: { warn: { isolated: { on: true } } }\n", "참거짓"),
       ("check: { warn: { jaggies: { enabled: true } } }\n", "모르는 항목"),
+      ("check: { warn: { outline: { accept: [foo] } } }\n", "outline.accept"),
+      ("check: { warn: { outline: { accept: [solid, unset] } } }\n", "outline.accept"),
+      ("check: { warn: { outline: { accept: solid } } }\n", "accept"),
       ("check: { warn: { color_cap: { table: { 16: 0 } } } }\n", "color_cap.table"),
       ("check: { warn: { color_cap: { table: { big: 8 } } } }\n", "color_cap.table"),
       ("check: { warn: { near_colors: { max_delta: 300 } } }\n", "max_delta"),

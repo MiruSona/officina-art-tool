@@ -30,6 +30,15 @@ def test_not_monotonic_warns():
    assert any("밝기" in w for w in ramp.judge_ramp(ramp.measure_ramp(colors), CFG))
 
 
+def test_not_monotonic_names_luma_and_values():
+   """무슨 밝기인지(luma) · 칸마다 잰 값을 글에 같이 적는다 (화풍통일준비 피드백 #12)."""
+   colors = [(40, 20, 20), (120, 50, 40), (90, 40, 30), (200, 120, 90)]
+   m = ramp.measure_ramp(colors)
+   line = next(w for w in ramp.judge_ramp(m, CFG) if "밝기" in w)
+   assert "luma" in line
+   assert all(f"{v:.1f}" in line for v in m["luma"])
+
+
 def test_metal_expects_reverse_direction():
    warm = palette.shade("#7080A0", steps=6, hue_step=15)
    cold = palette.shade("#7080A0", steps=6, hue_step=15, metal=True)

@@ -418,9 +418,12 @@ def _add_reline(subs) -> None:
    node.add_argument("--out", dest="out_dir", required=True, help="결과 폴더")
    node.add_argument("--color", dest="color",
                      help="외곽선 색 #RRGGBB. 안 주면 --profile 의 palette.outline, 그것도 없으면 고리의 어두운 칸에서 가장 많은 색")
-   node.add_argument("--pick", dest="pick", default="dark", choices=["dark", "all"], help="dark 고리의 어두운 칸만(기본) · all 고리 전부")
+   # pick · tol 기본(dark · 40)은 reline.run 이 채운다. 여기서 None 이어야 --from 과 같이 준 것을 가린다
+   node.add_argument("--pick", dest="pick", choices=["dark", "all"], help="dark 고리의 어두운 칸만(기본) · all 고리 전부")
    node.add_argument("--scope", dest="scope", default="ring", choices=["ring", "colors"], help="ring 고른 칸만(기본) · colors 그 색을 그림 전체에서")
-   node.add_argument("--tol", dest="tol", type=int, default=40, help="dark 폭. 고리의 가장 어두운 밝기 + N 까지 (기본 40)")
+   node.add_argument("--tol", dest="tol", type=int, help="dark 폭. 고리의 가장 어두운 밝기 + N 까지 (기본 40)")
+   node.add_argument("--from", dest="from_colors",
+                     help="바꿀 선 색 #RRGGBB[,#RRGGBB…]. 고리 칸 중 이 색인 칸만 바꾼다 (--pick · --tol 과 같이 못 쓴다)")
    node.add_argument("--report", dest="report", help="보고 JSON")
 
 

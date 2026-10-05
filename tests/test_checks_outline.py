@@ -54,6 +54,14 @@ def test_judge_against_style():
    assert outline.judge_outline(m, "unset") == []
 
 
+def test_judge_accepts_extra_verdicts():
+   """check.warn.outline.accept — style.outline 말고도 받아 주는 판정 (피드백 2026-10-05)."""
+   m = outline.measure_outline(box(SHADE, SHADE))          # selout
+   assert outline.judge_outline(m, "black", accept=["solid", "selout"]) == []
+   assert outline.judge_outline(m, "black", accept=["solid", "selout+light"])
+   assert outline.judge_outline(m, "black", accept=()) and outline.judge_outline(m, "black")
+
+
 def test_empty_picture_has_no_verdict():
    m = outline.measure_outline(image.new(8, 8))
    assert m["verdict"] is None and m["edges"] == 0

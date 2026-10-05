@@ -65,7 +65,8 @@ def judge_ramp(m: dict, cfg: dict, material: str | None = None) -> list[str]:
       pad = f" (채운 칸 {m['padded']} 뺌)" if m["padded"] else ""
       why.append(f"단 수 {m['steps']}{pad} — {material or '기본'} 은 {want}단")
    if not m["monotonic"]:
-      why.append("밝기가 칸마다 오르지 않는다")
+      values = " → ".join(f"{v:.1f}" for v in m["luma"])
+      why.append(f"밝기(luma)가 칸마다 오르지 않는다 — {values}")
 
    gaps = m["hue_steps"]
    if gaps and max(gaps) < float(cfg["hue_min"]):

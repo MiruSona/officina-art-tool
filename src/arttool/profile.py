@@ -48,7 +48,7 @@ FREE_MAPS = ("rigs.*.marker_colors", "rigs.*.anchor_z", "check.warn.color_cap.ta
 # 새 검사 일곱의 문턱값. isolated · color_cap · near_colors 는 실물 시험(2026-10-04, 기준 무리 146장)으로 맞췄다.
 WARN_DEFAULTS: dict = {
    "integer_scale": {"enabled": True, "block_ratio": 0.95, "smooth_ratio": 0.15},
-   "outline": {"enabled": True, "black_ratio": 0.8},
+   "outline": {"enabled": True, "black_ratio": 0.8, "accept": []},     # accept : style.outline 말고도 통과시킬 판정들
    "isolated": {"enabled": True, "max_ratio": 0.15},      # 0.03 이면 기준 무리 40% 가 걸렸다 → 0.15 면 8%
    "color_cap": {"enabled": True, "table": {8: 4, 16: 8, 32: 16, 48: 44, 64: 48, 128: 48, 256: 64}},   # 48 칸 p90 42 · 64 칸 p90 48 · 64 초과 p90 55. 칸이 커지면 한도도 줄지 않게
    "near_colors": {"enabled": True, "max_delta": 4, "min_pairs": 20},   # 짝이 20 개 넘어야 경고 (기준 38% → 3.4%)
@@ -520,6 +520,10 @@ def validate_warn(warn: dict) -> None:
    _ratio(warn["integer_scale"], "block_ratio", f"{where}.integer_scale")
    _ratio(warn["integer_scale"], "smooth_ratio", f"{where}.integer_scale")
    _ratio(warn["outline"], "black_ratio", f"{where}.outline")
+   accept = warn["outline"].get("accept")
+   allowed = [o for o in STYLE_OUTLINES if o != "unset"]
+   if not isinstance(accept, list) or not all(a in allowed for a in accept):
+      raise ProfileError(f"{where}.outline.accept 는 {' · '.join(allowed)} 중에서 고른 목록이다 : {accept}")
    _ratio(warn["isolated"], "max_ratio", f"{where}.isolated")
    _validate_color_cap(warn["color_cap"].get("table"), f"{where}.color_cap.table")
 

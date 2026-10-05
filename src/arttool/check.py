@@ -160,14 +160,17 @@ def rule_max_colors_each(frames: list[dict], limit: int, background_limit: int |
    """낱장 모드용. 낱장은 한 벌이 아니라 제각각이라 장마다 따로 센다.
 
    배경으로 본 그림(`item["background"]`)은 `check.background.max_colors` 가 있으면 그 한도로 본다.
+   items 는 통과한 그림도 다 싣는다. 장마다 `limit`(그 그림에 쓴 한도) · `ok` 가 붙는다.
    """
    items = []
    for i in frames:
       entry = {"where": where(i), "colors": pixel_check.color_count(i["arr"])}
       if i.get("background"):
          entry["background"] = True
+      entry["limit"] = _color_limit(entry, limit, background_limit)
+      entry["ok"] = entry["colors"] <= entry["limit"]
       items.append(entry)
-   bad = [e for e in items if e["colors"] > _color_limit(e, limit, background_limit)]
+   bad = [e for e in items if not e["ok"]]
    detail = f"한도 {limit}가지를 넘은 그림 {len(bad)}개"
    if background_limit is not None and any(e.get("background") for e in items):
       detail += f" (배경 그림은 {background_limit}가지)"
@@ -589,14 +592,16 @@ def _warnings(prof: Profile, frames: list[dict], groups: dict, ramps, no_ramps: 
 
 def _outline_warnings(prof: Profile, frames: list[dict], info: list, cache: dict) -> list[dict]:
    want = str(prof.style["outline"])
+   accept = prof.warn("outline")["accept"]
    items, seen, notes = [], [], []
    for item in frames:
       if item["background"]:
          continue   # 배경 그림은 가장자리가 없다
       m = _outline_of(prof, item, cache)
-      why = outline_check.judge_outline(m, want)
+      why = outline_check.judge_outline(m, want, accept)
       if why:
-         items.append(_entry(item, why, verdict=m["verdict"], black=m["black_ratio"], dark=m["dark_ratio"], lit=m["lit_ratio"]))
+         items.append(_entry(item, why, verdict=m["verdict"], black=m["black_ratio"], dark=m["dark_ratio"], lit=m["lit_ratio"],
+                             solid_share=m["solid_share"], inner_share=m["inner_share"], hue_diff=m["hue_diff"]))
       if want == "unset" and m["verdict"] is not None:
          seen.append({"where": where(item), "verdict": m["verdict"]})
       note = outline_check.small_note(m, want)
@@ -617,7 +622,7 @@ def _ramp_warnings(prof: Profile, ramps) -> list[dict]:
       m = ramp_check.measure_ramp(ramps.ramp(name), ramps.outline)
       why = ramp_check.judge_ramp(m, cfg, materials.get(name))
       if why:
-         items.append({"ramp": name, "why": why, "steps": m["steps"], "padded": m["padded"], "hue_steps": m["hue_steps"]})
+         items.append({"ramp": name, "why": why, "steps": m["steps"], "padded": m["padded"], "hue_steps": m["hue_steps"], "luma": m["luma"]})
    if not items:
       return []
    return [warning("ramp_shape", f"모양이 걸린 램프 {len(items)}줄", items)]

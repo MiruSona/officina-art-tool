@@ -198,13 +198,17 @@ def _verdict(m: dict, black_ratio: float) -> str:
    return "mixed"
 
 
-def judge_outline(m: dict, style_outline: str) -> list[str]:
-   """재 둔 값 → 걸린 까닭 목록. `unset` 이거나 가장자리가 없으면 늘 통과."""
+def judge_outline(m: dict, style_outline: str, accept=()) -> list[str]:
+   """재 둔 값 → 걸린 까닭 목록. `unset` 이거나 가장자리가 없으면 늘 통과.
+
+   accept 는 프로필 `check.warn.outline.accept` — style.outline 말고도 받아 주는 판정들.
+   """
    if style_outline == "unset" or m["verdict"] is None:
       return []
-   if m["verdict"] != style_outline:
-      return [f"외곽선 판정 {m['verdict']} 가 style.outline {style_outline} 과 다르다"]
-   return []
+   if m["verdict"] == style_outline or m["verdict"] in accept:
+      return []
+   also = f" (accept {' · '.join(accept)})" if accept else ""
+   return [f"외곽선 판정 {m['verdict']} 가 style.outline {style_outline}{also} 과 다르다"]
 
 
 def small_note(m: dict, style_outline: str) -> str | None:

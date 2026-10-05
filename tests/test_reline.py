@@ -137,6 +137,115 @@ def test_reline_refuses_in_place(tmp_path):
    assert np.array_equal(image.load(src / "a.png"), _sprite())
 
 
+def test_reline_from_changes_only_named_colors(tmp_path):
+   """--from — 같은 밝기의 선 색 둘 중 고른 색만 바꾼다 (피드백 2026-10-05)."""
+   arr = _sprite()
+   other = (20, 30, 20)
+   arr[1, 6] = (*other, 255)                                   # INK2 와 밝기가 비슷한 다른 선 색
+   src = _save(tmp_path, arr)
+   rep = reline.run(_args(src, tmp_path / "out", pick=None, tol=None, from_colors="#1E1414", color="#000000"))
+   out = image.load(tmp_path / "out" / "a.png")
+   assert tuple(out[1, 3, :3]) == (0, 0, 0) and tuple(out[1, 4, :3]) == (0, 0, 0)
+   assert tuple(out[1, 6, :3]) == other                       # 이름 안 준 색은 그대로
+   assert tuple(out[8, 5, :3]) == INK3
+   row = rep["images"][0]
+   assert row["changed"] == 2 and row["merged_colors"] == ["#1E1414"]
+   assert rep["from"] == ["#1E1414"]
+
+
+def test_reline_from_with_scope_colors_reaches_inside(tmp_path):
+   arr = _sprite()
+   arr[4, 4] = (*INK2, 255)                                    # 안쪽 선 한 칸
+   src = _save(tmp_path, arr)
+   reline.run(_args(src, tmp_path / "ring", pick=None, tol=None, from_colors="#1E1414", color="#000000"))
+   assert tuple(image.load(tmp_path / "ring" / "a.png")[4, 4, :3]) == INK2
+   rep = reline.run(_args(src, tmp_path / "all", pick=None, tol=None, from_colors="#1E1414", color="#000000", scope="colors"))
+   assert tuple(image.load(tmp_path / "all" / "a.png")[4, 4, :3]) == (0, 0, 0)
+   assert rep["images"][0]["changed"] == 3
+
+
+def test_reline_from_without_color_picks_from_rest_of_ring(tmp_path):
+   """--from 만 주면 목록 밖 어두운 고리 칸에서 가장 많은 색으로 바꾼다."""
+   src = _save(tmp_path, _sprite())
+   rep = reline.run(_args(src, tmp_path / "out", pick=None, tol=None, from_colors="#1E1414"))
+   assert rep["images"][0]["target"] == "#0A0A0A"
+   assert tuple(image.load(tmp_path / "out" / "a.png")[1, 3, :3]) == INK
+
+
+def test_reline_from_darkest_named_still_picks_rest(tmp_path):
+   """목록 색이 고리에서 가장 어두워도 남은 선 색(갈색)을 고른다 — 가장 어두운 밝기는 목록 밖 고리 칸에서 잰다 (리뷰 1)."""
+   brown = (0x46, 0x32, 0x28)
+   arr = image.new(10, 10)
+   arr[1:9, 1:9] = (*brown, 255)
+   arr[2:8, 2:8] = (*SKIN, 255)
+   arr[1, 1:9] = (0, 0, 0, 255)                                # 윗변만 순흑
+   src = _save(tmp_path, arr)
+   rep = reline.run(_args(src, tmp_path / "out", pick=None, tol=None, from_colors="#000000"))
+   row = rep["images"][0]
+   assert row["target"] == "#463228" and row["changed"] == 8
+   assert not any(w["rule"] == "reline.no_target" for w in rep["warnings"])
+
+
+def test_reline_from_no_target_warns(tmp_path):
+   """목록 밖 고리 칸이 없으면 안 바꾸고 reline.no_target."""
+   arr = image.new(10, 10)
+   arr[1:9, 1:9] = (*INK2, 255)
+   arr[2:8, 2:8] = (*SKIN, 255)
+   src = _save(tmp_path, arr)
+   rep = reline.run(_args(src, tmp_path / "out", pick=None, tol=None, from_colors="#1E1414"))
+   assert rep["images"][0]["changed"] == 0
+   assert any(w["rule"] == "reline.no_target" for w in rep["warnings"])
+   assert rep["status"] == "warn"
+
+
+def test_reline_from_missing_color_warns(tmp_path):
+   """목록 색이 대상 칸에 한 칸도 없으면 그 색을 적어 reline.from_missing (hex 오타 알아채기, 리뷰 2)."""
+   src = _save(tmp_path, _sprite())
+   rep = reline.run(_args(src, tmp_path / "out", pick=None, tol=None, from_colors="#1E1414,#ABCDEF", color="#000000"))
+   miss = [w for w in rep["warnings"] if w["rule"] == "reline.from_missing"]
+   assert len(miss) == 1 and "#ABCDEF" in miss[0]["detail"] and "#1E1414" not in miss[0]["detail"]
+   assert rep["status"] == "warn" and rep["images"][0]["changed"] == 2
+
+
+def test_reline_from_scope_colors_inner_only_color(tmp_path):
+   """--from + --scope colors 는 고리와 상관없이 그 색을 그림 전체에서 바꾼다 (리뷰 3).
+   --scope ring 이면 안쪽에만 있는 색은 안 걸려 from_missing."""
+   inner = (0x3C, 0x14, 0x14)
+   arr = _sprite()
+   arr[4, 4] = arr[4, 5] = (*inner, 255)
+   src = _save(tmp_path, arr)
+   ring_rep = reline.run(_args(src, tmp_path / "ring", pick=None, tol=None, from_colors="#3C1414", color="#000000"))
+   assert ring_rep["images"][0]["changed"] == 0
+   assert any(w["rule"] == "reline.from_missing" for w in ring_rep["warnings"])
+   rep = reline.run(_args(src, tmp_path / "all", pick=None, tol=None, from_colors="#3C1414", color="#000000", scope="colors"))
+   out = image.load(tmp_path / "all" / "a.png")
+   assert tuple(out[4, 4, :3]) == (0, 0, 0) and tuple(out[4, 5, :3]) == (0, 0, 0)
+   assert rep["images"][0]["changed"] == 2
+   assert not any(w["rule"] == "reline.from_missing" for w in rep["warnings"])
+
+
+def test_reline_from_many_colors_hint_does_not_suggest_tol(tmp_path):
+   arr = _sprite()
+   names = []
+   for i, x in enumerate(range(2, 9)):
+      arr[8, x] = (i * 4, i * 3, i * 2, 255)
+      names.append("#%02X%02X%02X" % (i * 4, i * 3, i * 2))
+   src = _save(tmp_path, arr)
+   rep = reline.run(_args(src, tmp_path / "out", pick=None, tol=None, from_colors=",".join(names), color="#FF0000"))
+   line = next(w for w in rep["warnings"] if w["rule"] == "reline.many_colors")
+   assert "--tol" not in line["detail"] and "--from" in line["detail"]
+
+
+def test_reline_from_rejects_bad_hex_and_pick_tol(tmp_path):
+   src = _save(tmp_path, _sprite())
+   for over in ({"from_colors": "#12345"}, {"from_colors": "#1E1414,zz"}, {"from_colors": " , "},
+                {"from_colors": "#1E1414", "pick": "dark"}, {"from_colors": "#1E1414", "tol": 10}):
+      values = {"pick": None, "tol": None, **over}
+      with pytest.raises(UsageError):
+         reline.run(_args(src, tmp_path / "out", **values))
+   assert not (tmp_path / "out").exists()
+
+
 def test_reline_bad_values_exit2(tmp_path):
    src = _save(tmp_path, _sprite())
    for over in ({"color": "#12345"}, {"pick": "light"}, {"scope": "all"}, {"tol": 300}):

@@ -92,7 +92,8 @@ CONTRACT = [
    ),
    (
       ["reline", "--in", "raw", "--out", "o"],
-      {"in_dir": "raw", "out_dir": "o", "color": None, "pick": "dark", "scope": "ring", "tol": 40, "report": None},
+      # pick · tol 기본(dark · 40)은 reline.run 이 채운다 — 안 준 것과 --from 과 같이 준 것을 가리려고 None 으로 받는다
+      {"in_dir": "raw", "out_dir": "o", "color": None, "pick": None, "scope": "ring", "tol": None, "from_colors": None, "report": None},
    ),
    (
       ["tint", "--in", "white", "--colors", "#E85D5D,#5DA0E8", "--out", "t"],
@@ -267,6 +268,30 @@ def test_report_must_be_json_and_not_an_input(tmp_path, capsys):
 def test_layers_view_takes_report():
    args = cli.build_parser().parse_args(["layers", "view", "--in", "s", "--out", "v.png", "--report", "v.json"])
    assert args.report == "v.json"
+
+
+def test_reline_from_through_cli(tmp_path):
+   """reline --from 은 CLI 를 거쳐 돈다. --pick · --tol 과 같이 주면 종료 2."""
+   src = tmp_path / "in"
+   src.mkdir()
+   image.save(src / "a.png", helpers.put_on_canvas(helpers.blob(8, 8), 10, 10, 1, 1))
+   base = ["reline", "--in", str(src), "--out", str(tmp_path / "o"), "--from", "#%02X%02X%02X" % helpers.DARK, "--color", "#000000"]
+   assert cli.main(base + ["--report", str(tmp_path / "r.json")]) == errors.EXIT_OK
+   report = read_json(tmp_path / "r.json")
+   assert report["from"] == ["#%02X%02X%02X" % helpers.DARK] and report["images"][0]["changed"] > 0
+   assert cli.main(base + ["--pick", "all"]) == errors.EXIT_USAGE
+   assert cli.main(base + ["--tol", "10"]) == errors.EXIT_USAGE
+   assert cli.main(["reline", "--in", str(src), "--out", str(tmp_path / "o2"), "--from", "#GGGGGG"]) == errors.EXIT_USAGE
+
+
+def test_reline_without_pick_tol_reports_defaults(tmp_path):
+   """인자 없이 부르면 보고에 기본 pick dark · tol 40 이 실린다 (argparse 기본을 None 으로 바꾼 뒤에도)."""
+   src = tmp_path / "in"
+   src.mkdir()
+   image.save(src / "a.png", helpers.put_on_canvas(helpers.blob(8, 8), 10, 10, 1, 1))
+   assert cli.main(["reline", "--in", str(src), "--out", str(tmp_path / "o"), "--report", str(tmp_path / "r.json")]) == errors.EXIT_OK
+   report = read_json(tmp_path / "r.json")
+   assert (report["pick"], report["tol"], report["from"]) == ("dark", 40, None)
 
 
 def test_check_new_args_are_passed_when_supported(tmp_path, monkeypatch):

@@ -168,6 +168,9 @@ arttool intake --in raw --out clean --no-trim --template work/guide/template.jso
 - `no_background=true` 는 밝은 면(크림 종이 · 밝은 윗판 줄)까지 투명으로 뚫는다. 그런 그림은 `false` 로 받아 `arttool intake`(cutout)로 지운다. 「solid teal background」 같은 바탕색 지시도 흰 바탕으로 올 때가 많다.
 - inpaint 로 고친 띠는 밝기가 +2 쯤 다르게 온다. 눈엔 안 보여도 `tile seam` 에는 잡힐 수 있다.
 - `animate_image` 는 싸고(6~7회) 받침 자리를 지킨다. 다만 창 · 유리 속에 덩이를 그려 넣는다(「stays plain」을 적어도) → 프레임마다 그 칸을 쉬는 그림으로 덮는 손질이 필요하다.
+- **도는 움직임(한 바퀴 돌기)은 `animate_image_pixminimax`** 로 뽑는다. `animate_image` 는 4분의 1 바퀴 뒤 뭉치거나 반쯤 돌다 되돌아왔다. pixminimax 는 16프레임에 360° 를 돌고 끝 그림이 첫 그림 자세로 돌아왔다(값 2회).
+  - pixminimax 는 색을 바꾼다 — 첫 두 장만 원래 옅은 색이고 셋째 장부터 진해진다. **첫 1~2장은 버리고, 색은 다시 입힌다.** 빈틈에 회색 `#80807F` 을 채우는 프레임도 있다 → `arttool cutout --in raw --out cut --key #80807F` 로 지운다.
+  - **꽉 찬 밑그림을 주면 꽉 찬 채로 돈다.** 빈틈 있는 밑그림을 주면 빈틈이 프레임마다 따라온다 — 밑그림이 정한다.
 - 같은 씨앗(seed)을 다시 쓰면 분위기가 이어진다.
 
 ### 8-5. 값 · 일
