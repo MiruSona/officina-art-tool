@@ -208,6 +208,16 @@ def _case_ui_font(work):
 
 
 
+def _case_frames_bake(work):
+   (work / "f").mkdir()
+   for i in range(2):
+      arr = image.new(4, 4)
+      arr[1 + i, 1] = (255, 0, 0, 255)
+      image.save(work / "f" / f"f{i}.png", arr)
+   return (["frames", "bake", "--in", str(work / "f"), "--out", "fo", "--foot", "auto", "--strip", "s.png", "--gif", "a.gif"],
+           ["fo/f0.png", "fo/f1.png", "s.png", "a.gif"])
+
+
 def _case_layers_fill(work):
    test_layers_ops.write_set(work / "set", test_layers_ops.three_layers())
    mask = image.new(test_layers_ops.W, test_layers_ops.H)
@@ -229,6 +239,7 @@ TAKES_CASES = {
    ("layers", "mask"): _case_mask,
    ("layers", "view"): _case_view,
    ("layers", "fill"): _case_layers_fill,
+   ("frames", "bake"): _case_frames_bake,
    ("tile", "preview"): _case_tile_preview,
    ("tile", "ldtk"): _case_ldtk,
    ("tile", "seam"): _case_seam,

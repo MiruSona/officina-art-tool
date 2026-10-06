@@ -99,6 +99,17 @@ def test_resolved_path_collision_refused():
    layerset.from_dict(data)
 
 
+@pytest.mark.parametrize("files, pick", [("p/co{v}.png", "n"), ("p/{v}x.png", "lpt1."), ("p/l{v}.png", "pt9")])
+def test_filled_reserved_name_refused(files, pick):
+   # 무늬 글자만 보면 멀쩡하지만 {v} 를 채우면 con.png · lpt9.png 같은 Windows 예약 이름이 되는 꼴
+   data = {"version": 2, "canvas": [4, 4], "items": [{"name": "a", "pick": {"body": pick}}],
+           "layers": [{"name": "body", "kind": "body", "files": files}]}
+   with pytest.raises(UsageError):
+      layerset.from_dict(data)
+   data["items"] = [{"name": "a", "pick": {"body": "ok"}}]
+   layerset.from_dict(data)
+
+
 def _render(out):
    from arttool import cli
    return cli.main(["template", "render", "char_small", "--size", "32", "--out", str(out)])

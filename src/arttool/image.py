@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from .errors import ArtToolError
+from .errors import ArtToolError, UsageError
 from .paths import ensure_parent
 
 RGBA = np.ndarray
@@ -56,6 +56,14 @@ def save(path: str | os.PathLike, arr: RGBA) -> None:
 
 
 GIF_ALPHA_CUT = 128        # 이 알파 밑은 투명, 위는 불투명 (GIF 는 반투명이 없다)
+# GIF 한 장 지연은 1/100초 단위 16비트(최대 655350ms). Pillow 가 똑같은 이웃 프레임을 합치며 지연을 더하므로
+# 최악(전부 같은 프레임)인 duration × 장 수가 이 값을 넘으면 저장 중에 날 오류로 죽는다 — 쓰기 전에 거절한다.
+GIF_MAX_TOTAL_MS = 655350
+
+
+def check_gif_duration(duration: int, count: int) -> None:
+   if duration * count > GIF_MAX_TOTAL_MS:
+      raise UsageError(f"--duration × 프레임 수가 GIF 한도를 넘는다 : {duration} × {count} > {GIF_MAX_TOTAL_MS} ms")
 
 
 def strip(frames: list[RGBA]) -> RGBA:
@@ -81,6 +89,7 @@ def save_gif(frames: list[RGBA], path: str | os.PathLike, duration: int, *, loop
    """
    if not frames:
       raise ArtToolError("GIF 에 넣을 프레임이 없다")
+   check_gif_duration(int(duration), len(frames))
    width = max(arr.shape[1] for arr in frames)
    height = max(arr.shape[0] for arr in frames)
    check_pixels(width * scale, height * scale, "GIF 프레임")

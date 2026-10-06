@@ -52,6 +52,11 @@ CONTRACT = [
       {"sub": "fill", "in_dir": "set", "mask": "m.png", "nearest": "ring,core", "color": None, "items": None, "out_dir": "o"},
    ),
    (
+      ["frames", "bake", "--in", "f", "--out", "o", "--foot", "auto", "--gif", "a.gif", "--scale", "2"],
+      {"sub": "bake", "in_dir": "f", "out_dir": "o", "foot": "auto", "cover": None, "cover_from": None, "crop": None,
+       "strip": None, "gif": "a.gif", "duration": None, "loop": None, "scale": 2},
+   ),
+   (
       ["layers", "export", "--in", "set", "--out", "u"],
       {"sub": "export", "in_dir": "set", "out_dir": "u", "flat": False, "each": False, "trim_common": False, "anchor": "bbox_bottom_center", "report": None},
    ),

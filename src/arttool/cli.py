@@ -20,6 +20,7 @@
 | `style extract` | `arttool.style.extract.run` |
 | `layers diff` · `mask` · `view` · `check` · `export` · `fill` | `arttool.sprite.layerops.run` (`args.sub` 로 가른다) |
 | `intake` | `arttool.intake.run` |
+| `frames bake` | `arttool.frames.bake.run` (발 줄 → 덮기 → 자르기 → 띠 → gif) |
 | `style ref` · `bands` · `stitch` · `tile offset` | `arttool.style.ref` · `edit.bands` · `edit.stitch` · `tiles.offset` 의 `run` (피드백 후속 설계) |
 | `extend period` · `ring` · `canvas` | `arttool.extend.period` · `ring` · `canvas` 의 `run` |
 | `ui glyphs` · `reline` · `tint` | `arttool.ui.glyphs` · `sprite.reline` · `sprite.tint` 의 `run` |
@@ -90,6 +91,7 @@ LATE: dict[tuple[str, str | None], tuple[str, str]] = {
    ("layers", "check"): ("arttool.sprite.layerops", "run"),
    ("layers", "export"): ("arttool.sprite.layerops", "run"),
    ("layers", "fill"): ("arttool.sprite.layerops", "run"),
+   ("frames", "bake"): ("arttool.frames.bake", "run"),
    ("intake", None): ("arttool.intake", "run"),
    # 피드백 후속 설계(2026-10-04)
    ("style", "ref"): ("arttool.style.ref", "run"),
@@ -169,6 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
    _add_check(subs)
    _add_bake(subs)
    _add_layers(subs)
+   _add_frames(subs)
    _add_split(subs)
    _add_recolor(subs)
    _add_tile(subs)
@@ -584,6 +587,23 @@ def _add_merge(subs) -> None:
    node.add_argument("--report", dest="report", help="보고 JSON")
 
 
+def _add_frames(subs) -> None:
+   node = subs.add_parser("frames", help="프레임 묶음 명령 (bake)")
+   inner = node.add_subparsers(dest="sub", required=True)
+   bake = inner.add_parser("bake", help="프레임 폴더를 발 줄 → 덮기 → 자르기 → 띠 → gif 순서로 굽는다", parents=[COMMON])
+   bake.add_argument("--in", dest="in_dir", required=True, help="프레임 PNG 폴더. 이름 자연 정렬(f2 < f10) = 프레임 순서")
+   bake.add_argument("--out", dest="out_dir", required=True, help="구운 프레임 폴더 (같은 이름으로 쓴다)")
+   bake.add_argument("--foot", help="맨 아래 불투명 줄을 이 y 로 맞춘다. auto = 첫 프레임의 발 줄")
+   bake.add_argument("--cover", help="마스크 PNG. 알파 > 0 칸을 --cover-from 그림의 같은 칸으로 덮는다")
+   bake.add_argument("--cover-from", dest="cover_from", help="덮을 기준 그림 (기본 = 발 줄 맞춘 첫 프레임)")
+   bake.add_argument("--crop", help="x,y,w,h 또는 union(모든 프레임 불투명 상자를 합친 것)")
+   bake.add_argument("--strip", help="가로 띠 PNG 한 장")
+   bake.add_argument("--gif", help="움직이는 gif")
+   bake.add_argument("--duration", type=int, help="gif 한 장 ms (기본 110)")
+   bake.add_argument("--loop", type=int, help="gif 반복 수 (기본 0 = 끝없이)")
+   bake.add_argument("--scale", type=int, default=1, help="띠 · gif 만 키운다 (프레임 PNG 는 원래 크기)")
+
+
 def _add_split(subs) -> None:
    node = subs.add_parser("split", help="한 장 → 겹 여러 장 (나누기 표)", parents=[COMMON])
    node.add_argument("--in", dest="in_file", required=True, help="한 장 PNG")
@@ -792,6 +812,7 @@ DRY_RUN_TAKES = {
    ("extend", "period"), ("extend", "ring"), ("extend", "canvas"), ("style", "ref"),
    ("layers", "mask"), ("layers", "view"), ("ui", "preview"), ("ui", "font"),
    ("layers", "fill"),                                                                          # 새 묶음 폴더 — 쓸 목록을 보고만
+   ("frames", "bake"),                                                                          # 프레임 폴더 · 띠 · gif — 쓸 목록을 보고만
    ("tile", "offset"), ("tile", "preview"), ("tile", "ldtk"), ("tile", "seam"),
    ("tile", "place"), ("provider", "make"),                                                      # 바깥을 안 부르고 요청 JSON 만
 }

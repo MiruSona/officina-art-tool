@@ -37,7 +37,7 @@ META_MAX_DEPTH = 32
 FILES_MAX = 256      # files 무늬 글자 수 상한 (profile_map 무늬와 같은 값)
 FILES_SLOT = "{v}"   # files 무늬의 치환 낱말. 이것 하나만 받는다
 FILES_PART = re.compile(r"^[A-Za-z0-9_\-.]*$")
-RESERVED_RE = re.compile(r"con|prn|nul|aux|com[1-9]|lpt[1-9]", re.IGNORECASE)   # Windows 예약 이름
+RESERVED_RE = re.compile(r"con|prn|nul|aux|com[0-9]|lpt[0-9]", re.IGNORECASE)   # Windows 예약 이름
 VARIANT_MAX = 64     # pick 변형 이름 글자 수 상한
 FILE_NAME = "layers.json"
 
@@ -267,12 +267,22 @@ def _files(value, name: str, where) -> str:
 
 
 def _reserved(part: str) -> bool:
-   """Windows 예약 이름(con · prn · nul · aux · com1~9 · lpt1~9). 대소문자 무시, 첫 점 앞 이름 기준."""
+   """Windows 예약 이름(con · prn · nul · aux · com0~9 · lpt0~9). 대소문자 무시, 첫 점 앞 이름 기준."""
    return RESERVED_RE.fullmatch(part.split(".")[0]) is not None
 
 
 def _pattern(layer: Layer) -> str:
    return layer.files if layer.files is not None else f"{layer.name}/{FILES_SLOT}.png"
+
+
+def _check_filled(rel: str, where) -> None:
+   """{v} 를 채운 뒤의 파일 마디가 Windows 예약 이름이면 거절한다.
+
+   무늬 글자 검사는 `{v}` 가 든 마디를 건너뛴다. 그래서 `co{v}.png` + 변형 `n` 처럼 채워야 `con.png` 가 되는 꼴은
+   여기서만 잡힌다. 윈도에서 `con.png` 는 파일이 아니라 장치로 열린다.
+   """
+   if _reserved(rel.split("/")[-1]):
+      raise _bad(where, f"files 무늬를 채운 파일 이름이 Windows 예약 이름이다 : {rel}")
 
 
 def _check_paths(layers: list[Layer], items: list[str], picks: dict, where) -> None:
@@ -293,6 +303,8 @@ def _check_paths(layers: list[Layer], items: list[str], picks: dict, where) -> N
          if pick is not None and layer.name not in pick:
             continue
          path = _pattern(layer).replace(FILES_SLOT, pick[layer.name] if pick is not None else item).casefold()
+         if layer.files is not None:   # 기본 무늬의 옛 그림 이름(version 1 예약 이름 포함)은 호환으로 그대로 둔다
+            _check_filled(path, where)
          other = seen.setdefault(path, (item, layer.name))
          if other != (item, layer.name):
             raise _bad(where, f"(그림 {other[0]}, 겹 {other[1]}) · (그림 {item}, 겹 {layer.name}) 이 같은 파일로 풀린다 : {path}")
@@ -449,7 +461,10 @@ def image_path(folder: str | os.PathLike, layerset: LayerSet, layer: str, item: 
    if pick is not None and layer not in pick:
       return None
    variant = pick[layer] if pick is not None else item
-   return safe_join(resolve_root(Path(folder)), _pattern(layerset.layer(layer)).replace(FILES_SLOT, variant))
+   rel = _pattern(layerset.layer(layer)).replace(FILES_SLOT, variant)
+   if layerset.layer(layer).files is not None:
+      _check_filled(rel, folder)
+   return safe_join(resolve_root(Path(folder)), rel)
 
 
 def read_item(folder: str | os.PathLike, layerset: LayerSet, item: str) -> dict[str, image.RGBA]:
