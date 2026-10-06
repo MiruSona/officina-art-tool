@@ -15,26 +15,38 @@ NEAR_MAX_COLORS = 4096   # 색이 이보다 많으면 check 는 near_colors 를 
 # --- ③ isolated ---
 
 
+DIRS8 = tuple((dy, dx) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if (dy, dx) != (0, 0))
+
+
+def rgba_keys(arr: np.ndarray) -> np.ndarray:
+   """칸마다 RGBA 를 수 하나로. 투명 칸은 -1. int64 라 순백 #FFFFFFFF 도 -1 과 안 겹친다(int32 면 넘친다)."""
+   rgba = arr.astype(np.int64)
+   key = (rgba[:, :, 0] << 24) | (rgba[:, :, 1] << 16) | (rgba[:, :, 2] << 8) | rgba[:, :, 3]
+   return np.where(opaque(arr), key, -1)
+
+
+def neighbor_keys(keys: np.ndarray) -> np.ndarray:
+   """(8, h, w) — DIRS8 차례로 이웃 칸의 열쇠. 그림 밖은 -2 (투명 -1 과 가른다)."""
+   h, w = keys.shape
+   pad = np.full((h + 2, w + 2), -2, dtype=np.int64)
+   pad[1:-1, 1:-1] = keys
+   return np.stack([pad[1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w] for dy, dx in DIRS8])
+
+
+def same_neighbors(arr: np.ndarray) -> np.ndarray:
+   """불투명 칸마다 8이웃 중 같은 RGBA 칸 수 (투명 칸은 0). 외톨이 = 0, `merge-colors --clean` 의 2칸 덩어리 = 1."""
+   keys = rgba_keys(arr)
+   same = (neighbor_keys(keys) == keys).sum(axis=0)
+   return np.where(keys >= 0, same, 0)
+
+
 def measure_isolated(arr: np.ndarray) -> dict:
    """외톨이 픽셀 재기 : 8이웃에 같은 색이 하나도 없는 불투명 칸. 투명과 맞닿은 가장자리 칸(바깥 AA)은 뺀다.
 
    돌려주는 것 : {count, opaque, ratio (외톨이 ÷ 불투명), points [[x, y] …] 앞 50개}
    """
    solid = opaque(arr)
-   h, w = solid.shape
-   # int64 로 엮는다. int32 면 R ≥ 128 에서 넘쳐 순백 #FFFFFFFF 가 빈칸 표시 -1 과 같아진다
-   rgba = arr.astype(np.int64)
-   key = (rgba[:, :, 0] << 24) | (rgba[:, :, 1] << 16) | (rgba[:, :, 2] << 8) | rgba[:, :, 3]
-   pad = np.full((h + 2, w + 2), -1, dtype=np.int64)
-   pad[1:-1, 1:-1] = np.where(solid, key, -1)
-   center = pad[1:-1, 1:-1]
-   same = np.zeros((h, w), dtype=bool)
-   for dy in (-1, 0, 1):
-      for dx in (-1, 0, 1):
-         if dy == 0 and dx == 0:
-            continue
-         same |= pad[1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w] == center
-   lonely = solid & ~same & ~raw_edge(arr)
+   lonely = solid & (same_neighbors(arr) == 0) & ~raw_edge(arr)
    ys, xs = np.nonzero(lonely)
    n_opaque = int(solid.sum())
    count = int(lonely.sum())

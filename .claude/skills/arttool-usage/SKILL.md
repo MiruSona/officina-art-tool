@@ -73,14 +73,14 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 | 되풀이 단위 · 한 바퀴 그림 · 배경 늘리기 | `arttool extend period --in fence.png --tile 32` · `extend ring … --snap` · `extend canvas --in bg.png --size 360x1000 --out o.png` |
 | 외곽선 한 색 · 흰 겹에 색 곱하기 | `arttool reline --in raw --out o [--color #hex] [--from #hex,#hex]` (`--from` 은 바꿀 선 색을 직접 고른다 — 밝기가 같은 다른 선은 그대로. `--scope colors` 를 더하면 그림 전체의 그 색) · `arttool tint --in white --colors #E85D5D,#5DA0E8 --out t --sheet s.png` |
 | 겹 떼기에서 뺨 · 옷 점 빼기 | `layers diff … --drop hair:#F2C9A0` |
-| 가까운 색 합치기 (`check` 가 `max_colors` · `near_colors` 로 걸리면) | `arttool merge-colors --in raw --out o [--max-colors 24] [--keep #hex] --sheet s.png` (아무것도 안 주면 `near_colors` 문턱으로. 평균색은 안 만든다. `--dry-run` 으로 `merge_table` 먼저 보기) |
+| 가까운 색 합치기 (`check` 가 `max_colors` · `near_colors` 로 걸리면) | `arttool merge-colors --in raw --out o [--max-colors 24] [--keep #hex] --sheet s.png` (아무것도 안 주면 `near_colors` 문턱으로. 평균색은 안 만든다. `--dry-run` 으로 `merge_table` 먼저 보기). 합친 뒤에도 `isolated` 가 걸리면 `--clean` — 둘레 6/8 이 한 색이고 가까운 잡티 점만 메운다 |
 | 좌표 읽는 눈금 판 · 글꼴에 없는 글자 | `arttool sheet --in a.png --grid 8 --out g.png` · `arttool ui glyphs --font f.ttf --text-file chars.txt` |
 | 프로필 값 보기 | `arttool --profile P profile show` |
 
 ## 꼭 지킬 것
 
 - **비교판 PNG 는 직접 열어서 본다.** 검사가 `ok` 여도 실루엣 · 4색 판에서 무엇인지 안 읽히면 다시 그린다.
-- **쓰기 전에 `--dry-run` 으로 본다.** `cutout` · `trim` · `reline` · `tint` · `merge-colors` 다섯은 아무것도 안 쓰고 보고(`would_write` · 경고)만 낸다. 다른 쓰는 명령에 붙이면 종료 2 다.
+- **쓰기 전에 `--dry-run` 으로 본다.** 손질(`cutout` · `trim` · `reline` · `tint` · `merge-colors` · `intake`)과 한두 장 쓰는 명령(`stitch` · `sheet` · `bands` · `extend` 셋 · `style ref` · `layers mask`/`view` · `ui preview` · `tile offset`/`preview`/`seam` 등)은 아무것도 안 쓰고 보고(`would_write` · 경고)만 낸다. 폴더째 쓰는 명령(`bake` · `split` · `tile blob` · `template render` · `style extract` 등)에 붙이면 종료 2 다.
 - **원본은 안 고친다.** 손질 · 겹 명령은 모두 `--out` 새 폴더에 쓴다. 받은 그림은 `raw/` 에 그대로 둔다.
   쓸 자리가 읽은 그림과 겹치면 명령이 아무것도 안 쓰고 종료 2 로 멈춘다 — 다른 폴더를 준다.
 - **캐릭터 크기 · 비율** : 기본 본보기는 48×64 `sd`(약 2등신 · 큰 머리). `char_small` 은 64 미만이면 sd, 64 는 `tall`(4등신)이 기본이다 — 다른 비율은 `--preset sd|chibi|tall`.

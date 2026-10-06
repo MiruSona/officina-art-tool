@@ -16,6 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import image
+from ..edit import dry_run_fields, is_dry_run
 from ..errors import ArtToolError, UsageError
 from ..paths import guard_overwrite, jailed_output, resolve_root, safe_join
 from ..profile import Profile
@@ -244,11 +245,14 @@ def run_preview(args) -> dict:
    for w, h in sizes:
       image.paste(board, slice_stretch(arr, border, w, h, args.mode), x, 0)
       x += w + PREVIEW_GAP
-   image.save(out_file, image.scale_up(board, scale) if scale > 1 else board)
+   dry_run = is_dry_run(args)
+   if not dry_run:
+      image.save(out_file, image.scale_up(board, scale) if scale > 1 else board)
    return {
       "status": "ok",
+      **dry_run_fields(dry_run, [out_file]),
       "in": str(source),
-      "out": str(out_file),
+      "out": None if dry_run else str(out_file),
       "border": border,
       "border_from": "guides" if from_guides and not args.border else "arg",
       "source_size": [src_w, src_h],

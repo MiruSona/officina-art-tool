@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .. import image
+from ..edit import dry_run_fields
 from ..errors import ArtToolError, UsageError
 from ..jsonio import read_json
 from ..paths import check_relative, jailed_output, resolve_root, safe_join
@@ -136,7 +137,8 @@ def _load_tiles(root: Path, names: list[str]) -> tuple[dict[str, image.RGBA], tu
    return tiles, cell
 
 
-def run(layout_file: str | Path, in_dir: str | Path, out_file: str | Path, scale: int | None = None) -> dict:
+def run(layout_file: str | Path, in_dir: str | Path, out_file: str | Path, scale: int | None = None,
+        dry_run: bool = False) -> dict:
    if scale is not None and scale <= 0:
       raise UsageError(f"--scale 은 양수여야 한다 : {scale}")
    factor = scale or 1
@@ -159,10 +161,12 @@ def run(layout_file: str | Path, in_dir: str | Path, out_file: str | Path, scale
          counts[name] = counts.get(name, 0) + 1
 
    out = jailed_output(out_file)
-   image.save(out, image.scale_up(sheet, factor) if factor > 1 else sheet)
+   if not dry_run:
+      image.save(out, image.scale_up(sheet, factor) if factor > 1 else sheet)
    return {
       "status": "ok",
-      "out": str(out),
+      **dry_run_fields(dry_run, [out]),
+      "out": None if dry_run else str(out),
       "size": [layout.cols, layout.rows],
       "cell": [cw, ch],
       "scale": factor,

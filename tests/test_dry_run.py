@@ -3,6 +3,7 @@
 - 쓰는 명령 넷(cutout · trim · reline · tint)과 merge-colors 는 dry-run 이면 아무것도 안 쓰고 보고만 낸다.
 - 파일을 안 쓰는 명령은 dry-run 을 그대로 받는다(해가 없다).
 - 그 밖에 쓰는 명령은 cli 가 종료 2 로 거절한다. 공통 인자 표가 파서의 명령 목록과 어긋나면 시험이 깨진다.
+- 2026-10-06 에 넓힌 명령(한 장 쓰는 것 · intake)과 「안 씀」 9개의 실제 확인은 test_dry_run_wide.
 """
 
 import argparse
@@ -70,13 +71,13 @@ def test_force_provider_tables_name_real_commands():
 @pytest.mark.parametrize("front", [False, True])
 def test_refused_command_with_dry_run_exits_2_and_writes_nothing(tmp_path, capsys, front):
    src = _src(tmp_path)
-   out = tmp_path / "o.png"
-   argv = ["stitch", "--in", str(src / "a.png"), str(src / "b.png"), "--out", str(out)]
+   out = tmp_path / "o"
+   argv = ["tile", "blob", "--in", str(src), "--out", str(out)]
    argv = ["--dry-run", *argv] if front else [*argv, "--dry-run"]
    assert cli.main(argv) == errors.EXIT_USAGE
    assert not out.exists()
    err = capsys.readouterr().err
-   assert "이 명령(stitch)은 --dry-run 인자를 안 받는다 (받는 명령 :" in err
+   assert "이 명령(tile blob)은 --dry-run 인자를 안 받는다 (받는 명령 :" in err
    assert "cutout" in err and "merge-colors" in err
 
 

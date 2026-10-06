@@ -75,7 +75,14 @@ def jailed_output(path: str | os.PathLike) -> Path:
    if ".." in wanted.parts:
       raise PathJailError(f"'..' 가 든 산출물 경로는 못 쓴다 : {path}")
    root = resolve_root(wanted.parent if str(wanted.parent) else ".")
-   return safe_join(root, wanted.name)
+   return guard_not_folder(safe_join(root, wanted.name))
+
+
+def guard_not_folder(path: Path) -> Path:
+   """파일을 쓸 자리가 이미 있는 폴더면 UsageError. 쓰기 전에 봐서 dry-run 과 진짜 실행이 같이 멈춘다."""
+   if path.is_dir():
+      raise UsageError(f"파일을 쓸 자리가 이미 있는 폴더다 : {path}. 파일 이름을 준다")
+   return path
 
 
 def ensure_parent(path: Path) -> None:

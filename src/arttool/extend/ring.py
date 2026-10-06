@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .. import image
 from ..checks import warning
+from ..edit import dry_run_fields, is_dry_run
 from ..errors import UsageError
 from ..paths import guard_overwrite, jailed_output
 from ..ui.ninepatch import slice_stretch
@@ -84,12 +85,15 @@ def run(args) -> dict:
                                  fit_sizes))
 
    image.check_pixels(width, height, "늘린 그림")
-   image.save(out_file, slice_stretch(arr, border, width, height, mode="tile"))
+   dry_run = is_dry_run(args)
+   if not dry_run:
+      image.save(out_file, slice_stretch(arr, border, width, height, mode="tile"))
    return {
       "version": VERSION,
       "status": "warn" if warnings else "ok",
+      **dry_run_fields(dry_run, [out_file]),
       "in": str(source),
-      "out": str(out_file),
+      "out": None if dry_run else str(out_file),
       "border": border,
       "source_size": [src_w, src_h],
       "unit": [unit_w, unit_h],

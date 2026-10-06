@@ -12,6 +12,8 @@
   「90% 넘게 지웠다」 는 실패로 올리지 않는다 — 큰 바탕 위 작은 그림 · 검은 바탕 마스크도 정상으로 그만큼 지운다.
 - 불투명한 큰 배경 그림은 cutout 을 건너뛴다(그 장만, 경고 `cutout.background_kept`).
 - 검수 · 비교판은 **이번에 쓴 파일만** 본다. `--sheet` 가 `--out` 안이거나 원본과 같으면 거절한다.
+- `--dry-run` 이면 `--out` · `--sheet` 에 아무것도 안 쓰고 `would_write` 로 보고만 한다(2026-10-06).
+  검수는 쓴 그림을 다시 읽어야 해서 시스템 임시 폴더에 잠깐 쓰고 끝나면 지운다.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from . import check as check_mod
 from . import image, sheet as sheet_mod
 from .checks import is_background, warning
 from .edit import cutout as cutout_mod
-from .edit import list_inputs, plan_outputs, trim as trim_mod
+from .edit import dry_run_fields, is_dry_run, list_inputs, plan_outputs, trim as trim_mod
 from .errors import UsageError
 from .paths import guard_outside, guard_overwrite, png_files
 from .profile import load_profile_args
@@ -100,11 +102,18 @@ def _step_trim(names: list[str], arrs: list, pad: int, square: bool) -> tuple[li
    return kept_arrs, kept_names, report, failed
 
 
-def _step_check(prof, args, out_root: Path, written: list[Path]) -> dict:
-   """이번에 쓴 그림만 검수한다 (R1-L2). --out 에 지난 판 PNG 가 있으면 이번 것만 임시 폴더에 옮겨 본다."""
+def _step_check(prof, args, out_root: Path, written: list[Path], stage: Path | None = None) -> dict:
+   """이번에 쓴 그림만 검수한다 (R1-L2). --out 에 지난 판 PNG 가 있으면 이번 것만 임시 폴더에 옮겨 본다.
+   stage 는 dry-run 임시 폴더 — 진짜가 --out 을 바로 볼 때처럼 PNG 아닌 파일(frames.json 등)도 옮겨 본다."""
    names = {p.name for p in written}
-   others = sorted(p.name for p in png_files(out_root) if p.name not in names)
-   if not others:
+   others = sorted(p.name for p in png_files(out_root) if p.name not in names) if out_root.is_dir() else []
+   if stage is not None:
+      if not others and out_root.is_dir():
+         for extra in out_root.iterdir():
+            if extra.is_file() and extra.suffix.lower() != ".png":
+               shutil.copyfile(extra, stage / extra.name)
+      report = check_mod.run(prof, stage, template=args.template)
+   elif not others:
       report = check_mod.run(prof, out_root, template=args.template)
    else:
       with tempfile.TemporaryDirectory(prefix="arttool-intake-") as tmp:
@@ -117,10 +126,10 @@ def _step_check(prof, args, out_root: Path, written: list[Path]) -> dict:
    return report
 
 
-def _step_sheet(args, written: list[Path]) -> dict:
+def _step_sheet(args, written: list[Path], dry_run: bool) -> dict:
    # 폴더가 아니라 이번에 쓴 파일만 넘긴다 — 지난 판 그림이 비교판에 끼지 않는다
    return sheet_mod.run(argparse.Namespace(in_paths=[str(p) for p in written], out_file=args.sheet, kinds=SHEET_KINDS,
-                                           scale="auto", tile=2, bg="checker", label=True))
+                                           scale="auto", tile=2, bg="checker", label=True, dry_run=dry_run))
 
 
 def _step_warnings(step: str, report: dict) -> list[dict]:
@@ -138,6 +147,30 @@ def _step_warnings(step: str, report: dict) -> list[dict]:
 
 
 def run(args) -> dict:
+   """dry-run 이면 손질한 그림을 임시 폴더에만 쓰고 검수 · 비교판 셈을 거기서 돌린 뒤 지운다."""
+   if not is_dry_run(args):
+      return _run(args, None)
+   with tempfile.TemporaryDirectory(prefix="arttool-intake-dry-") as tmp:
+      report = _run(args, Path(tmp))
+      return _unstage(report, Path(tmp), Path(report["out"]))
+
+
+def _unstage(node, stage: Path, out_root: Path):
+   """보고 속 임시 폴더 경로를 진짜 실행 때 찍힐 --out 경로로 바꾼다. 지워진 경로가 보고에 새지 않게."""
+   if isinstance(node, dict):
+      return {k: _unstage(v, stage, out_root) for k, v in node.items()}
+   if isinstance(node, list):
+      return [_unstage(v, stage, out_root) for v in node]
+   if isinstance(node, str):
+      swaps = {str(stage): str(out_root), str(stage.resolve()): str(out_root),
+               stage.as_posix(): out_root.as_posix(), stage.resolve().as_posix(): out_root.as_posix()}
+      for prefix in sorted(swaps, key=len, reverse=True):
+         node = node.replace(prefix, swaps[prefix])
+   return node
+
+
+def _run(args, stage: Path | None) -> dict:
+   dry_run = stage is not None
    key, tol, shave, pad = _check_args(args)
    square = bool(args.square)
    inputs = list_inputs(args.in_dir)
@@ -168,22 +201,26 @@ def run(args) -> dict:
 
    written: list[dict] = []
    written_paths: list[Path] = []
+   would_write: list = []
    if failed_step is None:
       by_name = dict(zip([p.name for p in inputs], targets))
       for name, arr in zip(names, arrs):
-         image.save(by_name[name], arr)
-         written.append({"file": name, "out": str(by_name[name]), "size": list(image.size(arr))})
-         written_paths.append(Path(by_name[name]))
+         dest = stage / name if dry_run else Path(by_name[name])
+         image.save(dest, arr)
+         written.append({"file": name, "out": None if dry_run else str(dest), "size": list(image.size(arr))})
+         written_paths.append(dest)
+         would_write.append(by_name[name])
 
    if failed_step is None and "check" not in skipped:
-      steps["check"] = _step_check(prof, args, out_root, written_paths)
+      steps["check"] = _step_check(prof, args, out_root, written_paths, stage)
       if steps["check"].get("status") == "fail":
          failed_step = "check"
 
    # check 가 fail 이어도 비교판은 만든다 — 검수에 걸렸을 때야말로 눈으로 봐야 한다.
    # cutout · trim 실패는 파일을 안 썼으니 그릴 것이 없다.
    if failed_step in (None, "check") and written_paths and "sheet" not in skipped:
-      steps["sheet"] = _step_sheet(args, written_paths)
+      steps["sheet"] = _step_sheet(args, written_paths, dry_run)
+      would_write += steps["sheet"].get("would_write", [])
 
    warnings = [line for step in STEPS if step in steps for line in _step_warnings(step, steps[step])]
    if failed_step:
@@ -195,6 +232,7 @@ def run(args) -> dict:
    return {
       "version": VERSION,
       "status": status,
+      **dry_run_fields(dry_run, would_write),
       "failed_step": failed_step,
       "in": str(args.in_dir),
       "out": str(out_root),

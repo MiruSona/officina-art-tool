@@ -16,6 +16,7 @@ from .. import image
 from ..checks import warning
 from ..errors import UsageError
 from ..paths import guard_overwrite, jailed_output
+from . import dry_run_fields, is_dry_run
 
 VERSION = 1
 WHITE_MIN = 240          # 세 값 모두 이 이상이면 흰색
@@ -84,16 +85,24 @@ def find_lines(arr: image.RGBA, start, end, top: int) -> list[dict]:
    return rows[:top]
 
 
+def _mark_size(arr: image.RGBA, axis: str) -> tuple[int, int, int]:
+   """눈금 그림 (너비, 높이, 여백)을 그리기 전에 셈하고 상한을 본다. dry-run 도 이것을 부른다."""
+   length = arr.shape[0] if axis == "y" else arr.shape[1]
+   label_w = image.label_width(str(length)) if image.has_label_font() else 0
+   margin = label_w + MARK_PAD * 3 if axis == "y" else image.LABEL_PX + MARK_PAD * 3
+   h, w = arr.shape[0] * MARK_SCALE, arr.shape[1] * MARK_SCALE
+   out_w, out_h = (w + margin, h) if axis == "y" else (w, h + margin)
+   image.check_pixels(out_w, out_h, "눈금 그림")
+   return out_w, out_h, margin
+
+
 def _mark(arr: image.RGBA, axis: str, start, end, lines: list[dict]) -> image.RGBA:
    """원본 ×2 에 왼쪽(axis x 면 위쪽) 여백을 붙여 줄마다 빨간 눈금과 번호, 흰 띠 경계는 파란 눈금."""
+   out_w, out_h, margin = _mark_size(arr, axis)
    big = image.scale_up(arr, MARK_SCALE)
    length = arr.shape[0] if axis == "y" else arr.shape[1]
    has_font = image.has_label_font()
-   label_w = image.label_width(str(length)) if has_font else 0
-   margin = label_w + MARK_PAD * 3 if axis == "y" else image.LABEL_PX + MARK_PAD * 3
    h, w = big.shape[0], big.shape[1]
-   out_w, out_h = (w + margin, h) if axis == "y" else (w, h + margin)
-   image.check_pixels(out_w, out_h, "눈금 그림")
    canvas = image.new(out_w, out_h, (24, 24, 24, 255))
    ox, oy = (margin, 0) if axis == "y" else (0, margin)
    canvas[oy:oy + h, ox:ox + w] = big
@@ -140,17 +149,21 @@ def run(args) -> dict:
    warnings = []
    if start is None and end is None and not lines:
       warnings.append(warning("bands.none", "그림이 고르다 — 흰 띠도 이을 자리도 안 보인다"))
+   dry_run = is_dry_run(args)
    if mark is not None:
+      _mark_size(arr, axis)          # 상한은 dry-run 에서도 본다
+   if mark is not None and not dry_run:
       ticked = [{"at": row[axis]} for row in lines]
       image.save(mark, _mark(arr, axis, start, end, ticked))
 
    return {
       "version": VERSION,
       "status": "warn" if warnings else "ok",
+      **dry_run_fields(dry_run, [mark]),
       "axis": axis,
       "size": list(image.size(arr)),
       "blank": {"start": start, "end": end},
       "lines": [{axis: row[axis], "delta": row["delta"], "uniform": row["uniform"], "score": row["score"]} for row in lines],
-      "mark": str(mark) if mark else None,
+      "mark": str(mark) if mark and not dry_run else None,
       "warnings": warnings,
    }

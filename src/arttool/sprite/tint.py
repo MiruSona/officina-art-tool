@@ -16,7 +16,7 @@ from ..checks import warning
 from ..edit import dry_run_fields, is_dry_run, list_inputs
 from ..errors import ArtToolError, UsageError
 from ..palette import parse_hex, to_hex
-from ..paths import guard_outside, guard_overwrite, jailed_output, resolve_root, safe_join
+from ..paths import guard_not_folder, guard_outside, guard_overwrite, jailed_output, resolve_root, safe_join
 
 VERSION = 1
 SHEET_SCALE = 4
@@ -55,7 +55,7 @@ def mean_luma(arr: image.RGBA) -> float | None:
 
 
 def _plan(inputs: list[Path], colors, out_dir) -> list[list[Path]]:
-   """그림마다 색 순서대로 쓸 자리. 이름이 겹치면(대소문자 무시) 거절한다."""
+   """그림마다 색 순서대로 쓸 자리. 이름이 겹치거나(대소문자 무시) 그 자리가 이미 폴더면 거절한다."""
    root = resolve_root(out_dir)
    if root.is_file():
       raise UsageError(f"--out 은 폴더여야 한다 : {out_dir}")
@@ -68,7 +68,7 @@ def _plan(inputs: list[Path], colors, out_dir) -> list[list[Path]]:
          if name.casefold() in seen:
             raise UsageError(f"출력 이름이 겹친다 : {name} (같은 색을 두 번 줬거나 그림 이름이 겹친다)")
          seen[name.casefold()] = name
-         row.append(safe_join(root, name))
+         row.append(guard_not_folder(safe_join(root, name)))
       plan.append(row)
    return plan
 
@@ -103,9 +103,11 @@ def run(args) -> dict:
       rows.append({"file": source.name, "outputs": [p.name for p in targets], "mean_luma": None if luma is None else round(luma, 1)})
       board.append([arr, *made])
 
-   if sheet_path is not None and not dry_run:
+   if sheet_path is not None:
       cells = [cell for row in board for cell in row]
-      image.save(sheet_path, image.contact_sheet(cells, scale, cols=len(colors) + 1))
+      image.contact_sheet_size([image.size(c) for c in cells], scale, cols=len(colors) + 1)   # dry-run 도 상한을 본다
+      if not dry_run:
+         image.save(sheet_path, image.contact_sheet(cells, scale, cols=len(colors) + 1))
 
    return {
       **dry_run_fields(dry_run, [*writes, sheet_path]),

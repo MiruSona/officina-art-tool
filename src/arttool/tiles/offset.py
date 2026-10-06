@@ -12,6 +12,7 @@ import numpy as np
 
 from .. import image
 from ..checks import warning
+from ..edit import dry_run_fields, is_dry_run
 from ..errors import UsageError
 from ..paths import guard_overwrite, jailed_output
 from .seam import DEFAULT_K, check_pair
@@ -63,13 +64,16 @@ def run(args) -> dict:
       warnings.append(warning("offset.has_transparent", "투명 · 반투명 칸이 있다 — 바탕 타일은 꽉 차야 한다"))
    seam_before = check_pair(arr, arr, DEFAULT_K)
    shifted, shift = shift_half(arr)
-   image.save(out, shifted)
-   image.save(mask_path, cross_mask(width, height, shift, band))
+   dry_run = is_dry_run(args)
+   if not dry_run:
+      image.save(out, shifted)
+      image.save(mask_path, cross_mask(width, height, shift, band))
    return {
       "version": VERSION,
       "status": "warn" if warnings else "ok",
-      "out": str(out),
-      "mask": str(mask_path),
+      **dry_run_fields(dry_run, [out, mask_path]),
+      "out": None if dry_run else str(out),
+      "mask": None if dry_run else str(mask_path),
       "size": [width, height],
       "shift": list(shift),
       "band": band,

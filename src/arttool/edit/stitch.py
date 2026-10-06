@@ -16,6 +16,7 @@ from .. import image
 from ..checks import warning
 from ..errors import UsageError
 from ..paths import guard_overwrite, jailed_output
+from . import dry_run_fields, is_dry_run
 from .bands import line_delta
 
 VERSION = 1
@@ -84,12 +85,15 @@ def run(args) -> dict:
    result = joined if axis == "y" else joined.transpose(1, 0, 2)
    result = np.ascontiguousarray(result)
    image.check_pixels(*image.size(result), "이은 그림")
-   image.save(out, result)
+   dry_run = is_dry_run(args)
+   if not dry_run:
+      image.save(out, result)
    return {
       "version": VERSION,
       "status": "warn" if warnings else "ok",
+      **dry_run_fields(dry_run, [out]),
       "axis": axis,
-      "out": str(out),
+      "out": None if dry_run else str(out),
       "size": list(image.size(result)),
       "pieces": rows,
       "joins": joins,

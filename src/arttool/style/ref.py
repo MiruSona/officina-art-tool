@@ -18,6 +18,7 @@ import numpy as np
 
 from .. import image
 from ..checks import warning
+from ..edit import dry_run_fields, is_dry_run
 from ..errors import ArtToolError, UsageError
 from ..paths import guard_overwrite, jailed_output, write_text
 
@@ -155,9 +156,11 @@ def run(args) -> dict:
 
    png = palette_png_bytes(arr)
    encoded = base64.b64encode(png).decode("ascii")
-   _write_bytes(out, png)
-   if b64_path is not None:
-      write_text(b64_path, encoded)
+   dry_run = is_dry_run(args)
+   if not dry_run:
+      _write_bytes(out, png)
+      if b64_path is not None:
+         write_text(b64_path, encoded)
 
    if len(encoded) > max_kb * 1024:
       warnings.append(warning("ref.b64_large", f"base64 가 {len(encoded)} 바이트로 {max_kb:g}KB 를 넘는다 — 색을 더 줄이거나 더 잘라라",
@@ -165,8 +168,9 @@ def run(args) -> dict:
    return {
       "version": VERSION,
       "status": "warn" if any(w["rule"] == "ref.b64_large" for w in warnings) else "ok",
-      "out": str(out),
-      "b64": str(b64_path) if b64_path else None,
+      **dry_run_fields(dry_run, [out, b64_path]),
+      "out": None if dry_run else str(out),
+      "b64": str(b64_path) if b64_path and not dry_run else None,
       "canvas": list(canvas),
       "size": list(image.size(arr)),
       "crop": list(crop) if crop else None,

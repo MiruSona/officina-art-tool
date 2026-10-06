@@ -10,11 +10,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..errors import ArtToolError, UsageError
-from ..paths import guard_overwrite, jailed_output, png_files, resolve_root, safe_join
+from ..paths import guard_not_folder, guard_overwrite, jailed_output, png_files, resolve_root, safe_join
 
 
 def is_dry_run(args) -> bool:
-   """`--dry-run` 이면 쓰기 앞 검사까지 다 돌고 쓰는 자리만 건너뛴다 (cutout · trim · reline · tint · merge-colors)."""
+   """`--dry-run` 이면 쓰기 앞 검사까지 다 돌고 쓰는 자리만 건너뛴다. 받는 명령은 cli.DRY_RUN_TAKES."""
    return bool(getattr(args, "dry_run", False))
 
 
@@ -48,7 +48,7 @@ def plan_outputs(inputs: list[Path], in_arg: str | Path, out_arg: str | Path) ->
       root = resolve_root(out_arg)
       if root.is_file():
          raise UsageError(f"--out 은 폴더여야 한다 (입력이 여러 장이다) : {out_arg}")
-      outs = [safe_join(root, file.name) for file in inputs]
+      outs = [guard_not_folder(safe_join(root, file.name)) for file in inputs]
 
    # 윈도 경로는 대소문자를 안 가린다. 같은 파일을 다른 글자로 줘도 잡는다 (paths.guard_overwrite).
    guard_overwrite(outs, inputs)

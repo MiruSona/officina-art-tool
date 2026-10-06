@@ -42,6 +42,7 @@ from pathlib import Path
 from . import bake as bake_mod
 from . import check as check_mod
 from . import providers
+from .edit import dry_run_fields, is_dry_run
 from .errors import EXIT_CHECK_FAIL, EXIT_ERROR, EXIT_OK, ArtToolError, UsageError
 from .jsonio import read_json, write_json
 from .paths import guard_overwrite, jailed_output
@@ -452,6 +453,8 @@ def _add_merge(subs) -> None:
    node.add_argument("--palette", dest="palette", action="store_true", help="프로필 ramps_file 색 중 가장 가까운 색으로 (--tol · --max-colors 와 같이 못 쓴다)")
    node.add_argument("--keep", dest="keep", help="지킬 색 #RRGGBB[,#RRGGBB…] — 남는 색으로만 쓴다")
    node.add_argument("--per-image", dest="per_image", action="store_true", help="장마다 따로 합친다 (기본은 입력 전체로 표 하나)")
+   node.add_argument("--clean", dest="clean", action="store_true",
+                     help="합친 뒤 잡티 점(외톨이 · 2칸)을 둘레 색으로 메운다. 이웃 6/8 이 한 색이고 그 색과 가까울 때만 (기본 끔)")
    node.add_argument("--sheet", dest="sheet", help="장마다 전 · 후를 늘어놓은 비교판 PNG")
    node.add_argument("--scale", dest="scale", type=int, default=4, help="비교판 배율 (기본 4)")
    node.add_argument("--report", dest="report", help="보고 JSON")
@@ -656,22 +659,26 @@ def _guard_report(args) -> None:
 # dry-run 은 세 무리로 나눈다. 새 명령은 셋 중 한 곳에 꼭 넣는다 — 빠뜨리면 test_dry_run 이 깨진다.
 DRY_RUN_TAKES = {
    ("cutout", None), ("trim", None), ("reline", None), ("tint", None), ("merge-colors", None),   # 안 쓰고 보고만
+   ("intake", None),                                                                             # 검수용 임시 폴더만 쓰고 지운다
+   # 정해진 파일 한두 개를 쓰는 명령 (2026-10-06) — 안 쓰고 보고만
+   ("stitch", None), ("sheet", None), ("bands", None), ("anchors", None),
+   ("extend", "period"), ("extend", "ring"), ("extend", "canvas"), ("style", "ref"),
+   ("layers", "mask"), ("layers", "view"), ("ui", "preview"), ("ui", "font"),
+   ("tile", "offset"), ("tile", "preview"), ("tile", "ldtk"), ("tile", "seam"),
    ("tile", "place"), ("provider", "make"),                                                      # 바깥을 안 부르고 요청 JSON 만
 }
-# 파일을 안 쓰는 명령 — 쓸 것이 없어 dry-run 을 그대로 받는다 (--report 는 cli 가 쓴다)
+# 파일을 안 쓰는 명령 — 쓸 것이 없어 dry-run 을 그대로 받는다 (--report 는 cli 가 쓴다). 실제로 돌려 확인함 (test_dry_run_wide)
 DRY_RUN_HARMLESS = {
    ("profile", "show"), ("check", None), ("layers", "check"), ("tile", "inspect"), ("ui", "check"), ("ui", "glyphs"),
    ("template", "list"), ("template", "show"), ("provider", "list"),
 }
-# 파일을 쓰는데 dry-run 을 지원하지 않는 명령. 옵션에 따라서만 쓰는 명령(bands --mark · extend period --out · tile seam --sheet)도 여기
+# 폴더째 여러 파일을 쓰는 명령. 쓸 목록이 셈 중간에 정해지거나 앞 단계 산출물을 읽어 S 로 안 된다 — 까닭은 진행상황.md
 DRY_RUN_REFUSED = {
-   ("normalize", None), ("anchors", None), ("bake", None), ("split", None), ("recolor", None), ("sheet", None),
-   ("intake", None), ("bands", None), ("stitch", None),
-   ("layers", "compose"), ("layers", "diff"), ("layers", "mask"), ("layers", "view"), ("layers", "export"),
-   ("tile", "blob"), ("tile", "ldtk"), ("tile", "preview"), ("tile", "seam"), ("tile", "offset"),
-   ("ui", "frame"), ("ui", "import"), ("ui", "icons"), ("ui", "bake"), ("ui", "screen"), ("ui", "font"), ("ui", "preview"),
-   ("template", "render"), ("style", "extract"), ("style", "ref"),
-   ("extend", "period"), ("extend", "ring"), ("extend", "canvas"),
+   ("normalize", None), ("bake", None), ("split", None), ("recolor", None),
+   ("layers", "compose"), ("layers", "diff"), ("layers", "export"),
+   ("tile", "blob"),
+   ("ui", "frame"), ("ui", "import"), ("ui", "icons"), ("ui", "bake"), ("ui", "screen"),
+   ("template", "render"), ("style", "extract"),
 }
 FORCE_TAKES = {("bake", None), ("ui", "bake"), ("style", "extract")}
 PROVIDER_TAKES = {("provider", "make")}
@@ -729,6 +736,9 @@ def _run_normalize(args) -> dict:
 def _run_anchors(args) -> dict:
    prof = _profile(args)
    in_dir = Path(args.in_dir)
+   out = jailed_output(args.out_file)
+   # 읽기 전에 : --out 이 읽을 JSON(skeleton 이나 --in 의 frames.json)이면 덮지 않는다
+   guard_overwrite([out], [args.skeleton if args.source == "skeleton" else in_dir / "frames.json"])
    if args.source == "skeleton":
       if not args.skeleton:
          raise ArtToolError("--from skeleton 이면 --skeleton 파일이 있어야 한다")
@@ -738,9 +748,10 @@ def _run_anchors(args) -> dict:
          raise ArtToolError("--from marker 이면 --markers 폴더가 있어야 한다")
       index = read_json(in_dir / "frames.json")
       data = anchors_mod.extract(prof, index, args.markers, args.rig, art_dir=in_dir)
-   out = jailed_output(args.out_file)
-   write_json(out, data)
-   return {"out": str(out), "points": len(data["points"])}
+   dry_run = is_dry_run(args)
+   if not dry_run:
+      write_json(out, data)
+   return {**dry_run_fields(dry_run, [out]), "out": None if dry_run else str(out), "points": len(data["points"])}
 
 
 def _check_takes_new_args() -> bool:
@@ -797,17 +808,22 @@ def _run_tile(args) -> dict:
          _profile(args), args.tileset, args.rules, args.size, args.out_dir, args.exe, args.seed, args.dry_run
       )
    if args.sub == "preview":
-      return preview_mod.run(args.layout, args.in_dir, args.out_file, args.scale)
+      return preview_mod.run(args.layout, args.in_dir, args.out_file, args.scale, args.dry_run)
    if args.sub == "inspect":
       report = inspect_mod.run(_profile(args), args.in_dir, args.size)
       write_json(jailed_output(args.report), report)
       return report
    if args.sub == "seam":
-      report = seam_mod.run(args.in_dir, args.k, args.pairs, args.sheet, args.scale)
+      report = seam_mod.run(args.in_dir, args.k, args.pairs, args.sheet, args.scale, args.dry_run)
       write_json(jailed_output(args.report), report)
       return report
    out = jailed_output(args.out_file)
-   ldtk_mod.write_ldtk(read_json(args.map_file), read_json(args.tileset), out)
+   guard_overwrite([out], [args.map_file, args.tileset])     # 입력 JSON 을 덮지 않는다
+   map_data, tileset = read_json(args.map_file), read_json(args.tileset)
+   if is_dry_run(args):
+      ldtk_mod.build_project(map_data, tileset)      # 맵 · 타일셋이 어긋나면 dry-run 에서도 같은 오류를 낸다
+      return {**dry_run_fields(True, [out]), "out": None}
+   ldtk_mod.write_ldtk(map_data, tileset, out)
    return {"out": str(out)}
 
 
@@ -863,7 +879,7 @@ def _ui_screen(prof, args) -> dict:
 
 
 def _ui_font(prof, args) -> dict:
-   return ui_font_mod.build(prof, args.scan, jailed_output(args.out_file), args.scan_root)
+   return ui_font_mod.build(prof, args.scan, jailed_output(args.out_file), args.scan_root, args.dry_run)
 
 
 def _run_provider(args) -> dict:

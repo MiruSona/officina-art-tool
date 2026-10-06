@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from .. import check, image
+from ..edit import dry_run_fields
 from ..errors import ArtToolError, UsageError
 from ..paths import jailed_output
 
@@ -92,7 +93,8 @@ def _check_args(k: float, sheet, scale) -> None:
       raise UsageError(f"--scale 은 양수여야 한다 : {scale}")
 
 
-def run(in_path: str | Path, k: float = DEFAULT_K, pairs: bool = False, sheet: str | Path | None = None, scale: int | None = None) -> dict:
+def run(in_path: str | Path, k: float = DEFAULT_K, pairs: bool = False, sheet: str | Path | None = None, scale: int | None = None,
+        dry_run: bool = False) -> dict:
    _check_args(k, sheet, scale)
    items = check.load_loose(check.check_source(in_path))
    for item in items:
@@ -126,8 +128,12 @@ def run(in_path: str | Path, k: float = DEFAULT_K, pairs: bool = False, sheet: s
    sheet_path = None
    if sheet is not None:
       sheet_path = jailed_output(sheet)
-      image.save(sheet_path, image.contact_sheet([tiled3(i["arr"]) for i in items], scale or 1))
-   report["sheet"] = str(sheet_path) if sheet_path else None
+      # 크기 상한은 dry-run 에서도 본다 — 종료 코드가 진짜 실행과 같아야 한다
+      image.contact_sheet_size([(w * 3, h * 3) for w, h in (image.size(i["arr"]) for i in items)], scale or 1)
+      if not dry_run:
+         image.save(sheet_path, image.contact_sheet([tiled3(i["arr"]) for i in items], scale or 1))
+   report.update(dry_run_fields(dry_run, [sheet_path]))
+   report["sheet"] = str(sheet_path) if sheet_path and not dry_run else None
    report["failed"] = failed
    report["status"] = "fail" if failed else "ok"
    return report

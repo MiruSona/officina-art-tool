@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..edit import dry_run_fields
 from ..errors import ArtToolError
 from ..paths import check_relative, ensure_parent, resolve_root, safe_join
 from ..profile import Profile, tool_home
@@ -69,7 +70,8 @@ def charset_text(chars: set[str], always: str) -> str:
    return "".join(sorted(merged))
 
 
-def build(prof: Profile, scan_dirs: list[str] | None, out_path: str | Path, root: str | Path | None = None) -> dict:
+def build(prof: Profile, scan_dirs: list[str] | None, out_path: str | Path, root: str | Path | None = None,
+          dry_run: bool = False) -> dict:
    font = prof.ui["font"]
    subset = font["subset"]
    folders = scan_dirs or list(subset["scan_dirs"])
@@ -81,11 +83,13 @@ def build(prof: Profile, scan_dirs: list[str] | None, out_path: str | Path, root
       raise ArtToolError(f"글자가 0개다. 훑은 파일 {len(files)}개에 글자가 없었다")
 
    out_file = Path(out_path)
-   ensure_parent(out_file)
-   out_file.write_text(text + chr(10), encoding="utf-8")
+   if not dry_run:
+      ensure_parent(out_file)
+      out_file.write_text(text + chr(10), encoding="utf-8")
 
    return {
-      "out": str(out_file),
+      **dry_run_fields(dry_run, [out_file]),
+      "out": None if dry_run else str(out_file),
       "chars": len(text),
       "files": len(files),
       "scanned": folders,

@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 
 from .. import image, layerset, sheet
-from ..edit import trim
+from ..edit import dry_run_fields, is_dry_run, trim
 from ..errors import ArtToolError, UsageError
 from ..jsonio import read_json, write_json
 from ..palette import parse_hex, to_hex
@@ -435,10 +435,13 @@ def run_mask(args) -> dict:
    mask = _grow(mask, args.grow)
    out = image.new(*image.size(arr))
    out[mask] = (255, 255, 255, 255)
-   image.save(path, out)
+   dry_run = is_dry_run(args)
+   if not dry_run:
+      image.save(path, out)
    return {
       "status": "warn" if warnings else "ok",
-      "out": str(path),
+      **dry_run_fields(dry_run, [path]),
+      "out": None if dry_run else str(path),
       "colors": [to_hex(c) for c in colors],
       "picked": picked,
       "pixels": int(np.count_nonzero(mask)),
@@ -487,10 +490,13 @@ def run_view(args) -> dict:
    col_labels = ([*shown, "합침"] if args.each else ["합침"]) if labels else None
    row_labels = items if labels else None
    board = sheet.layout_rows(rows, row_labels, col_labels)
-   image.save(path, board)
+   dry_run = is_dry_run(args)
+   if not dry_run:
+      image.save(path, board)
    return {
       "status": "warn" if warnings else "ok",
-      "out": str(path),
+      **dry_run_fields(dry_run, [path]),
+      "out": None if dry_run else str(path),
       "layers": shown,
       "each": bool(args.each),
       "items": len(rows),

@@ -103,7 +103,7 @@ CONTRACT = [
       ["merge-colors", "--in", "raw", "--out", "o"],
       # tol · max_colors 는 None — 셋 다 안 준 것(near_colors 문턱)과 --palette 와 같이 준 것을 merge.run 이 가린다
       {"in_dir": "raw", "out_dir": "o", "tol": None, "max_colors": None, "palette": False, "keep": None, "per_image": False,
-       "sheet": None, "scale": 4, "report": None},
+       "clean": False, "sheet": None, "scale": 4, "report": None},
    ),
    # 이미 LATE 인 명령에 붙인 새 인자
    (

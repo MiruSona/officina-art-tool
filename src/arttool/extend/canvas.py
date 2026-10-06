@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .. import image
 from ..checks import warning
+from ..edit import dry_run_fields, is_dry_run
 from ..errors import UsageError
 from ..paths import guard_overwrite, jailed_output
 from . import parse_size
@@ -107,13 +108,16 @@ def run(args) -> dict:
    ys = axis_map(src_h, oy, height, band)
    xs = axis_map(src_w, ox, width, band)
    out = arr[ys][:, xs].copy()
-   image.save(out_file, out)
+   dry_run = is_dry_run(args)
+   if not dry_run:
+      image.save(out_file, out)
 
    return {
       "version": VERSION,
       "status": "warn" if warnings else "ok",
+      **dry_run_fields(dry_run, [out_file]),
       "in": str(source),
-      "out": str(out_file),
+      "out": None if dry_run else str(out_file),
       "source_size": [src_w, src_h],
       "size": [width, height],
       "anchor": anchor,

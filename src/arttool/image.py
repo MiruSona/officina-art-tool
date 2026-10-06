@@ -47,8 +47,12 @@ def save(path: str | os.PathLike, arr: RGBA) -> None:
    file = Path(path)
    ensure_parent(file)
    tmp = file.with_name(f"{file.name}.{os.getpid()}.tmp")
-   Image.fromarray(arr, mode="RGBA").save(tmp, format="PNG")
-   os.replace(tmp, file)
+   try:
+      Image.fromarray(arr, mode="RGBA").save(tmp, format="PNG")
+      os.replace(tmp, file)
+   except BaseException:
+      tmp.unlink(missing_ok=True)      # 실패하면 tmp 찌꺼기를 남기지 않는다
+      raise
 
 
 def size(arr: RGBA) -> tuple[int, int]:
@@ -176,25 +180,31 @@ def scale_up(arr: RGBA, factor: int) -> RGBA:
    return np.repeat(np.repeat(arr, factor, axis=0), factor, axis=1)
 
 
+def contact_sheet_size(sizes: list[tuple[int, int]], scale: int = 1, cols: int | None = None, gap: int = 2) -> tuple[int, int, int, int, int]:
+   """그리기 전에 판 크기만 셈하고 인자 · 상한을 본다. (너비, 높이, 칸 수, 칸 너비, 칸 높이). dry-run 도 이것을 부른다."""
+   if not sizes:
+      raise ArtToolError("늘어놓을 그림이 없다")
+   if gap < 0:
+      raise ArtToolError(f"칸 사이는 0 이상이다 : {gap}")
+   count = cols or min(len(sizes), 8)
+   if count <= 0:
+      raise ArtToolError(f"칸 수는 양수여야 한다 : {cols}")
+   if scale <= 0:
+      raise ArtToolError(f"배율은 양수여야 한다 : {scale}")
+   cell_w = max(w for w, _ in sizes) * scale
+   cell_h = max(h for _, h in sizes) * scale
+   rows = (len(sizes) + count - 1) // count
+   width, height = count * cell_w + (count - 1) * gap, rows * cell_h + (rows - 1) * gap
+   check_pixels(width, height, "시트")
+   return width, height, count, cell_w, cell_h
+
+
 def contact_sheet(items: list[RGBA], scale: int = 1, cols: int | None = None, gap: int = 2) -> RGBA:
    """그림 여러 장을 격자로 늘어놓은 한 장. 칸 크기는 가장 큰 그림, 작은 그림은 칸 왼쪽 위에 둔다.
 
    배율을 먼저 걸고, 칸 사이는 gap 픽셀 투명. cols 를 안 주면 한 줄에 8장까지.
    """
-   if not items:
-      raise ArtToolError("늘어놓을 그림이 없다")
-   if gap < 0:
-      raise ArtToolError(f"칸 사이는 0 이상이다 : {gap}")
-   count = cols or min(len(items), 8)
-   if count <= 0:
-      raise ArtToolError(f"칸 수는 양수여야 한다 : {cols}")
-   if scale <= 0:
-      raise ArtToolError(f"배율은 양수여야 한다 : {scale}")
-   cell_w = max(item.shape[1] for item in items) * scale
-   cell_h = max(item.shape[0] for item in items) * scale
-   rows = (len(items) + count - 1) // count
-   width, height = count * cell_w + (count - 1) * gap, rows * cell_h + (rows - 1) * gap
-   check_pixels(width, height, "시트")
+   width, height, count, cell_w, cell_h = contact_sheet_size([size(item) for item in items], scale, cols, gap)
    big = [scale_up(item, scale) for item in items]
    sheet = new(width, height)
    for index, item in enumerate(big):

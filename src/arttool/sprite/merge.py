@@ -13,6 +13,7 @@
 - 기본은 입력 전체 칸 수로 표 하나를 만들어 모든 장에 건다(프레임마다 같은 잡색이 같은 색으로 간다). `--per-image` 면 장마다.
 - 알파 > 0 칸만 세고 바꾼다(`image.count_colors` 와 같은 셈). 알파 값 · 투명 칸 RGB 는 그대로.
 - 색 열쇠는 `r << 16 | g << 8 | b` 정수. 거리 셈은 int64 라 넘치지 않는다.
+- `--clean` 이면 합친 **뒤** 장마다 잡티 점을 메운다(`sprite.clean`). 보고 `clean` 은 {메운 칸, 외톨이 앞 · 뒤}.
 경고 꼴은 `checks.warning`. 보고의 `merge_table` 은 `style extract` 와 같은 `{합쳐진 색: 남은 색}` 꼴이다.
 """
 
@@ -24,7 +25,8 @@ import numpy as np
 
 from .. import image
 from ..checks import LOW_SAT, hue_gap, hue_sat, warning
-from ..checks.pixels import close_pair_arrays
+from ..checks.pixels import close_pair_arrays, measure_isolated
+from .clean import clean_specks
 from ..edit import dry_run_fields, list_inputs, plan_outputs
 from ..errors import ArtToolError, UsageError
 from ..palette import load_ramps, parse_hex, to_hex
@@ -41,6 +43,8 @@ FULL_PAIRS_MAX = 2048
 # 8.7만 색 기울기 그림 tol 4 → 169만 짝. 그 판까지는 돌고 tol 16 급(수백만)은 막는 값.
 PAIRS_MAX = 2_000_000
 HUE_JUMPS_SHOWN = 5      # 경고 detail · items 에 싣는 짝 수
+# 두 색 다 max(R,G,B) 가 이보다 작으면 색조를 안 따진다. #020205 와 #050101 은 채도가 높아도 눈에는 같은 검정이다(실물 tol 4 헛경고 158짝)
+DARK_MAX = 64
 
 
 def _rgb(key: int) -> tuple[int, int, int]:
@@ -217,9 +221,11 @@ def apply_table(arr: image.RGBA, table: dict[int, int]) -> image.RGBA:
 
 
 def hue_jumps(table: dict[int, int]) -> list[dict]:
-   """합친 짝 중 색조 차가 램프 경계(LINK_HUE)를 넘는 것. 한쪽이라도 회색(LOW_SAT 미만)이면 색조를 안 따진다."""
+   """합친 짝 중 색조 차가 램프 경계(LINK_HUE)를 넘는 것. 한쪽이라도 회색(LOW_SAT 미만)이거나 두 색 다 거의 검정(DARK_MAX 미만)이면 색조를 안 따진다."""
    found = []
    for src, dst in sorted(table.items()):
+      if max(_rgb(src)) < DARK_MAX and max(_rgb(dst)) < DARK_MAX:
+         continue
       hs, ss = hue_sat(_rgb(src))
       hd, sd = hue_sat(_rgb(dst))
       if ss < LOW_SAT or sd < LOW_SAT:
@@ -331,6 +337,7 @@ def run(args) -> dict:
    keep = protected | set(keep_given)
    per_image = bool(getattr(args, "per_image", False))
    dry_run = bool(getattr(args, "dry_run", False))
+   do_clean = bool(getattr(args, "clean", False))
    scale = int(getattr(args, "scale", SHEET_SCALE) or SHEET_SCALE)
    if scale < 1:
       raise UsageError(f"--scale 은 1 이상이다 : {scale}")
@@ -367,6 +374,11 @@ def run(args) -> dict:
       else:
          table = {k: v for k, v in shared_table.items() if k in counts}
       result = apply_table(arr, table)
+      cleaned = None
+      if do_clean:
+         before = measure_isolated(result)["count"]
+         result, filled = clean_specks(result, tol, keep)
+         cleaned = {"filled": filled, "isolated_before": before, "isolated_after": measure_isolated(result)["count"]}
       results.append(result)
       row = {
          "file": source.name,
@@ -374,6 +386,7 @@ def run(args) -> dict:
          "colors_before": len(counts),
          "colors_after": image.count_colors(result),
          "changed": int(sum(counts[k] for k in table)),
+         "clean": cleaned,
          "position_diff": position_diff(arr, result),
       }
       if per_image:
@@ -382,6 +395,8 @@ def run(args) -> dict:
       rows.append(row)
       board += [arr, result]
 
+   if sheet_path is not None:
+      image.contact_sheet_size([image.size(c) for c in board], scale, cols=2)      # dry-run 도 상한을 본다
    if not dry_run:
       for dest, result in zip(outs, results):
          image.save(dest, result)
@@ -408,6 +423,7 @@ def run(args) -> dict:
       "colors_after": len(color_counts(results)),
       "merge_table": None if shared_table is None else {_hex(s): _hex(d) for s, d in sorted(shared_table.items())},
       "merged": None if shared_table is None else _merged(shared_table, all_counts),
+      "clean": {f: sum(r["clean"][f] for r in rows) for f in ("filled", "isolated_before", "isolated_after")} if do_clean else None,
       "images": rows,
       "sheet": None if sheet_path is None or dry_run else str(sheet_path),
       "warnings": warnings,

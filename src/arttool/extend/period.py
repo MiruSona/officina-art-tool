@@ -17,6 +17,7 @@ import numpy as np
 
 from .. import image
 from ..checks import warning
+from ..edit import dry_run_fields, is_dry_run
 from ..errors import ArtToolError, UsageError
 from ..paths import guard_overwrite, jailed_output
 
@@ -143,8 +144,10 @@ def run(args) -> dict:
    scores = score_periods(lines)
    period = pick_period(scores)
    warnings = []
+   dry_run = is_dry_run(args)
    report = {
       "version": VERSION,
+      **dry_run_fields(dry_run, [out_file]),
       "in": str(source),
       "axis": axis,
       "length": length,
@@ -181,9 +184,10 @@ def run(args) -> dict:
       start = cut_start(lines, period)
       fitted, removed, duplicated = fit_unit(lines[start : start + period], target)
       out = fitted.transpose(1, 0, 2) if axis == "x" else fitted
-      image.save(out_file, np.ascontiguousarray(out))
+      if not dry_run:
+         image.save(out_file, np.ascontiguousarray(out))
       report.update({
-         "out": str(out_file),
+         "out": None if dry_run else str(out_file),
          "cut_at": start,
          "width": target,
          "removed": [start + j for j in removed],

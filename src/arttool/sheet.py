@@ -20,6 +20,7 @@ import numpy as np
 from . import image
 from .checks import outline as outline_check
 from .checks import pixels as pixel_check
+from .edit import dry_run_fields, is_dry_run
 from .errors import ArtToolError, UsageError
 from .palette import parse_hex
 from .paths import guard_overwrite, is_plain_file, jailed_output
@@ -379,11 +380,14 @@ def run(args) -> dict:
 
    titles = [KIND_TITLES[k] + (f" {tile}×{tile}" if k == "tile" else "") for k in kinds]
    sheet = layout_rows(rows, row_labels if label else None, titles if label else None)
-   image.save(out_file, sheet)
+   dry_run = is_dry_run(args)
+   if not dry_run:
+      image.save(out_file, sheet)
 
    result = {
       "status": "ok",
-      "out": str(out_file),
+      **dry_run_fields(dry_run, [out_file]),
+      "out": None if dry_run else str(out_file),
       "size": list(image.size(sheet)),
       "scale": scale,
       "kinds": kinds,
