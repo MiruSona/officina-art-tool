@@ -336,7 +336,7 @@ def render(args) -> dict:
    files: list[str] = []
    over = getattr(args, "over", None)
    _guard_sources(root, name, shown["template_file"], over)
-   keep_items = _existing_items(root, shown) if kind.name != "palette" else None
+   old_set = _existing_set(root, shown) if kind.name != "palette" else None
 
    def save_png(file_name: str, arr) -> None:
       path = safe_join(root, file_name)
@@ -364,9 +364,11 @@ def render(args) -> dict:
          preview = guide.vstack(preview, band, scale * guide.GAP)
       save_png(f"{name}_preview.png", preview)
       # 이미 그린 묶음 폴더에 다시 render 해도 그림 목록(items)을 지우지 않는다 (리뷰 R2-M2)
-      path = layerset.save(root, layerset.from_dict({
-         "version": 1, "canvas": [size[0], size[1]], "layers": shown["layers"], "items": keep_items or [], "template": name,
-      }))
+      # 옛 묶음의 meta(맨 위 · 겹)도 이어 쓴다 — version 1 고정으로 덮으면 meta 를 잃는다
+      path = layerset.save(root, layerset.carry_meta(old_set, layerset.from_dict({
+         "version": 1, "canvas": [size[0], size[1]], "layers": shown["layers"],
+         "items": list(old_set.items) if old_set else [], "template": name,
+      })))
       files.append(str(path))
       if over:
          picture = image.load(over)
@@ -410,19 +412,24 @@ def _guard_sources(root: Path, name: str, template_file: str, over) -> None:
    paths.guard_overwrite(writes, [template_file, over], what="--out")
 
 
-def _existing_items(root: Path, shown: dict) -> list[str] | None:
-   """폴더에 layers.json 이 이미 있으면 그 그림 목록(items). 겹 목록 · 크기가 다르면 거절 — Canvas.save 와 같은 규칙."""
+def _existing_set(root: Path, shown: dict) -> layerset.LayerSet | None:
+   """폴더에 layers.json 이 이미 있으면 그 묶음(그림 목록 · meta 를 이어 쓰려고). 겹 목록 · 크기가 다르면 거절 — Canvas.save 와 같은 규칙.
+
+   겹 meta 는 견주지 않는다 — render 는 meta 를 모르니, 옛 겹 meta 는 다르다고 거절하지 않고 이어 쓴다.
+   """
    existing = root / layerset.FILE_NAME
    if not existing.is_file():
       return None
    old = layerset.load(existing)
    new = layerset.from_dict({"version": 1, "canvas": shown["size"], "layers": shown["layers"]}, "(render)")
-   same = old.canvas == new.canvas and [l.to_dict() for l in old.layers] == [l.to_dict() for l in new.layers]
+   def bare(rows):
+      return [{k: v for k, v in l.to_dict().items() if k != "meta"} for l in rows]
+   same = old.canvas == new.canvas and bare(old.layers) == bare(new.layers)
    if not same:
       if not old.items:
          return None     # 그림이 없는 밑판 폴더 — 새 겹 목록으로 다시 써도 잃는 것이 없다
       raise UsageError(f"폴더의 layers.json 과 겹 목록 · 크기가 다르고 그린 그림({', '.join(old.items)})이 있다. 다른 폴더에 render 한다 : {existing}")
-   return list(old.items)
+   return old
 
 
 def _rgb_list(hexes: list[str]) -> list[tuple[int, int, int]]:

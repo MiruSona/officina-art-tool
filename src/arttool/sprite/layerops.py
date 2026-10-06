@@ -96,13 +96,14 @@ def _shift(mask: np.ndarray, dx: int, dy: int) -> np.ndarray:
    return padded[1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w]
 
 
-def _names(text: str | None, known: list[str], what: str) -> list[str]:
+def _names(text: str | None, known: list[str], what: str, noun: str = "겹") -> list[str]:
+   """쉼표 목록을 이름으로 나눈다. noun 은 오류 문구에서 부르는 이름(겹 · 그림)."""
    if not text:
       return []
    names = [n.strip() for n in text.split(",") if n.strip()]
    unknown = [n for n in names if n not in known]
    if unknown:
-      raise UsageError(f"{what} 에 겹 묶음에 없는 겹 : {', '.join(unknown)} (있는 겹 : {', '.join(known)})")
+      raise UsageError(f"{what} 에 겹 묶음에 없는 {noun} : {', '.join(unknown)} (있는 {noun} : {', '.join(known)})")
    return names
 
 
@@ -135,12 +136,19 @@ def _items(folder: Path, ls: layerset.LayerSet) -> list[str]:
 
 
 def _read_raw(folder: Path, ls: layerset.LayerSet, item: str) -> dict[str, image.RGBA]:
-   """크기를 따지지 않고 읽는다(check 가 크기 다름을 경고로 낸다). 없는 파일은 빠진다."""
+   """크기를 따지지 않고 읽는다(check 가 크기 다름을 경고로 낸다). 없는 파일은 빠진다.
+
+   작은 겹은 그림이 그 겹의 size 와 같을 때만 캔버스로 펴서 돌려준다. 다르면 날것 그대로 둬서
+   check 가 크기 다름 경고를 내게 한다.
+   """
    out = {}
-   for name in ls.names():
-      path = layerset.image_path(folder, name, item)
+   for layer in ls.layers:
+      path = layerset.image_path(folder, layer.name, item)
       if path.is_file():
-         out[name] = image.load(path)
+         arr = image.load(path)
+         if layer.small and image.size(arr) == layer.size:
+            arr = layerset.expand(ls, layer, arr)
+         out[layer.name] = arr
    return out
 
 
@@ -383,6 +391,7 @@ def run_diff(args) -> dict:
       ))
 
    ls = layerset.LayerSet((width, height), order, [item], _template_name(args.template))
+   layerset.refuse_small(ls, "layers diff")   # 상자 자르기 쓰기는 아직 — 캔버스 크기로 몰래 쓰지 않게
    for name, path in zip(names, writes):
       image.save(path, parts[name])
    layerset.save(root, ls)
@@ -641,11 +650,16 @@ def run_check(args) -> dict:
    original = Path(args.original) if args.original else None
    target = _pick_original_item(items, original) if original else None
 
+   cover = _load_cover(args.cover, ls.canvas) if getattr(args, "cover", None) else None
+
    warnings: list[dict] = []
    rules: list[dict] = []
+   cover_rows: list[dict] = []
    roundtrip = None
    for item in items:
       good = _check_item(ls, item, _read_raw(folder, ls, item), masks, warnings)
+      if cover is not None:
+         cover_rows.append(_cover_item(item, good, cover, Path(args.cover).name, rules, warnings))
       if item != target:
          continue
       want = image.load(original)
@@ -657,7 +671,7 @@ def run_check(args) -> dict:
       roundtrip = int(np.count_nonzero(diff))
       rules.append({"rule": "original", "ok": roundtrip == 0, "detail": f"{item} : 합친 결과와 원본이 다른 칸 {roundtrip}개", "items": _points(diff)})
 
-   failed = [r["rule"] for r in rules if not r["ok"]]
+   failed = list(dict.fromkeys(r["rule"] for r in rules if not r["ok"]))   # cover 는 그림마다 줄이 생겨 겹칠 수 있다
    status = "fail" if failed else ("warn" if warnings else "ok")
    report = {
       "version": VERSION,
@@ -672,7 +686,40 @@ def run_check(args) -> dict:
    }
    if roundtrip is not None:
       report["roundtrip_diff"] = roundtrip
+   if cover is not None:   # --cover 를 안 주면 보고 꼴이 예전 그대로다
+      report["cover"] = cover_rows
    return report
+
+
+def _load_cover(path, canvas: tuple[int, int]) -> np.ndarray:
+   """가림판 PNG → 덮여야 할 칸(알파 > 0). 캔버스와 크기가 다르면 거절한다 — 칸 자리가 어긋난 채 세지 않게."""
+   arr = image.load(path)   # 픽셀 상한은 image.load 가 본다
+   if image.size(arr) != canvas:
+      raise UsageError(f"가림판 크기 {image.size(arr)} 가 canvas {canvas} 와 다르다 : {path}")
+   return arr[..., 3] > 0
+
+
+def _coverage(parts: dict[str, image.RGBA], shape) -> np.ndarray:
+   """칸마다 몇 겹이 칠했나 (알파 > 0). 캔버스 크기가 아닌 겹은 check 가 따로 경고하므로 뺀다."""
+   count = np.zeros(shape, dtype=np.int32)
+   for arr in parts.values():
+      if arr.shape[:2] == shape:
+         count += arr[..., 3] > 0
+   return count
+
+
+def _cover_item(item: str, parts: dict[str, image.RGBA], cover: np.ndarray, mask_name: str, rules: list[dict], warnings: list[dict]) -> dict:
+   """가림판 안에서 빈 칸(어느 겹도 안 덮음)은 실패, 둘 이상이 덮은 칸은 경고만 (겹침이 뜻한 것일 수 있다)."""
+   count = _coverage(parts, cover.shape)
+   empty = cover & (count == 0)
+   overlap = cover & (count >= 2)
+   n_empty, n_overlap = int(np.count_nonzero(empty)), int(np.count_nonzero(overlap))
+   rules.append({"rule": "cover", "ok": n_empty == 0, "detail": f"{item} : 가림판 안 빈 칸 {n_empty}개", "items": _points(empty)})
+   if n_empty:
+      warnings.append(warning("cover_empty", f"{item} : 가림판 안을 어느 겹도 안 덮은 칸 {n_empty}개", _points(empty)))
+   if n_overlap:
+      warnings.append(warning("cover_overlap", f"{item} : 가림판 안을 둘 이상의 겹이 덮은 칸 {n_overlap}개", _points(overlap)))
+   return {"item": item, "mask": mask_name, "cells": int(np.count_nonzero(cover)), "empty": n_empty, "overlap": n_overlap}
 
 
 # --- export ---
@@ -762,7 +809,155 @@ def run_export(args) -> dict:
 
 # --- 들머리 ---
 
-SUBS = {"diff": run_diff, "mask": run_mask, "view": run_view, "check": run_check, "export": run_export}
+# --- fill ---
+
+_NEIGHBORS8 = [(dy, dx) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if (dy, dx) != (0, 0)]
+
+
+def _nearest_source(seed: np.ndarray, need: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+   """seed(불투명 칸)에서 8방향으로 한 칸씩 번져 칸마다 체비셰프 거리와 가장 가까운 seed 칸 (y, x) 을 찾는다.
+
+   3x3 로 한 번 번지면 체비셰프 거리가 1 는다. need 칸이 다 닿거나 더 번질 데가 없으면 멈춘다 —
+   칸마다 도는 Python 이중 루프 대신 판 전체를 numpy 로 민다(한 걸음 = 판 8번 밀기).
+   """
+   h, w = seed.shape
+   dist = np.full((h, w), np.iinfo(np.int32).max, dtype=np.int32)
+   ys, xs = np.indices((h, w), dtype=np.int32)
+   src_y = np.where(seed, ys, -1).astype(np.int32)
+   src_x = np.where(seed, xs, -1).astype(np.int32)
+   dist[seed] = 0
+   reached = seed.copy()
+   step = 0
+   while not np.all(reached[need]):
+      step += 1
+      grown = reached.copy()
+      for dy, dx in _NEIGHBORS8:
+         # 이웃 (y+dy, x+dx) 가 이미 닿았고 나는 아직이면 그 이웃의 출처를 물려받는다
+         nb = np.zeros_like(reached)
+         nb_y = np.full_like(src_y, -1)
+         nb_x = np.full_like(src_x, -1)
+         ty, sy = slice(max(0, -dy), h - max(0, dy)), slice(max(0, dy), h - max(0, -dy))
+         tx, sx = slice(max(0, -dx), w - max(0, dx)), slice(max(0, dx), w - max(0, -dx))
+         nb[ty, tx] = reached[sy, sx]
+         nb_y[ty, tx] = src_y[sy, sx]
+         nb_x[ty, tx] = src_x[sy, sx]
+         take = nb & ~grown
+         src_y[take], src_x[take] = nb_y[take], nb_x[take]
+         grown |= take
+      new = grown & ~reached
+      if not np.any(new):
+         break
+      dist[new] = step
+      reached = grown
+   return dist, src_y, src_x
+
+
+def _fill_plan(ls: layerset.LayerSet, parts: dict[str, image.RGBA], cover: np.ndarray, nearest: list[str]) -> tuple[dict[str, np.ndarray], list[str], int]:
+   """빈 칸(가림판 안 · 어느 겹도 안 덮음)을 후보 겹에 나눈다. 거리 같으면 --nearest 목록 앞 겹.
+
+   작은 겹은 상자 밖 칸의 후보에서 빠진다(거리를 무한대로) — 그 칸은 다음으로 가까운 겹이 채운다.
+   돌려줌 : {겹: (칸 마스크, 출처 y, 출처 x)} · 그 그림에 있는 후보 · 어느 후보도 상자 밖이라 못 채운 칸 수.
+   """
+   empty = cover & (_coverage(parts, cover.shape) == 0)
+   cands = [n for n in nearest if n in parts and np.any(parts[n][..., 3] > 0)]
+   if not cands or not np.any(empty):
+      return {}, cands, 0
+   found = [_nearest_source(parts[n][..., 3] > 0, empty) for n in cands]
+   far = np.iinfo(np.int32).max
+   dists = np.stack([d for d, _, _ in found])
+   reach = np.min(dists, axis=0) < far                              # 상자를 따지기 전에 닿는 칸
+   for i, name in enumerate(cands):
+      layer = ls.layer(name)
+      if layer.small:   # 작은 겹은 상자 밖에 못 쓴다 — 그 칸에서는 후보가 아니다
+         (x, y), (bw, bh) = layer.offset, layer.size
+         inside = np.zeros(dists.shape[1:], dtype=bool)
+         inside[y:y + bh, x:x + bw] = True
+         dists[i][~inside] = far
+   pick = np.argmin(dists, axis=0)                                  # argmin 은 같으면 앞 것 — 목록 앞 겹
+   ok = np.min(dists, axis=0) < far
+   outside = int(np.count_nonzero(empty & reach & ~ok))             # 모든 후보가 상자 밖이라 못 채운 칸
+   plan = {}
+   for i, name in enumerate(cands):
+      cells = empty & ok & (pick == i)
+      if np.any(cells):
+         plan[name] = (cells, found[i][1], found[i][2])
+   return plan, cands, outside
+
+
+def run_fill(args) -> dict:
+   folder, ls = _open_set(args.in_dir)
+   items = _items(folder, ls)
+   pick = _names(args.items, items, "--items", "그림") if args.items else items
+   nearest = _names(args.nearest, ls.names(), "--nearest")
+   if not nearest:
+      raise UsageError("--nearest 에 겹이 하나 이상 있어야 한다")
+   color = None
+   if args.color:
+      try:
+         color = parse_hex(args.color)
+      except ArtToolError as exc:
+         raise UsageError(str(exc)) from exc
+   out = jailed_output(args.out_dir)
+   guard_outside([out], [folder])                    # 원본 묶음 안에 쓰지 않는다
+   guard_outside([folder], [out], "--in")            # 원본 묶음을 품은 폴더에도 안 쓴다
+   if out.exists() and (not out.is_dir() or any(out.iterdir())):
+      raise UsageError(f"--out 은 없거나 빈 폴더여야 한다 (원본 묶음을 안 덮는다) : {out}")
+   cover = _load_cover(args.mask, ls.canvas)
+
+   warnings: list[dict] = []
+   rows: list[dict] = []
+   writes: dict[Path, image.RGBA | Path] = {}
+   for item in items:
+      for layer in ls.layers:   # 손 안 대는 겹은 바이트 그대로 복사
+         src = layerset.image_path(folder, layer.name, item)
+         if src.is_file():
+            writes[layerset.image_path(out, layer.name, item)] = src
+      if item not in pick:
+         continue
+      parts = layerset.read_item(folder, ls, item)
+      plan, cands, outside = _fill_plan(ls, parts, cover, nearest)
+      if not cands:
+         warnings.append(warning("fill_no_target", f"{item} : --nearest 겹이 이 그림에 없어 건너뛰었다"))
+         continue
+      if outside:
+         warnings.append(warning("fill_outside_box", f"{item} : 작은 겹 상자 밖이라 못 채운 칸 {outside}개"))
+      filled = {}
+      for name, (cells, src_y, src_x) in plan.items():
+         layer = ls.layer(name)
+         arr = parts[name].copy()
+         if color is not None:
+            arr[cells] = (*color, 255)
+         else:
+            arr[cells] = parts[name][src_y[cells], src_x[cells]]
+         writes[layerset.image_path(out, name, item)] = layerset.crop_to_box(layer, arr, f"layers fill {item}")
+         filled[name] = int(np.count_nonzero(cells))
+      rows.append({"item": item, "filled": filled})
+
+   dry_run = is_dry_run(args)
+   if not dry_run:
+      out.mkdir(parents=True, exist_ok=True)
+      (out / layerset.FILE_NAME).write_bytes((folder / layerset.FILE_NAME).read_bytes())   # layers.json 도 바이트 그대로
+      for dst, what in writes.items():
+         dst.parent.mkdir(parents=True, exist_ok=True)
+         if isinstance(what, Path):
+            dst.write_bytes(what.read_bytes())
+         else:
+            image.save(dst, what)
+   return {
+      "version": VERSION,
+      "status": "warn" if warnings else "ok",
+      **dry_run_fields(dry_run, [out / layerset.FILE_NAME, *writes]),
+      "in": str(folder),
+      "cover": Path(args.mask).name,   # "mask" 칸은 다른 명령에서 쓴 가림판 경로라 이름을 가른다
+      "nearest": nearest,
+      "color": to_hex(color) if color else None,
+      "images": rows,
+      "warnings": warnings,
+      "out": None if dry_run else str(out),
+   }
+
+
+SUBS = {"diff": run_diff, "mask": run_mask, "view": run_view, "check": run_check, "export": run_export, "fill": run_fill}
 
 
 def run(args) -> dict:

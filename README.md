@@ -149,7 +149,7 @@ arttool provider make  --kind character --spec req.json --out gen/ --dry-run
 | `sheet … --scale per` | 그림(줄)마다 배율을 따로 `auto`. 줄 딱지 끝 ` · ×N`, 보고 `items[].scale`. `--strip` 과 같이 못 쓴다 (2026-10-06) |
 | `style extract --in refs/ --out style/ [--by-folder] [--max-colors 64] [--force]` | 기준 그림 → 팔레트 · 견본 · 프로필 조각 · 보고. **종류별(`--by-folder`)이 권장 길** |
 | `template list` · `show <이름> [--size N\|WxH] [--preset P] [--base #hex] [--material M]` · `render … --out guide/ [--over a.png]` | 그리기 전 밑판(가이드 겹 · 마스크 · 프롬프트 · 순서). **템플릿 15개** |
-| `layers compose\|diff\|mask\|view\|check\|export` | 겹 묶음 명령. `diff --carve report\|common\|apply`. 옛 `layers --profile …` 줄은 `layers compose` 로 |
+| `layers compose\|diff\|mask\|view\|check\|export\|fill` | 겹 묶음 명령. `check --cover mask.png` 는 가림판 안 빈 칸을 실패로, `fill --mask m.png --nearest a,b --out set2/` 는 그 빈 칸을 가까운 겹에 채운다(명령안내 17절). `layers.json` 버전 2 는 `meta` · 작은 겹 `size`/`offset`. `diff --carve report\|common\|apply`. 옛 `layers --profile …` 줄은 `layers compose` 로 |
 | `ui preview --in panel.png --border N\|L,B,R,T --size WxH` | 안내선 없는 9조각 늘려 보기 |
 | `tile seam` | 새 칸 `bad_px` · `bad_px_min` — 이음 줄에서 크게 다른 칸이 한 줄의 15%(최소 2px) 미만이면 통과 |
 

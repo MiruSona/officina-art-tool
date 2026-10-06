@@ -48,6 +48,10 @@ CONTRACT = [
    ),
    (["layers", "check", "--in", "set"], {"sub": "check", "in_dir": "set", "original": None, "template": None, "report": None}),
    (
+      ["layers", "fill", "--in", "set", "--mask", "m.png", "--nearest", "ring,core", "--out", "o"],
+      {"sub": "fill", "in_dir": "set", "mask": "m.png", "nearest": "ring,core", "color": None, "items": None, "out_dir": "o"},
+   ),
+   (
       ["layers", "export", "--in", "set", "--out", "u"],
       {"sub": "export", "in_dir": "set", "out_dir": "u", "flat": False, "each": False, "trim_common": False, "anchor": "bbox_bottom_center", "report": None},
    ),

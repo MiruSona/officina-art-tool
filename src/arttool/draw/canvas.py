@@ -193,14 +193,14 @@ def _read_source(template, size=None, preset: str | None = None, profile=None) -
       return None, template, open_guide(template), "(사전)"
    path = Path(template)
    if path.is_dir():
-      lay = read_json(path / layerset.FILE_NAME) if (path / layerset.FILE_NAME).is_file() else None
+      lay = layerset.read_data(path / layerset.FILE_NAME) if (path / layerset.FILE_NAME).is_file() else None
       tpl_file = path / "template.json"
       tpl = read_json(tpl_file) if tpl_file.is_file() else None
       if lay is None and tpl is None:
          raise ArtToolError(f"폴더에 layers.json · template.json 이 없다 : {path}")
       return lay, tpl, (open_guide(path) if tpl is not None else None), str(path)
    if path.is_file():
-      data = read_json(path)
+      data = layerset.read_data(path)
       if path.name == layerset.FILE_NAME:
          tpl_file = path.parent / "template.json"
          tpl = read_json(tpl_file) if tpl_file.is_file() else None
@@ -234,6 +234,7 @@ class Canvas:
       self.warnings: list[dict] = []   # 그리기를 막지 않는 알림(예: template.ramps_outside)
       self.guide: Guide | None = None
       self.template_name: str | None = None
+      self.meta: dict | None = None   # layers.json 맨 위 meta — 다시 쓸 때 잃지 않게 들고 있는다
       where = "(인자)"
       if template is not None:
          lay_data, tpl_data, self.guide, where = _read_source(template, size, preset, profile)
@@ -242,7 +243,9 @@ class Canvas:
       if layers is not None:
          rows = _layers_from(layers, where)
       elif lay_data is not None:
-         rows = layerset.from_dict(lay_data, where).layers
+         parsed = layerset.from_dict(lay_data, where)
+         rows = parsed.layers
+         self.meta = parsed.meta
       elif tpl_data is not None and isinstance(tpl_data.get("layers"), list) and tpl_data["layers"]:
          rows = _layers_from(tpl_data["layers"], where)
       else:
@@ -473,16 +476,20 @@ class Canvas:
       """
       root = Path(folder)
       items = [item]
+      old = None
       existing = root / layerset.FILE_NAME
       if existing.is_file():
          old = layerset.load(existing)
          if old.canvas != self.size or [layer.to_dict() for layer in old.layers] != [row.to_dict() for row in self.spec]:
             raise ArtToolError(f"폴더의 layers.json 과 겹 목록 · 크기가 다르다. 다른 폴더에 쓴다 : {existing}")
          items = old.items + ([item] if item not in old.items else [])
-      lay = layerset.LayerSet(self.size, list(self.spec), items, self.template_name)
+      lay = layerset.carry_meta(old, layerset.LayerSet(self.size, list(self.spec), items, self.template_name, self.meta))
+      # 작은 겹은 상자로 잘라 쓴다. 상자 밖에 칸이 있으면 crop_to_box 가 거절한다 —
+      # 한 장이라도 쓰기 전에 다 잘라 봐서, 거절될 때 반쯤 쓴 묶음을 남기지 않는다.
+      cut = {name: layerset.crop_to_box(lay.layer(name), self._layers[name].arr, root) for name in self.names}
       self._folders.append(root)
       for name in self.names:
-         image.save(layerset.image_path(root, name, item), self._layers[name].arr)
+         image.save(layerset.image_path(root, name, item), cut[name])
       return layerset.save(root, lay)
 
    @classmethod

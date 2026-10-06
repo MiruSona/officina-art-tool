@@ -207,6 +207,15 @@ def _case_ui_font(work):
    return argv, ["charset.txt"]
 
 
+
+def _case_layers_fill(work):
+   test_layers_ops.write_set(work / "set", test_layers_ops.three_layers())
+   mask = image.new(test_layers_ops.W, test_layers_ops.H)
+   mask[...] = (255, 255, 255, 255)
+   image.save(work / "m.png", mask)
+   return ["layers", "fill", "--in", str(work / "set"), "--mask", str(work / "m.png"), "--nearest", "body", "--out", "fo"], ["fo/body/idle.png", "fo/face/idle.png", "fo/hair/idle.png", "fo/layers.json"]
+
+
 TAKES_CASES = {
    ("stitch", None): _case_stitch,
    ("sheet", None): _case_sheet,
@@ -219,6 +228,7 @@ TAKES_CASES = {
    ("ui", "preview"): _case_ui_preview,
    ("layers", "mask"): _case_mask,
    ("layers", "view"): _case_view,
+   ("layers", "fill"): _case_layers_fill,
    ("tile", "preview"): _case_tile_preview,
    ("tile", "ldtk"): _case_ldtk,
    ("tile", "seam"): _case_seam,

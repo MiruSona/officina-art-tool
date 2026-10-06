@@ -64,7 +64,7 @@ def _broken(**change):
 @pytest.mark.parametrize(
    "data, word",
    [
-      (_broken(version=2), "version"),
+      (_broken(version=3), "version"),
       (_broken(canvas=[32]), "canvas"),
       (_broken(canvas=[0, 32]), "canvas"),
       (_broken(layers=[]), "하나 이상"),

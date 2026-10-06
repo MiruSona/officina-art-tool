@@ -18,7 +18,7 @@
 | `sheet` | `arttool.sheet.run` (`--scale per` = 그림마다 배율, 2판 C10) |
 | `template list` · `show` · `render` | `arttool.template.run.run` (`args.sub` 로 가른다) |
 | `style extract` | `arttool.style.extract.run` |
-| `layers diff` · `mask` · `view` · `check` · `export` | `arttool.sprite.layerops.run` (`args.sub` 로 가른다) |
+| `layers diff` · `mask` · `view` · `check` · `export` · `fill` | `arttool.sprite.layerops.run` (`args.sub` 로 가른다) |
 | `intake` | `arttool.intake.run` |
 | `style ref` · `bands` · `stitch` · `tile offset` | `arttool.style.ref` · `edit.bands` · `edit.stitch` · `tiles.offset` 의 `run` (피드백 후속 설계) |
 | `extend period` · `ring` · `canvas` | `arttool.extend.period` · `ring` · `canvas` 의 `run` |
@@ -89,6 +89,7 @@ LATE: dict[tuple[str, str | None], tuple[str, str]] = {
    ("layers", "view"): ("arttool.sprite.layerops", "run"),
    ("layers", "check"): ("arttool.sprite.layerops", "run"),
    ("layers", "export"): ("arttool.sprite.layerops", "run"),
+   ("layers", "fill"): ("arttool.sprite.layerops", "run"),
    ("intake", None): ("arttool.intake", "run"),
    # 피드백 후속 설계(2026-10-04)
    ("style", "ref"): ("arttool.style.ref", "run"),
@@ -244,7 +245,7 @@ def _add_bake(subs) -> None:
 
 
 def _add_layers(subs) -> None:
-   node = subs.add_parser("layers", help="겹 묶음 명령 (compose · diff · mask · view · check · export)")
+   node = subs.add_parser("layers", help="겹 묶음 명령 (compose · diff · mask · view · check · export · fill)")
    inner = node.add_subparsers(dest="sub", required=True)
 
    stack = inner.add_parser("compose", help="프로필 rig 의 layer_order 로 층을 겹친다 (옛 `layers`)", parents=[COMMON])
@@ -285,6 +286,7 @@ def _add_layers(subs) -> None:
    look.add_argument("--in", dest="in_dir", required=True, help="겹 묶음 폴더")
    look.add_argument("--original", dest="original", help="합친 결과와 견줄 원본 PNG")
    look.add_argument("--template", dest="template", help="template.json")
+   look.add_argument("--cover", dest="cover", help="가림판 PNG (알파 > 0 = 덮여야 할 칸). 빈 칸은 fail, 겹친 칸은 경고")
    look.add_argument("--report", dest="report", help="보고 JSON")
 
    ship = inner.add_parser("export", help="합친 한 장 · 겹별 PNG 로 내보내기", parents=[COMMON])
@@ -295,6 +297,15 @@ def _add_layers(subs) -> None:
    ship.add_argument("--trim-common", dest="trim_common", action="store_true", help="겹 전체에 bbox 하나로 잘라 offsets.json")
    ship.add_argument("--anchor", dest="anchor", default=split_mod.ANCHOR_KINDS[0], choices=list(split_mod.ANCHOR_KINDS))
    ship.add_argument("--report", dest="report", help="보고 JSON")
+
+   fill = inner.add_parser("fill", help="가림판 안 빈 칸을 가장 가까운 후보 겹에 채워 새 묶음으로", parents=[COMMON])
+   fill.add_argument("--in", dest="in_dir", required=True, help="겹 묶음 폴더 (안 덮는다)")
+   fill.add_argument("--mask", dest="mask", required=True, help="가림판 PNG (알파 > 0 = 덮여야 할 칸, 캔버스 크기)")
+   fill.add_argument("--nearest", dest="nearest", required=True, help="빈 칸을 붙일 후보 겹 (쉼표로, 거리 같으면 앞 겹)")
+   fill.add_argument("--color", dest="color", help="#RRGGBB. 안 주면 가장 가까운 칸의 색")
+   fill.add_argument("--items", dest="items", help="손볼 그림 (쉼표로, 기본 전부)")
+   fill.add_argument("--out", dest="out_dir", required=True, help="새 묶음 폴더 (없거나 빈 폴더)")
+   fill.add_argument("--report", dest="report", help="보고 JSON")
 
 
 def _add_cutout(subs) -> None:
@@ -747,7 +758,7 @@ def _run_late(args, module_name: str, func_name: str) -> dict:
 REPORT_GUARDED = ("in_dir", "in_file", "base", "original", "template", "spec", "manifest", "layout", "tileset",
                   "rules", "map_file", "skeleton", "markers", "out_file", "out_dir", "sheet", "out",
                   "b64", "mark", "mask", "font", "text_file", "gif", "known", "baseline",
-                  "in_path", "from_shape", "like", "profile_map", "ramps")
+                  "in_path", "from_shape", "like", "profile_map", "ramps", "cover")
 
 
 def _guard_report(args) -> None:
@@ -779,6 +790,7 @@ DRY_RUN_TAKES = {
    ("stitch", None), ("sheet", None), ("bands", None), ("anchors", None),
    ("extend", "period"), ("extend", "ring"), ("extend", "canvas"), ("style", "ref"),
    ("layers", "mask"), ("layers", "view"), ("ui", "preview"), ("ui", "font"),
+   ("layers", "fill"),                                                                          # 새 묶음 폴더 — 쓸 목록을 보고만
    ("tile", "offset"), ("tile", "preview"), ("tile", "ldtk"), ("tile", "seam"),
    ("tile", "place"), ("provider", "make"),                                                      # 바깥을 안 부르고 요청 JSON 만
 }

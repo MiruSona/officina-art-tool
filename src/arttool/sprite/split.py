@@ -340,6 +340,18 @@ def _layer_kind(name: str, idx: int, spec: SplitSpec) -> str:
    return "body" if idx == spec.default else "deco"
 
 
+def _refuse_small_set(root: Path) -> None:
+   """이미 있는 묶음에 작은 겹이 있으면 쓰기 전에 막는다 — split 은 캔버스 크기 겹만 쓴다(상자 자르기는 아직)."""
+   file = root / layerset.FILE_NAME
+   if not file.is_file():
+      return
+   try:
+      old = layerset.load(file)
+   except ArtToolError:
+      return   # 못 읽는 묶음은 지금처럼 _write_layerset 이 보고에 적는다
+   layerset.refuse_small(old, "split")
+
+
 def _write_layerset(root: Path, spec: SplitSpec, item: str, size: tuple[int, int]) -> tuple[str | None, str | None]:
    """`<out>/layers.json` 을 쓴다(설계 10-2). 돌려주는 값 = (쓴 경로, 못 쓴 까닭).
 
@@ -363,7 +375,7 @@ def _write_layerset(root: Path, spec: SplitSpec, item: str, size: tuple[int, int
       if old.names() != fresh.names() or old.canvas != fresh.canvas:
          return None, f"이미 있는 layers.json 의 겹 · canvas 가 다르다 : {old.names()} {old.canvas}"
       items = list(old.items) if item in old.items else [*old.items, item]
-      fresh = layerset.LayerSet(old.canvas, old.layers, items, old.template)
+      fresh = layerset.carry_meta(old, layerset.LayerSet(old.canvas, old.layers, items, old.template))
    return str(layerset.save(root, fresh)), None
 
 
@@ -387,6 +399,7 @@ def run(in_file: str | Path, spec_file: str | Path, out_dir: str | Path, rig_ord
    writes = [safe_join(root, f"{name}/{source.name}") for name in spec.layers]
    writes += [safe_join(root, REPORT_NAME), safe_join(root, ANCHORS_NAME), safe_join(root, layerset.FILE_NAME)]
    guard_overwrite(writes, [source, spec_path, *spec.masks.values()])
+   _refuse_small_set(root)
 
    arr = image.load(source)
    parts, info = split_array(arr, spec, _load_masks(spec), default_min_piece)
