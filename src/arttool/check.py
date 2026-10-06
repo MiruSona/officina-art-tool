@@ -340,7 +340,115 @@ def run(prof: Profile, build_dir: str | Path, no_ramps: bool = False, *, warn: b
    # 목록은 검사 전에 읽는다 — 꼴이 틀리면 그림을 다 재기 전에 멈춘다.
    items = load_known(known or [], baseline or []) if use_known else None
    report = _run(prof, build_dir, no_ramps, warn=warn, mode=mode, template=template)
+   shape_notes = _baseline_shape_notes(baseline or [])
+   if shape_notes:
+      report = {**report, "info": list(report.get("info", [])) + shape_notes}
    return apply_known(report, items, fail_on_new) if use_known else report
+
+
+# --- 입력 여럿 (2판 C9) ---
+
+
+def run_many(prof: Profile, build_dirs, no_ramps: bool = False, **kw) -> dict:
+   """`--in` 여럿. 입력마다 따로 판정한 뒤 `merge` 로 합치고, 알고 두는 경고는 합친 뒤 한 번 뺀다.
+
+   입력이 하나면 `run` 을 그대로 부른다 — 보고가 예전과 바이트까지 같다.
+   """
+   paths = [build_dirs] if isinstance(build_dirs, (str, Path)) else list(build_dirs)
+   if len(paths) == 1:
+      return run(prof, paths[0], no_ramps, **kw)
+   known, baseline, fail_on_new = kw.pop("known", None), kw.pop("baseline", None), kw.pop("fail_on_new", False)
+   use_known = bool(known or baseline or fail_on_new)
+   if use_known and not kw.get("warn", True):
+      raise UsageError("--known · --baseline · --fail-on-new 은 --no-warn 과 같이 못 쓴다 (경고를 안 세면 뺄 것이 없다)")
+   items = load_known(known or [], baseline or [], many=True) if use_known else None
+   labels = input_labels(paths)
+   modes = ["loose" if is_loose(check_source(p)) else "frames" for p in paths]
+   reports = [run(prof, p, no_ramps, **kw) for p in paths]
+   merged = merge(reports, labels, paths, modes)
+   return apply_known(merged, items, fail_on_new) if use_known else merged
+
+
+# 딱지는 `where` 앞에 붙어 glob 으로 맞춰진다 — 경로 가름 글자와 glob 글자는 `_` 로 바꾼다.
+LABEL_UNSAFE = str.maketrans({ch: "_" for ch in "/\\[]*?"})
+
+
+def input_labels(paths) -> list[str]:
+   """입력 딱지 = 폴더(파일) 이름. 이름이 겹치는 입력만 `1:<이름>` 처럼 순번(1부터)을 붙인다.
+
+   `resolve` 한 이름을 쓴다 — `./` · `C:/` 처럼 이름이 비는 경로도 딱지가 나온다. 같은 경로를 두 번 주면 거절한다.
+   """
+   resolved = [Path(p).resolve() for p in paths]
+   seen: set[Path] = set()
+   for p, full in zip(paths, resolved):
+      if full in seen:
+         raise UsageError(f"--in 에 같은 경로를 두 번 줬다 : {p}")
+      seen.add(full)
+   names = [(full.name or "input").translate(LABEL_UNSAFE) for full in resolved]
+   return [f"{i}:{n}" if names.count(n) > 1 else n for i, n in enumerate(names, 1)]
+
+
+def _tag_cell(label: str, cell):
+   """경고 칸 하나에 입력 딱지를 붙인다. 자리 열쇠(`cell_key`)가 입력끼리 안 겹치게 하는 것이 목적이다.
+
+   `where` 가 있으면 그 앞에, 없으면(`ramp` · `color` 칸 · 글 칸) 원래 열쇠를 `where` 로 만들어 붙인다.
+   """
+   if not isinstance(cell, dict):
+      return f"{label}/{cell}"
+   if "where" in cell:
+      return {**cell, "where": f"{label}/{cell['where']}"}
+   return {**cell, "where": f"{label}/{cell_key(cell)}"}
+
+
+def _tag_lines(label: str, lines: list[dict]) -> list[dict]:
+   out = []
+   for line in lines:
+      tagged = {**line, "input": label}
+      if line.get("items"):
+         tagged["items"] = [_tag_cell(label, c) for c in line["items"]]
+      out.append(tagged)
+   return out
+
+
+def _union(lists) -> list:
+   out: list = []
+   for values in lists:
+      out += [v for v in values if v not in out]
+   return out
+
+
+def merge(reports: list[dict], labels: list[str], paths=None, modes=None) -> dict:
+   """입력마다 낸 보고를 하나로 합친다. 줄마다 `input` 딱지를 달고, 칸의 `where` 앞에 딱지를 붙인다.
+
+   status 는 하나라도 fail 이면 fail. 경고는 status 를 안 바꾼다 (각 입력의 `_finish` 규칙 그대로).
+   """
+   paths = paths or [""] * len(reports)
+   modes = modes or [""] * len(reports)
+   first = reports[0]
+   out = {
+      "version": first["version"],
+      "profile": first["profile"],
+      "status": "fail" if any(r["status"] == "fail" for r in reports) else "ok",
+      "must_failed": _union(r.get("must_failed", []) for r in reports),
+      "inputs": [{"path": str(p), "label": lab, "mode": m, "frames": r.get("checked", {}).get("frames"), "checked": r.get("checked", {})}
+                 for r, lab, p, m in zip(reports, labels, paths, modes)],
+      "checked": {"inputs": len(reports), "frames": sum(int(r.get("checked", {}).get("frames") or 0) for r in reports)},
+      "failed": _union(r.get("failed", []) for r in reports),
+      "skipped": _union(r.get("skipped", []) for r in reports),
+      "rules": [line for r, lab in zip(reports, labels) for line in _tag_lines(lab, r.get("rules", []))],
+      "warnings": [line for r, lab in zip(reports, labels) for line in _tag_lines(lab, r.get("warnings", []))],
+   }
+   # 모든 입력의 모드가 같으면 싣는다 — 콘솔이 `checked.mode` 를 보고 「낱장 모드」 줄을 낸다.
+   if modes and modes[0] and all(m == modes[0] for m in modes):
+      out["checked"]["mode"] = modes[0]
+   if any(r.get("warnings_off") for r in reports):
+      out["warnings_off"] = True
+   info = [line for r, lab in zip(reports, labels) for line in _tag_lines(lab, r.get("info", []))]
+   if info:
+      out["info"] = info
+   if "template" in first:
+      out["template"] = first["template"]
+   return out
 
 
 KNOWN_KEYS = ("rule", "where", "note")
@@ -352,8 +460,11 @@ def _as_list(value) -> list:
    return list(value) if isinstance(value, (list, tuple)) else [value]
 
 
-def load_known(known, baseline) -> list[dict]:
-   """`--known` 목록과 `--baseline` 옛 보고를 항목 `{rule, where, note}` 하나의 꼴로 모은다 (설계 D)."""
+def load_known(known, baseline, many: bool = False) -> list[dict]:
+   """`--known` 목록과 `--baseline` 옛 보고를 항목 `{rule, where, note}` 하나의 꼴로 모은다 (설계 D).
+
+   `many` 는 이번 판이 `--in` 여럿인지다 — 입력 하나로 만든 baseline 을 모든 입력에 맞게 읽는다.
+   """
    items: list[dict] = []
    for path in _as_list(known):
       data = read_json(path)
@@ -373,7 +484,7 @@ def load_known(known, baseline) -> list[dict]:
                raise UsageError(f"{spot} 의 {key} 는 글이어야 한다")
          items.append({"rule": entry["rule"], "where": entry.get("where", "*"), "note": entry.get("note", "")})
    for path in _as_list(baseline):
-      items += _baseline_items(path)
+      items += _baseline_items(path, many)
    return items
 
 
@@ -382,12 +493,26 @@ def _glob_escape(text: str) -> str:
    return "".join(f"[{ch}]" if ch in "[*?" else ch for ch in text)
 
 
-def _baseline_items(path) -> list[dict]:
+def _baseline_shape_notes(baseline) -> list[dict]:
+   """입력 하나 판에 입력 여럿으로 만든 baseline 을 주면 맞추지 않고 알려 준다 (딱지 붙은 열쇠라 안 맞는다)."""
+   notes = []
+   for path in _as_list(baseline):
+      data = read_json(path)
+      inputs = data.get("inputs") if isinstance(data, dict) else None
+      if isinstance(inputs, list):
+         notes.append({"rule": "check.baseline_shape",
+                       "detail": f"baseline 은 입력 {len(inputs)}개로 만든 보고다 — 같은 --in 꼴로 다시 만들라 : {Path(path).name}"})
+   return notes
+
+
+def _baseline_items(path, many: bool = False) -> list[dict]:
    data = read_json(path)
    lines = data.get("warnings") if isinstance(data, dict) else None
    if not isinstance(lines, list):
       raise UsageError(f"--baseline 은 check 보고(JSON 객체에 warnings 배열)여야 한다 : {path}")
    note = f"baseline:{Path(path).name}"
+   # 입력 하나로 만든 옛 보고를 입력 여럿 판에 주면 열쇠에 딱지가 없다 — 어느 입력의 딱지든 맞게 `*/` 를 붙인다.
+   prefix = "*/" if many and "inputs" not in data else ""
    out: list[dict] = []
    seen = set()
    # 그 보고가 이미 --known 으로 뺀 것도 옛 경고다 — 같이 넣어야 왕복이 맞는다.
@@ -401,7 +526,8 @@ def _baseline_items(path) -> list[dict]:
          if key in seen:
             continue
          seen.add(key)
-         out.append({"rule": _glob_escape(rule), "where": "*" if spot is None else _glob_escape(spot), "note": note})
+         out.append({"rule": _glob_escape(rule), "where": "*" if spot is None else prefix + _glob_escape(spot),
+                     "note": note})
    return out
 
 

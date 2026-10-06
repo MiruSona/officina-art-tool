@@ -117,6 +117,9 @@ CONTRACT = [
    (["outline", "--in", "a.png", "--out", "o"], {"in_dir": "a.png", "out_dir": "o", "mode": "black", "where": "outside", "width": 1, "color": None, "grow": False}),
    (["fill", "--in", "a.png", "--out", "o", "--enclosed", "--color", "#ff0000"], {"in_dir": "a.png", "out_dir": "o", "enclosed": True, "color": "#ff0000", "max_area": None}),
    (["diff", "--a", "a.png", "--b", "b.png", "--alpha-only"], {"a": "a.png", "b": "b.png", "alpha_only": True}),
+   (["measure", "shape", "--in", "f.png", "--at", "3,4"], {"sub": "shape", "in_path": "f.png", "at": "3,4", "color": None, "tol": 0, "report": None}),
+   (["mask", "--from-shape", "s.json", "--size", "32,32", "--out", "m.png"],
+    {"from_shape": "s.json", "size": "32,32", "like": None, "r": "round", "invert": False, "out_file": "m.png", "report": None}),
 ]
 
 

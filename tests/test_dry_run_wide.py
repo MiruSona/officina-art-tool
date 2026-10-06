@@ -93,6 +93,7 @@ def _harmless_cases(work):
       ("template", "show"): ["template", "show", "char_small", "--size", "32x32"],
       ("provider", "list"): ["provider", "list"],
       ("diff", None): ["diff", "--a", str(src), "--b", str(src), "--alpha-only", "--report", _rep(work, "d.json")],
+      ("measure", "shape"): ["measure", "shape", "--in", str(tiles / "t.png"), "--at", "0,0", "--report", _rep(work, "m.json")],
    }
 
 

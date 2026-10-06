@@ -15,7 +15,7 @@
 | `cutout` | `arttool.edit.cutout.run` |
 | `trim` | `arttool.edit.trim.run` |
 | `ui preview` | `arttool.ui.ninepatch.run_preview` |
-| `sheet` | `arttool.sheet.run` |
+| `sheet` | `arttool.sheet.run` (`--scale per` = 그림마다 배율, 2판 C10) |
 | `template list` · `show` · `render` | `arttool.template.run.run` (`args.sub` 로 가른다) |
 | `style extract` | `arttool.style.extract.run` |
 | `layers diff` · `mask` · `view` · `check` · `export` | `arttool.sprite.layerops.run` (`args.sub` 로 가른다) |
@@ -26,9 +26,11 @@
 | `merge-colors` | `arttool.sprite.merge.run` (2026-10-05) |
 | `shift` | `arttool.sprite.shift.run` (2026-10-06) |
 | `outline` · `fill` · `diff` | `arttool.sprite.outline` · `edit.fill` · `sprite.diff` 의 `run` (2026-10-06) |
+| `measure shape` · `mask` | `arttool.measure.shape` · `edit.mask` 의 `run` (2026-10-06 2판-나) |
 | `layers compose` | 여기서 `sprite.layers.compose_sheets` 를 바로 부른다 (옛 `layers`) |
 | `check --no-warn · --mode · --template` | `check.run(prof, in_dir, no_ramps, *, warn, mode, template)` — 그 세 칸을 받게 되면 넘긴다 |
 | `check --known · --baseline · --fail-on-new` | `check.run(..., *, known, baseline, fail_on_new)` — 셋 중 하나라도 줬을 때만 넘긴다 |
+| `check --in A B …` | `check.run_many(prof, [in…], ...)` — 하나면 `check.run` 그대로, 여럿이면 입력마다 `run` → `merge`(where 앞에 입력 딱지) → known 은 합친 뒤 한 번 (2판 C9) |
 """
 
 from __future__ import annotations
@@ -102,6 +104,8 @@ LATE: dict[tuple[str, str | None], tuple[str, str]] = {
    ("outline", None): ("arttool.sprite.outline", "run"),
    ("fill", None): ("arttool.edit.fill", "run"),
    ("diff", None): ("arttool.sprite.diff", "run"),
+   ("measure", "shape"): ("arttool.measure.shape", "run"),
+   ("mask", None): ("arttool.edit.mask", "run"),
 }
 
 # check.run 이 이 세 칸을 키워드로 받게 되면(D 갈래) 새 인자를 넘긴다.
@@ -182,6 +186,8 @@ def build_parser() -> argparse.ArgumentParser:
    _add_outline(subs)
    _add_fill(subs)
    _add_diff(subs)
+   _add_measure(subs)
+   _add_mask(subs)
    return parser
 
 
@@ -210,7 +216,8 @@ def _add_anchors(subs) -> None:
 
 def _add_check(subs) -> None:
    node = subs.add_parser("check", help="③ 검수", parents=[COMMON])
-   node.add_argument("--in", dest="in_dir", required=True, help="frames.json 이 있는 폴더, 또는 낱장 PNG 폴더·파일")
+   node.add_argument("--in", dest="in_dir", required=True, nargs="+",
+                     help="frames.json 이 있는 폴더, 또는 낱장 PNG 폴더·파일. 여럿 주면 입력마다 판정해 한 보고로 합친다")
    node.add_argument("--report", dest="report", required=True)
    node.add_argument("--no-ramps", dest="no_ramps", action="store_true", help="램프 규칙을 건너뛴다 (팔레트 미정일 때)")
    node.add_argument("--no-warn", dest="no_warn", action="store_true", help="이번 한 판만 경고 검사를 끈다 (status 는 그대로)")
@@ -337,6 +344,28 @@ def _add_diff(subs) -> None:
    node.add_argument("--alpha-only", dest="alpha_only", action="store_true", help="알파만 견준다 (지금은 이 방식뿐, 꼭 준다)")
    node.add_argument("--report", dest="report", help="보고 JSON")
 
+
+def _add_measure(subs) -> None:
+   node = subs.add_parser("measure", help="재기 묶음 명령 (shape)")
+   inner = node.add_subparsers(dest="sub", required=True)
+   shape = inner.add_parser("shape", help="덩이 하나의 중심 · 반지름 · 원다움을 잰다 (파일 안 씀)", parents=[COMMON])
+   shape.add_argument("--in", dest="in_path", required=True, help="PNG 한 장")
+   shape.add_argument("--at", dest="at", help="x,y. 그 칸과 같은 색으로 이어진 덩이를 잰다 (--color 와 둘 중 하나)")
+   shape.add_argument("--color", dest="color", help="#rrggbb. 이 색 칸 덩이 가운데 가장 큰 것을 잰다")
+   shape.add_argument("--tol", dest="tol", type=int, default=0, help="색 폭. RGB 각 칸 차이의 최댓값 (기본 0)")
+   shape.add_argument("--report", dest="report", help="보고 JSON (mask --from-shape 가 그대로 읽는다)")
+
+
+def _add_mask(subs) -> None:
+   node = subs.add_parser("mask", help="measure shape 로 잰 원으로 흰 가림판 PNG", parents=[COMMON])
+   node.add_argument("--from-shape", dest="from_shape", required=True, help="measure shape 보고 JSON (shape.center · shape.r)")
+   node.add_argument("--size", dest="size", help="w,h 출력 크기 (--like 와 둘 중 하나)")
+   node.add_argument("--like", dest="like", help="이 PNG 의 크기만 빌린다")
+   node.add_argument("--r", dest="r", default="round", help="round(r 반올림, 기본) · max(r_max) · 양수")
+   node.add_argument("--invert", dest="invert", action="store_true", help="원 바깥을 흰색으로")
+   node.add_argument("--out", dest="out_file", required=True, help="PNG")
+   node.add_argument("--report", dest="report", help="보고 JSON")
+
 def _add_shift(subs) -> None:
    node = subs.add_parser("shift", help="색을 HSV 로 옮기기 (색상 · 채도 · 명도)", parents=[COMMON])
    node.add_argument("--in", dest="in_dir", required=True, help="PNG 한 장 또는 폴더(바로 아래 .png)")
@@ -354,7 +383,8 @@ def _add_sheet(subs) -> None:
    node.add_argument("--in", dest="in_paths", required=True, nargs="+", help="PNG 또는 폴더 여럿. 그림 하나 = 한 줄")
    node.add_argument("--out", dest="out_file", required=True, help="비교판 PNG")
    node.add_argument("--kinds", dest="kinds", default="zoom", help="zoom,silhouette,colors4,blur,tile,fit:N 중 쉼표로 (기본 zoom)")
-   node.add_argument("--scale", dest="scale", default="auto", help="auto 또는 정수 배 (기본 auto)")
+   node.add_argument("--scale", dest="scale", default="auto",
+                     help="auto · per(그림마다 auto, 줄 딱지 끝에 ×N) 또는 정수 배 (기본 auto)")
    node.add_argument("--strip", dest="strip", action="store_true",
                      help="여백 0 · 딱지 없음 · 배율 1 · 투명 바탕으로 --in 순서대로 가로로 붙인다 (--kinds · --scale · --grid 와 같이 못 쓴다)")
    node.add_argument("--tile", dest="tile", type=int, default=2, choices=[2, 4], help="tile 판의 반복 수 (기본 2)")
@@ -702,7 +732,8 @@ def _run_late(args, module_name: str, func_name: str) -> dict:
 # --report 와 견줄 인자들 — 읽는 파일 · 쓰는 그림. 보고 JSON 이 이 중 하나를 덮으면 안 된다 (리뷰 R1-M5)
 REPORT_GUARDED = ("in_dir", "in_file", "base", "original", "template", "spec", "manifest", "layout", "tileset",
                   "rules", "map_file", "skeleton", "markers", "out_file", "out_dir", "sheet", "out",
-                  "b64", "mark", "mask", "font", "text_file", "gif", "known", "baseline")
+                  "b64", "mark", "mask", "font", "text_file", "gif", "known", "baseline",
+                  "in_path", "from_shape", "like")
 
 
 def _guard_report(args) -> None:
@@ -728,8 +759,8 @@ def _guard_report(args) -> None:
 # dry-run 은 세 무리로 나눈다. 새 명령은 셋 중 한 곳에 꼭 넣는다 — 빠뜨리면 test_dry_run 이 깨진다.
 DRY_RUN_TAKES = {
    ("cutout", None), ("trim", None), ("reline", None), ("tint", None), ("merge-colors", None), ("shift", None),   # 안 쓰고 보고만
-   ("outline", None), ("fill", None),
-   ("intake", None),                                                                             # 검수용 임시 폴더만 쓰고 지운다
+   ("outline", None), ("fill", None), ("mask", None),
+   ("intake", None),                                                                            # 검수용 임시 폴더만 쓰고 지운다
    # 정해진 파일 한두 개를 쓰는 명령 (2026-10-06) — 안 쓰고 보고만
    ("stitch", None), ("sheet", None), ("bands", None), ("anchors", None),
    ("extend", "period"), ("extend", "ring"), ("extend", "canvas"), ("style", "ref"),
@@ -741,6 +772,7 @@ DRY_RUN_TAKES = {
 DRY_RUN_HARMLESS = {
    ("profile", "show"), ("check", None), ("layers", "check"), ("tile", "inspect"), ("ui", "check"), ("ui", "glyphs"),
    ("template", "list"), ("template", "show"), ("provider", "list"), ("diff", None),
+   ("measure", "shape"),
 }
 # 폴더째 여러 파일을 쓰는 명령. 쓸 목록이 셈 중간에 정해지거나 앞 단계 산출물을 읽어 S 로 안 된다 — 까닭은 진행상황.md
 DRY_RUN_REFUSED = {
@@ -838,7 +870,7 @@ def _run_check(args) -> dict:
          extra.update(known=args.known, baseline=args.baseline, fail_on_new=args.fail_on_new)
    elif args.no_warn or args.mode != "auto" or args.template:
       raise UsageError("아직 구현 안 됨 : check --no-warn · --mode · --template")
-   report = check_mod.run(_profile(args), args.in_dir, args.no_ramps, **extra)
+   report = check_mod.run_many(_profile(args), args.in_dir, args.no_ramps, **extra)
    write_json(jailed_output(args.report), report)
    return report
 

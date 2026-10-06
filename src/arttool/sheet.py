@@ -30,6 +30,7 @@ KIND_TITLES = {"zoom": "확대", "silhouette": "실루엣", "colors4": "4색", "
 
 AUTO_TARGET = 256          # --scale auto : 가장 큰 그림이 이 픽셀 안팎이 되는 정수 배
 AUTO_MAX = 8
+SCALE_PER = "per"          # --scale per : 그림(줄)마다 auto 배율 (2판 C10)
 SCALE_MAX = 64             # --scale 정수의 위 한도. 넘으면 판을 그리기도 전에 메모리를 다 쓴다 (R1-M3)
 SILHOUETTE = (24, 24, 32, 255)
 CHECKER = ((236, 238, 244, 255), (206, 210, 222, 255))  # 회색 판(colors4)과 안 헷갈리게 푸른 기를 조금 섞었다
@@ -417,7 +418,13 @@ def run(args) -> dict:
    files, warnings = collect_inputs(list(args.in_paths))
    guard_overwrite([out_file], files)          # 비교판이 입력 PNG 를 덮지 않게 (R1-H1)
    items = [image.load(path) for path in files]
-   scale = pick_scale(args.scale if args.scale is not None else "auto", items)
+   # --scale per (2판 C10) : 그림(줄)마다 auto 배율을 따로 정한다. 25px 소품이 397px 조각 탓에 1배로 나오지 않게.
+   per = str(args.scale) == SCALE_PER
+   if per:
+      scales = [pick_scale("auto", [arr]) for arr in items]
+   else:
+      scales = [pick_scale(args.scale if args.scale is not None else "auto", items)] * len(items)
+   scale = scales[0] if scales else 1
    for kind in kinds:
       if kind.startswith("fit:"):
          bigger = [path.name for path, arr in zip(files, items) if int(kind[4:]) > max(arr.shape[:2])]
@@ -425,9 +432,11 @@ def run(args) -> dict:
             warnings.append(_warn("fit_upscale", f"{kind} 이 그림 긴 변보다 커서 원본 그대로 넣었다", bigger))
    margin = (0, 0)
    if grid:
-      if scale < GRID_MIN_SCALE:
-         warnings.append(_warn("grid_scale", f"--grid 라 배율을 {scale} 에서 {GRID_MIN_SCALE} 로 올렸다", [scale]))
-         scale = GRID_MIN_SCALE
+      low = sorted({s for s in scales if s < GRID_MIN_SCALE})
+      if low:
+         warnings.append(_warn("grid_scale", f"--grid 라 배율을 {', '.join(map(str, low))} 에서 {GRID_MIN_SCALE} 로 올렸다", low))
+         scales = [max(s, GRID_MIN_SCALE) for s in scales]
+         scale = scales[0]
       margin = grid_margin(items, grid)
 
    label = bool(args.label)
@@ -436,23 +445,29 @@ def run(args) -> dict:
       warnings.append(_warn("label_font", f"딱지 글꼴이 없어 딱지를 뺐다 (설치가 깨졌다) : {image.LABEL_FONT}", []))
 
    # 판 크기를 그리기 전에 셈해 상한을 먼저 본다 — 칸을 다 그린 뒤에 거절하면 메모리를 이미 다 썼다 (R1-M3)
-   sizes = [[kind_size(arr.shape[1], arr.shape[0], kind, scale, tile) for kind in kinds] for arr in items]
+   sizes = [[kind_size(arr.shape[1], arr.shape[0], kind, s, tile) for kind in kinds] for arr, s in zip(items, scales)]
    if grid:
       sizes = [[(w + margin[0], h + margin[1]) if kind == "zoom" else (w, h) for kind, (w, h) in zip(kinds, row)]
                for row in sizes]
    image.check_pixels(*layout_size(sizes, label, label), "비교판")
 
-   rows =[[render_kind(arr, kind, scale, tile, bg) for kind in kinds] for arr in items]
+   rows = [[render_kind(arr, kind, s, tile, bg) for kind in kinds] for arr, s in zip(items, scales)]
    if grid:
-      rows = [[draw_grid(cell, scale, grid, grid_color, margin) if kind == "zoom" else cell for kind, cell in zip(kinds, row)]
-              for row in rows]
+      rows = [[draw_grid(cell, s, grid, grid_color, margin) if kind == "zoom" else cell for kind, cell in zip(kinds, row)]
+              for row, s in zip(rows, scales)]
    report_items = []
    row_labels = []
-   for index, (path, arr) in enumerate(zip(files, items), start=1):
+   for index, (path, arr, s) in enumerate(zip(files, items, scales), start=1):
       w, h = image.size(arr)
       numbers = measure(arr)
-      report_items.append({"no": index, "name": path.name, "path": str(path), "size": [w, h], **numbers})
-      row_labels.append(f"{index}. {path.stem}  {w}x{h} · {numbers['colors']}색")
+      entry = {"no": index, "name": path.name, "path": str(path), "size": [w, h], **numbers}
+      text = f"{index}. {path.stem}  {w}x{h} · {numbers['colors']}색"
+      if per:
+         # 줄마다 배율이 달라 크기를 오해하지 않게 딱지 끝 · 보고 칸에 배율을 싣는다
+         entry["scale"] = s
+         text += f" · ×{s}"
+      report_items.append(entry)
+      row_labels.append(text)
 
    titles = [kind_title(k, tile) for k in kinds]
    sheet = layout_rows(rows, row_labels if label else None, titles if label else None)
@@ -465,7 +480,7 @@ def run(args) -> dict:
       **dry_run_fields(dry_run, [out_file]),
       "out": None if dry_run else str(out_file),
       "size": list(image.size(sheet)),
-      "scale": scale,
+      "scale": SCALE_PER if per else scale,
       "kinds": kinds,
       "tile": tile,
       "bg": args.bg,

@@ -330,3 +330,56 @@ def test_sheet_strip_rejects_unused_args(tmp_path, over):
    with pytest.raises(UsageError):
       _sh.run(_ns2(_two_png(tmp_path), tmp_path / "s.png", strip=True, **over))
    assert not (tmp_path / "s.png").exists()
+
+
+# ── --scale per (2판 C10) ──
+
+def _small_big(tmp_path):
+   image.save(tmp_path / "small.png", _two_tone(8, 8))      # auto 혼자면 AUTO_MAX(8)배
+   image.save(tmp_path / "big.png", _two_tone(128, 128))    # auto 혼자면 2배
+   return [tmp_path / "small.png", tmp_path / "big.png"]
+
+
+def test_sheet_scale_per_each_row_own_scale(tmp_path):
+   ins = _small_big(tmp_path)
+   result = sheet.run(_ns2(ins, tmp_path / "s.png", scale="per"))
+   assert result["scale"] == "per"
+   assert [item["scale"] for item in result["items"]] == [sheet.AUTO_MAX, 2]
+   auto = sheet.run(_ns2(ins, tmp_path / "a.png", scale="auto"))
+   assert auto["scale"] == 2 and all("scale" not in item for item in auto["items"])
+
+
+def test_sheet_scale_per_label_has_times(tmp_path, monkeypatch):
+   seen = {}
+   real = sheet.layout_rows
+
+   def spy(rows, labels=None, *a, **k):
+      seen["l"] = labels
+      return real(rows, labels, *a, **k)
+
+   monkeypatch.setattr(sheet, "layout_rows", spy)
+   if not image.has_label_font():
+      pytest.skip("딱지 글꼴 없음")
+   sheet.run(_ns2(_small_big(tmp_path), tmp_path / "s.png", scale="per", label=True))
+   assert seen["l"][0].endswith(f"×{sheet.AUTO_MAX}") and seen["l"][1].endswith("×2")
+
+
+def test_sheet_without_per_is_byte_same(tmp_path):
+   ins = _small_big(tmp_path)
+   one = sheet.run(_ns2(ins, tmp_path / "1.png"))
+   two = sheet.run(_ns2(ins, tmp_path / "2.png", scale="auto"))
+   assert (tmp_path / "1.png").read_bytes() == (tmp_path / "2.png").read_bytes()
+   assert one["scale"] == two["scale"] == 2
+
+
+def test_sheet_scale_per_with_grid_raises_low_only(tmp_path):
+   result = sheet.run(_ns2(_small_big(tmp_path), tmp_path / "s.png", scale="per", grid=8))
+   assert [item["scale"] for item in result["items"]] == [sheet.AUTO_MAX, sheet.GRID_MIN_SCALE]
+   assert [w["rule"] for w in result["warnings"]] == ["grid_scale"]
+
+
+def test_sheet_strip_with_scale_per_refused(tmp_path):
+   with pytest.raises(errors.UsageError):
+      sheet.run(_ns2(_small_big(tmp_path), tmp_path / "s.png", scale="per", strip=True))
+   assert cli.main(["sheet", "--in", str(tmp_path / "small.png"), "--out", str(tmp_path / "x.png"),
+                    "--strip", "--scale", "per"]) == errors.EXIT_USAGE

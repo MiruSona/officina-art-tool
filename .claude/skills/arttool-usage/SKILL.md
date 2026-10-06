@@ -63,6 +63,8 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 | 알고 두는 경고 빼고 새 경고만 보기 | `arttool check --in clean --report base.json` 으로 한 번 뜨고, 다음부터 `arttool check --in clean --report c.json --baseline base.json --fail-on-new` (손으로 쓴 `--known k.json` 도 된다. 맞은 경고는 보고 `known` 으로 가고 `new_warnings` 만 남는다. 새 경고가 있으면 종료 4. `--no-warn` 과 같이 주면 종료 2) |
 | 비교판 | `arttool sheet --in a.png clean/ --kinds zoom,silhouette,colors4,blur --label --out s.png` |
 | 한 줄 애니 시트 · 작게 찍힌 모습 | `arttool sheet --in f1.png f2.png --out strip.png --strip` (여백 0 · 배율 1 · 프레임 크기가 같아야 함) · `arttool sheet --in a.png --kinds zoom,fit:24,fit:16 --out s.png` (긴 변을 N 으로 줄인 모습. N 이 더 크면 원본 그대로 + `fit_upscale`) |
+| 한 색 덩이 재기 → 둥근 가림판 | `arttool measure shape --in w.png --color #hex --report s.json` (파일을 안 쓴다 · `--at x,y` 도 된다 · 경고 `measure.not_round`) → `arttool mask --from-shape s.json --like w.png --out m.png` (흰 원 · 바깥 투명 · `--r round\|max\|수` · `--invert`) |
+| 폴더 여럿 한 번에 검사 · 그림마다 배율 | `arttool check --in a/ b/ --report c.json` (둘 이상이면 `inputs` · `where` 앞 `<폴더>/`. `--known` 의 `where` 에 `<폴더>/*`) · `arttool sheet --in tiny.png big.png --scale per --out s.png` (줄 딱지 `· ×N` · `--strip` 과 같이 못 쓴다) |
 | 기본체 + inpaint → 겹 | `arttool layers diff --base base.png --in inpainted/ --out set/ --template t.json --carve report` |
 | 「이 색 칸만」 마스크 | `arttool layers mask --in base.png --colors #2B2233 --grow 1 --out m.png` |
 | 겹 켜고 끄며 보기 | `arttool layers view --in set --each --scale 8 --out v.png` |

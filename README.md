@@ -139,6 +139,10 @@ arttool provider make  --kind character --spec req.json --out gen/ --dry-run
 | `sheet … --kinds zoom,fit:24,fit:16` | `fit:N` = 긴 변을 N 으로 nearest 줄인 모습(딱지 「맞춤 N」). N 이 더 크면 원본 그대로 + 경고 `fit_upscale` (2026-10-06) |
 | `check … [--no-warn] [--mode auto\|sprite\|background] [--template t.json] [--known k.json] [--baseline base.json] [--fail-on-new]` | 실패 규칙 다섯 + **경고 여덟**(`integer_scale` · `outline` · `isolated` · `color_cap` · `near_colors` · `ramp_shape` · `loop_seam` · `odd_size`). `odd_size` 는 피벗이 반 픽셀에 놓일 때 — `trim --canvas` 로 짝수로 맞춘다 (2026-10-06) |
 | `check … --known k.json --baseline base.json --fail-on-new` | 알고 두는 경고를 `known` 으로 옮기고 새 경고(`new_warnings`)만 남긴다. `--fail-on-new` 로 새 경고가 있으면 종료 4. `--no-warn` 과 같이 주면 종료 2. 낡은 항목은 info `check.known_stale` (2026-10-06) |
+| `measure shape --in a.png (--at x,y \| --color #hex) [--tol N] [--report s.json]` | 한 색 덩이의 가운데 · 반지름(`r` · `r_max`) · 넓이 · 상자 · 원다움을 잰다. 파일을 안 쓴다. 경고 `measure.not_round` · `measure.none`(종료 4) (2026-10-06) |
+| `mask --from-shape s.json (--size w,h \| --like a.png) [--r round\|max\|수] [--invert] --out m.png` | `measure shape` 보고로 흰 원 가림판(바깥은 투명)을 만든다. 경고 `mask.clipped` (2026-10-06) |
+| `check --in A B … --report c.json` | 폴더 여럿을 한 보고로. 둘 이상일 때만 `inputs` · 줄마다 `input` · `where` 앞 `<딱지>/` 가 붙는다 (2026-10-06) |
+| `sheet … --scale per` | 그림(줄)마다 배율을 따로 `auto`. 줄 딱지 끝 ` · ×N`, 보고 `items[].scale`. `--strip` 과 같이 못 쓴다 (2026-10-06) |
 | `style extract --in refs/ --out style/ [--by-folder] [--max-colors 64] [--force]` | 기준 그림 → 팔레트 · 견본 · 프로필 조각 · 보고. **종류별(`--by-folder`)이 권장 길** |
 | `template list` · `show <이름> [--size N\|WxH] [--preset P] [--base #hex] [--material M]` · `render … --out guide/ [--over a.png]` | 그리기 전 밑판(가이드 겹 · 마스크 · 프롬프트 · 순서). **템플릿 15개** |
 | `layers compose\|diff\|mask\|view\|check\|export` | 겹 묶음 명령. `diff --carve report\|common\|apply`. 옛 `layers --profile …` 줄은 `layers compose` 로 |
