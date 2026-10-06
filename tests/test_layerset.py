@@ -96,21 +96,21 @@ def test_read_item_and_canvas_rule(tmp_path):
    layerset.save(tmp_path, ls)
    body = image.new(32, 32)
    body[5, 5] = (1, 2, 3, 255)
-   image.save(layerset.image_path(tmp_path, "body", "idle"), body)
-   image.save(layerset.image_path(tmp_path, "hair", "idle"), image.new(32, 32))
+   image.save(layerset.image_path(tmp_path, layerset.LayerSet((1, 1), [layerset.Layer("body", "body")]) if "body" == ".." else layerset.LayerSet((1, 1), [layerset.Layer("body", "body")]), "body", "idle"), body)
+   image.save(layerset.image_path(tmp_path, layerset.LayerSet((1, 1), [layerset.Layer("body", "body")]) if "hair" == ".." else layerset.LayerSet((1, 1), [layerset.Layer("hair", "body")]), "hair", "idle"), image.new(32, 32))
 
    parts = layerset.read_item(tmp_path, ls, "idle")
    assert list(parts) == ["body", "hair"]  # 없는 겹은 빠지고 순서는 쌓는 순서
    assert tuple(parts["body"][5, 5]) == (1, 2, 3, 255)
 
-   image.save(layerset.image_path(tmp_path, "face", "idle"), image.new(16, 16))
+   image.save(layerset.image_path(tmp_path, layerset.LayerSet((1, 1), [layerset.Layer("body", "body")]) if "face" == ".." else layerset.LayerSet((1, 1), [layerset.Layer("face", "body")]), "face", "idle"), image.new(16, 16))
    with pytest.raises(ArtToolError, match="canvas 와 다르다"):
       layerset.read_item(tmp_path, ls, "idle")
 
 
 def test_image_path_rejects_escape(tmp_path):
    with pytest.raises(ArtToolError):
-      layerset.image_path(tmp_path, "..", "idle")
+      layerset.image_path(tmp_path, layerset.LayerSet((1, 1), [layerset.Layer("body", "body")]) if ".." == ".." else layerset.LayerSet((1, 1), [layerset.Layer("..", "body")]), "..", "idle")
 
 
 def test_check_rig_order():

@@ -118,8 +118,8 @@ def test_bad_box_rejected(box, word):
 def _write_set(tmp_path, cheek_size=(3, 2)):
    ls = layerset.from_dict(_v2())
    layerset.save(tmp_path, ls)
-   image.save(layerset.image_path(tmp_path, "body", "idle"), image.new(16, 16, (1, 2, 3, 255)))
-   image.save(layerset.image_path(tmp_path, "cheek", "idle"), image.new(*cheek_size, (200, 0, 0, 255)))
+   image.save(layerset.image_path(tmp_path, layerset.LayerSet((1, 1), [layerset.Layer("body", "body")]) if "body" == ".." else layerset.LayerSet((1, 1), [layerset.Layer("body", "body")]), "body", "idle"), image.new(16, 16, (1, 2, 3, 255)))
+   image.save(layerset.image_path(tmp_path, layerset.LayerSet((1, 1), [layerset.Layer("body", "body")]) if "cheek" == ".." else layerset.LayerSet((1, 1), [layerset.Layer("cheek", "body")]), "cheek", "idle"), image.new(*cheek_size, (200, 0, 0, 255)))
    return layerset.load(tmp_path)
 
 

@@ -6,12 +6,14 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 
 from .. import image, layerset, pieces
+from ..checks import hue_sat
 from ..errors import ArtToolError, UsageError
 from ..jsonio import read_json, write_json
 from ..palette import parse_hex, to_hex
@@ -27,7 +29,8 @@ REPORT_NAME = "split_report.json"
 ANCHORS_NAME = "anchors.json"
 
 SPEC_KEYS = ("version", "layers", "default", "outline", "colors", "rules", "masks", "layer_opts")
-RULE_KEYS = ("color", "to", "box", "above_y", "below_y", "near", "from")
+RULE_KEYS = ("color", "hue", "min_sat", "to", "box", "above_y", "below_y", "near", "from")
+DEFAULT_MIN_SAT = 0.15
 RESERVED_NAMES = (REPORT_NAME, ANCHORS_NAME, layerset.FILE_NAME)
 OPT_KEYS = ("min_piece", "anchor")
 
@@ -37,13 +40,33 @@ STAGE_NONE, STAGE_MASK, STAGE_RULE, STAGE_TABLE, STAGE_VOTE = 0, 1, 2, 3, 4
 
 @dataclass
 class Rule:
-   color: tuple[int, int, int]
+   color: tuple[int, int, int] | None
    to: int
    box: tuple[int, int, int, int] | None = None
    above_y: int | None = None
    below_y: int | None = None
    near: int | None = None
    source: int | None = None
+   # 색조 규칙 : color 대신 HSV 색상 범위(도)로 고른다. 채도가 min_sat 아래인 칸(회색·검정)은 안 고른다.
+   hue: tuple[float, float] | None = None
+   min_sat: float = DEFAULT_MIN_SAT
+
+   def takes_color(self, rgb: tuple[int, int, int], hue_sat: dict, outline=None) -> bool:
+      """이 규칙이 그 색을 고르나. hue_sat 은 그림에 쓰인 색마다 (색상 도, 채도) 를 미리 잰 표다.
+
+      색조 규칙은 외곽선 색(outline)을 안 고른다 — 외곽선 투표로 간다. color 규칙은 적은 색 그대로.
+      """
+      if self.hue is None:
+         return rgb == self.color
+      if rgb == outline:
+         return False
+      hue, sat = hue_sat[rgb]
+      # 채도 0(검정 · 흰색 · 회색)은 색조가 없다. min_sat 0 이어도 안 고른다.
+      if sat == 0 or sat < self.min_sat:
+         return False
+      lo, hi = self.hue
+      # lo > hi 면 0 도를 지나 감는 범위다 (예 [340, 20] = 340~360 과 0~20).
+      return lo <= hue <= hi if lo <= hi else (hue >= lo or hue <= hi)
 
    @property
    def late(self) -> bool:
@@ -108,9 +131,16 @@ def _parse_rule(row, spec_layers: list[str], index: int) -> Rule:
    if not isinstance(row, dict):
       raise ArtToolError(f"{where} 는 사전이어야 한다")
    _reject_unknown(row, RULE_KEYS, where)
-   if "color" not in row or "to" not in row:
-      raise ArtToolError(f"{where} 에 color 와 to 가 있어야 한다")
-   rule = Rule(color=parse_hex(str(row["color"])), to=_layer_index(spec_layers, row["to"], where))
+   if ("color" in row) == ("hue" in row) or "to" not in row:
+      raise ArtToolError(f"{where} 에 color 와 hue 중 하나, 그리고 to 가 있어야 한다")
+   color = parse_hex(str(row["color"])) if "color" in row else None
+   rule = Rule(color=color, to=_layer_index(spec_layers, row["to"], where))
+   if "hue" in row:
+      rule.hue = _hue_range(row["hue"], f"{where}.hue")
+   if "min_sat" in row:
+      if rule.hue is None:
+         raise UsageError(f"{where}.min_sat 은 hue 규칙에만 쓴다")
+      rule.min_sat = _unit(row["min_sat"], f"{where}.min_sat")
    if "box" in row:
       box = row["box"]
       if not isinstance(box, list) or len(box) != 4:
@@ -126,9 +156,43 @@ def _parse_rule(row, spec_layers: list[str], index: int) -> Rule:
       rule.near = _layer_index(spec_layers, row["near"], f"{where}.near")
    if "from" in row:
       rule.source = _layer_index(spec_layers, row["from"], f"{where}.from")
-   if rule.box is None and rule.above_y is None and rule.below_y is None and not rule.late:
+   no_place = rule.box is None and rule.above_y is None and rule.below_y is None and not rule.late
+   if rule.hue is None and no_place:
       raise ArtToolError(f"{where} 에 조건이 없다. 조건 없는 색은 colors 에 적는다")
    return rule
+
+
+def _number(value, where: str) -> float:
+   if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+      raise UsageError(f"{where} 는 수여야 한다 : {value!r}")
+   return float(value)
+
+
+def _hue_range(value, where: str) -> tuple[float, float]:
+   """[시작, 끝] 도. 0~360. 같은 두 값은 「한 점인지 한 바퀴인지」 애매해 거절한다."""
+   if not isinstance(value, list) or len(value) != 2:
+      raise UsageError(f"{where} 는 [시작, 끝] 두 수다 (도, 0~360) : {value!r}")
+   lo, hi = (_number(v, where) for v in value)
+   if not (0 <= lo <= 360 and 0 <= hi <= 360):
+      raise UsageError(f"{where} 는 0~360 안이어야 한다 : {value!r}")
+   if lo == hi:
+      raise UsageError(f"{where} 의 시작과 끝이 같다 : {value!r}")
+   return lo, hi
+
+
+def _unit(value, where: str) -> float:
+   number = _number(value, where)
+   if not 0 <= number <= 1:
+      raise UsageError(f"{where} 는 0~1 안이어야 한다 : {value!r}")
+   return number
+
+
+def _hue_sat_table(arr: image.RGBA, rules: list[Rule]) -> dict:
+   """hue 규칙이 있을 때만, 그림에 쓰인 색마다 (색상 도, 채도) 를 한 번씩 잰다. 칸마다 다시 재지 않는다."""
+   if not any(r.hue is not None for r in rules):
+      return {}
+   used = np.unique(arr[arr[:, :, 3] > 0][:, :3].reshape(-1, 3), axis=0)
+   return {tuple(int(c) for c in rgb): hue_sat(rgb) for rgb in used}
 
 
 def _parse_opts(raw, spec_layers: list[str], spec: SplitSpec) -> None:
@@ -222,10 +286,11 @@ def _assign(arr: image.RGBA, spec: SplitSpec, masks: dict[int, np.ndarray]):
    late = [r for r in spec.rules if r.late]
    unmapped: set[tuple[int, int, int]] = set()
    waiting: list[tuple[int, int]] = []
+   table = _hue_sat_table(arr, spec.rules)
    for y, x in zip(*np.nonzero(opaque & (stage == STAGE_NONE))):
       x, y = int(x), int(y)
       rgb = _rgb_at(arr, x, y)
-      rule = next((r for r in early if r.color == rgb and r.covers(x, y)), None)
+      rule = next((r for r in early if r.takes_color(rgb, table, spec.outline) and r.covers(x, y)), None)
       if rule is not None:
          owner[y, x], stage[y, x] = rule.to, STAGE_RULE
       elif rgb in spec.colors:
@@ -247,7 +312,7 @@ def _assign(arr: image.RGBA, spec: SplitSpec, masks: dict[int, np.ndarray]):
       snapshot = owner.copy()
       for y, x in zip(*np.nonzero(opaque & (stage >= STAGE_TABLE))):
          x, y = int(x), int(y)
-         if _rgb_at(arr, x, y) != rule.color or not rule.covers(x, y):
+         if not rule.takes_color(_rgb_at(arr, x, y), table, spec.outline) or not rule.covers(x, y):
             continue
          if rule.source is not None and snapshot[y, x] != rule.source:
             continue
@@ -350,6 +415,10 @@ def _refuse_small_set(root: Path) -> None:
    except ArtToolError:
       return   # 못 읽는 묶음은 지금처럼 _write_layerset 이 보고에 적는다
    layerset.refuse_small(old, "split")
+   # split 은 `<겹>/<원본>.png` 로만 쓴다. files 무늬 · 사전 꼴 items 묶음에 더하면 쓴 파일이 무늬 밖이라
+   # 목록과 어긋난다 — 조용히 깨지지 않게 쓰기 전에 거절한다 (변형 묶음에 split 더하기는 지원 안 함)
+   if old.picks or any(layer.files is not None for layer in old.layers):
+      raise UsageError(f"split : files 무늬 · 사전 꼴 items 를 쓰는 묶음에는 더할 수 없다. 다른 폴더로 갈라라 : {file}")
 
 
 def _write_layerset(root: Path, spec: SplitSpec, item: str, size: tuple[int, int]) -> tuple[str | None, str | None]:
@@ -383,8 +452,38 @@ def _load_masks(spec: SplitSpec) -> dict[int, np.ndarray]:
    return {idx: image.load(path)[:, :, 3] > 0 for idx, path in spec.masks.items()}
 
 
+def parse_gray_levels(text: str) -> list[int]:
+   """`--gray-levels 255,220,180` → [255, 220, 180]. 0~255 정수 2개 이상, 겹치면 거절."""
+   levels = []
+   for word in text.split(","):
+      word = word.strip()
+      # isdigit 은 ² · 전각 숫자도 참이라 int() 에서 터진다. ASCII 숫자만 받는다.
+      if not re.fullmatch(r"-?\d+", word, re.ASCII):
+         raise UsageError(f"--gray-levels 는 쉼표로 가른 정수다 : {text!r}")
+      levels.append(int(word))
+   if len(levels) < 2:
+      raise UsageError(f"--gray-levels 는 2개 이상이다 : {text!r}")
+   if any(not 0 <= v <= 255 for v in levels):
+      raise UsageError(f"--gray-levels 는 0~255 안이다 : {text!r}")
+   if len(set(levels)) != len(levels):
+      raise UsageError(f"--gray-levels 에 같은 값이 겹친다 : {text!r}")
+   return levels
+
+
+def to_gray_levels(arr: image.RGBA, levels: list[int]) -> image.RGBA:
+   """칸마다 밝기(Rec.601)를 가장 가까운 단계 회색으로 바꾼다. 알파는 그대로. 거리가 같으면 어두운 단계."""
+   steps = np.array(sorted(levels), dtype=np.float64)
+   gaps = np.abs(image.luma(arr)[:, :, None] - steps[None, None, :])
+   gray = steps[np.argmin(gaps, axis=2)].astype(np.uint8)
+   out = arr.copy()
+   out[:, :, 0] = out[:, :, 1] = out[:, :, 2] = gray
+   out[arr[:, :, 3] == 0, :3] = arr[arr[:, :, 3] == 0, :3]
+   return out
+
+
 def run(in_file: str | Path, spec_file: str | Path, out_dir: str | Path, rig_order: list[str] | None = None,
-        rig_name: str | None = None, profile_name: str | None = None, default_min_piece: int = DEFAULT_MIN_PIECE) -> dict:
+        rig_name: str | None = None, profile_name: str | None = None, default_min_piece: int = DEFAULT_MIN_PIECE,
+        gray_levels: list[int] | None = None) -> dict:
    """`<out>/<겹>/<원본>.png` · 보고 · 앵커를 쓴다. rig_order 를 주면 표의 겹 목록과 같아야 한다."""
    if default_min_piece < 0:
       raise UsageError(f"--min-piece 는 0 이상이다 : {default_min_piece}")
@@ -403,12 +502,17 @@ def run(in_file: str | Path, spec_file: str | Path, out_dir: str | Path, rig_ord
 
    arr = image.load(source)
    parts, info = split_array(arr, spec, _load_masks(spec), default_min_piece)
+   # 회색 단계는 겹으로 나눈 **뒤** 칠한다. 나누기는 원래 색으로 하고, 되돌림은 회색 원본과 견준다.
+   expected = arr
+   if gray_levels:
+      parts = {name: to_gray_levels(layer, gray_levels) for name, layer in parts.items()}
+      expected = to_gray_levels(arr, gray_levels)
 
    for name, layer in parts.items():
       image.save(safe_join(root, f"{name}/{source.name}"), layer)
    # 되돌림은 저장한 파일을 다시 읽어서 본다. 한 파일을 두 겹이 덮어쓴 사고도 여기서 잡힌다.
    saved = {name: image.load(safe_join(root, f"{name}/{source.name}")) for name in spec.layers}
-   info["roundtrip_diff"] = roundtrip_diff(arr, layers_mod.compose(spec.layers, saved))
+   info["roundtrip_diff"] = roundtrip_diff(expected, layers_mod.compose(spec.layers, saved))
 
    warnings: list[str] = []
    book = PointBook()
@@ -441,6 +545,8 @@ def run(in_file: str | Path, spec_file: str | Path, out_dir: str | Path, rig_ord
    }
    if layers_json_note:
       report["layers_json_note"] = layers_json_note
+   if gray_levels:
+      report["gray_levels"] = sorted(gray_levels, reverse=True)
    write_json(safe_join(root, REPORT_NAME), report)
    anchors = {"version": ANCHOR_VERSION, "profile": profile_name, "frame": [width, height], "points": book.points}
    write_json(safe_join(root, ANCHORS_NAME), anchors)

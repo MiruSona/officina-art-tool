@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -143,8 +144,8 @@ def _read_raw(folder: Path, ls: layerset.LayerSet, item: str) -> dict[str, image
    """
    out = {}
    for layer in ls.layers:
-      path = layerset.image_path(folder, layer.name, item)
-      if path.is_file():
+      path = layerset.image_path(folder, ls, layer.name, item)
+      if path is not None and path.is_file():
          arr = image.load(path)
          if layer.small and image.size(arr) == layer.size:
             arr = layerset.expand(ls, layer, arr)
@@ -588,7 +589,10 @@ def _outside(shape, dx: int, dy: int) -> np.ndarray:
 def _check_item(ls: layerset.LayerSet, item: str, raw: dict[str, image.RGBA], masks: dict[str, np.ndarray], warnings: list[dict]) -> dict[str, image.RGBA]:
    """그림 하나의 겹들을 본다. 크기가 맞는 겹만 돌려준다(쌓기 · 원본 대조에 쓴다)."""
    good: dict[str, image.RGBA] = {}
+   pick = ls.picks.get(item)
    for name in ls.names():
+      if pick is not None and name not in pick:   # 사전 꼴 그림은 pick 에 있는 겹만 갖는다 — 빠진 겹은 빈 겹이 아니다
+         continue
       layer = ls.layer(name)
       arr = raw.get(name)
       if arr is None:
@@ -643,6 +647,60 @@ def _pick_original_item(items: list[str], original: Path) -> str:
    raise UsageError(f"--original {original.name} 과 짝인 그림을 못 골랐다 — 그림 이름과 같은 파일 이름을 쓴다 (그림 : {', '.join(items)})")
 
 
+VARIANTS_SCAN_MAX = 4096   # 변형 파일을 찾으려 폴더 하나를 훑을 때 볼 항목 수 상한 — 넘으면 거절
+
+
+def _scan_variants(folder: Path, ls: layerset.LayerSet) -> dict[str, list[str]]:
+   """겹마다 files 무늬(없으면 `<겹>/{v}.png`)에 맞는 파일들의 {v} 값. 무늬의 폴더 하나만 본다."""
+   root = resolve_root(folder)
+   out: dict[str, list[str]] = {}
+   for layer in ls.layers:
+      head, _, tail = layerset._pattern(layer).rpartition("/")
+      prefix, _, suffix = tail.partition(layerset.FILES_SLOT)
+      parent = safe_join(root, head) if head else root
+      found = []
+      if parent.is_dir():
+         # Path.iterdir 는 (3.13+) 폴더를 통째로 목록으로 만든 뒤 돌려준다. scandir 로 흘려 읽어야 상한이 훑는 도중에 걸린다.
+         # 링크는 따라가지 않는다 (is_file(follow_symlinks=False)) — 묶음 폴더 밖 파일을 변형으로 세지 않게.
+         with os.scandir(parent) as entries:
+            for n, entry in enumerate(entries):
+               if n >= VARIANTS_SCAN_MAX:
+                  raise UsageError(f"layers check : {parent} 에 항목이 {VARIANTS_SCAN_MAX}개보다 많아 변형을 다 훑지 않는다")
+               name = entry.name
+               if entry.is_file(follow_symlinks=False) and len(name) > len(prefix) + len(suffix) and name.startswith(prefix) and name.endswith(suffix):
+                  v = name[len(prefix) : len(name) - len(suffix)]
+                  if layerset.NAME_RE.match(v):
+                     found.append(v)
+      out[layer.name] = sorted(found)
+   return out
+
+
+def _check_variants(folder: Path, ls: layerset.LayerSet, items: list[str], warnings: list[dict]) -> dict[str, list[str]]:
+   """변형 하나하나에 낱장 검사(크기 · 반투명)를 돌리고, 어느 그림도 안 고른 변형을 경고한다."""
+   variants = _scan_variants(folder, ls)
+   for layer in ls.layers:
+      used = set()
+      for item in items:
+         pick = ls.picks.get(item)
+         if pick is None:
+            used.add(item)
+         elif layer.name in pick:
+            used.add(pick[layer.name])
+      want = tuple(layer.size) if layer.size is not None else ls.canvas
+      head = layerset._pattern(layer)
+      for v in variants[layer.name]:
+         rel = head.replace(layerset.FILES_SLOT, v)
+         if v not in used:
+            warnings.append(warning("unused_variant", f"{layer.name} : 어느 그림의 pick 도 안 고른 변형 {v} ({rel})"))
+         arr = image.load(safe_join(resolve_root(folder), rel))
+         if image.size(arr) != want:
+            warnings.append(warning("variant_size", f"{layer.name} 변형 {v} : 크기 {image.size(arr)} 가 {want} 와 다르다"))
+         elif image.has_soft_alpha(arr):
+            soft = (arr[:, :, 3] != 0) & (arr[:, :, 3] != 255)
+            warnings.append(warning("variant_alpha", f"{layer.name} 변형 {v} : 반투명 칸 {int(np.count_nonzero(soft))}개", _points(soft)))
+   return variants
+
+
 def run_check(args) -> dict:
    folder, ls = _open_set(args.in_dir)
    items = _items(folder, ls)
@@ -671,6 +729,11 @@ def run_check(args) -> dict:
       roundtrip = int(np.count_nonzero(diff))
       rules.append({"rule": "original", "ok": roundtrip == 0, "detail": f"{item} : 합친 결과와 원본이 다른 칸 {roundtrip}개", "items": _points(diff)})
 
+   # files 무늬 · 사전 꼴 items 를 쓴 묶음만 변형을 본다 — 안 쓴 묶음의 보고는 예전과 바이트까지 같다
+   variants = None
+   if ls.picks or any(layer.files is not None for layer in ls.layers):
+      variants = _check_variants(folder, ls, items, warnings)
+
    failed = list(dict.fromkeys(r["rule"] for r in rules if not r["ok"]))   # cover 는 그림마다 줄이 생겨 겹칠 수 있다
    status = "fail" if failed else ("warn" if warnings else "ok")
    report = {
@@ -684,6 +747,8 @@ def run_check(args) -> dict:
       "rules": rules,
       "warnings": warnings,
    }
+   if variants is not None:
+      report["variants"] = variants
    if roundtrip is not None:
       report["roundtrip_diff"] = roundtrip
    if cover is not None:   # --cover 를 안 주면 보고 꼴이 예전 그대로다
@@ -769,7 +834,7 @@ def run_export(args) -> dict:
 
    root = resolve_root(args.out_dir)
    targets = {rel: safe_join(root, rel) for rel in outputs}
-   reads = [layerset.image_path(folder, name, item) for item in items for name in ls.names()] + [folder / layerset.FILE_NAME]
+   reads = [p for item in items for name in ls.names() if (p := layerset.image_path(folder, ls, name, item)) is not None] + [folder / layerset.FILE_NAME]
    guard_overwrite([*targets.values(), safe_join(root, OFFSETS_NAME) if args.trim_common else None], reads)
    for rel, arr in outputs.items():
       image.save(targets[rel], arr)
@@ -909,9 +974,9 @@ def run_fill(args) -> dict:
    writes: dict[Path, image.RGBA | Path] = {}
    for item in items:
       for layer in ls.layers:   # 손 안 대는 겹은 바이트 그대로 복사
-         src = layerset.image_path(folder, layer.name, item)
-         if src.is_file():
-            writes[layerset.image_path(out, layer.name, item)] = src
+         src = layerset.image_path(folder, ls, layer.name, item)
+         if src is not None and src.is_file():
+            writes[layerset.image_path(out, ls, layer.name, item)] = src
       if item not in pick:
          continue
       parts = layerset.read_item(folder, ls, item)
@@ -929,7 +994,10 @@ def run_fill(args) -> dict:
             arr[cells] = (*color, 255)
          else:
             arr[cells] = parts[name][src_y[cells], src_x[cells]]
-         writes[layerset.image_path(out, name, item)] = layerset.crop_to_box(layer, arr, f"layers fill {item}")
+         dst = layerset.image_path(out, ls, name, item)
+         if dst is None:   # 사전 꼴 그림의 pick 에 없는 겹은 그 그림에 없다 — 새로 만들지 않고 거절
+            raise UsageError(f"layers fill : 그림 {item} 의 pick 에 겹 {name} 이 없다")
+         writes[dst] = layerset.crop_to_box(layer, arr, f"layers fill {item}")
          filled[name] = int(np.count_nonzero(cells))
       rows.append({"item": item, "filled": filled})
 

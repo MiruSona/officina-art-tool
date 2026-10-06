@@ -251,7 +251,8 @@ class Canvas:
       else:
          rows = _layers_from(["body"], where)
       self.spec = rows
-      self._layers = {row.name: Layer(row.name, row.kind, self.size) for row in rows}
+      self._picks: dict[str, dict[str, str]] = {}   # open 으로 연 사전 꼴 그림의 pick — 새 폴더에 save 해도 잇는다
+      self._layers ={row.name: Layer(row.name, row.kind, self.size) for row in rows}
 
       if lay_data is not None and isinstance(lay_data.get("template"), str):
          self.template_name = lay_data["template"]
@@ -483,13 +484,23 @@ class Canvas:
          if old.canvas != self.size or [layer.to_dict() for layer in old.layers] != [row.to_dict() for row in self.spec]:
             raise ArtToolError(f"폴더의 layers.json 과 겹 목록 · 크기가 다르다. 다른 폴더에 쓴다 : {existing}")
          items = old.items + ([item] if item not in old.items else [])
-      lay = layerset.carry_meta(old, layerset.LayerSet(self.size, list(self.spec), items, self.template_name, self.meta))
+      # 사전 꼴 그림이면 그 pick 을 잇는다 : 있는 폴더는 그 폴더의 pick, 새 폴더는 open 때 읽은 pick
+      pick = old.picks.get(item) if old is not None and item in old.items else self._picks.get(item)
+      picks = {item: dict(pick)} if pick is not None else {}
+      lay = layerset.carry_meta(old, layerset.LayerSet(self.size, list(self.spec), items, self.template_name, self.meta, picks))
+      # pick 에 없는 겹은 이 그림에 없다. 그 겹에 그린 게 있으면 조용히 버리지 않고 거절한다.
+      for name in self.names:
+         if layerset.image_path(root, lay, name, item) is None and self._layers[name].arr[..., 3].any():
+            raise ArtToolError(f"그림 {item} 의 pick 에 겹 {name} 이 없는데 그 겹에 그린 칸이 있다 - {root}")
       # 작은 겹은 상자로 잘라 쓴다. 상자 밖에 칸이 있으면 crop_to_box 가 거절한다 —
       # 한 장이라도 쓰기 전에 다 잘라 봐서, 거절될 때 반쯤 쓴 묶음을 남기지 않는다.
       cut = {name: layerset.crop_to_box(lay.layer(name), self._layers[name].arr, root) for name in self.names}
       self._folders.append(root)
       for name in self.names:
-         image.save(layerset.image_path(root, name, item), cut[name])
+         path = layerset.image_path(root, lay, name, item)
+         if path is not None:
+            path.parent.mkdir(parents=True, exist_ok=True)   # files 무늬는 겹 폴더가 아닐 수 있다
+            image.save(path, cut[name])
       return layerset.save(root, lay)
 
    @classmethod
@@ -498,11 +509,13 @@ class Canvas:
       root = Path(folder)
       canvas = cls(template=root / layerset.FILE_NAME, ramps=ramps, light=light)
       lay = layerset.load(root)
-      on_disk = any(layerset.image_path(root, row.name, item).is_file() for row in lay.layers)
+      on_disk = any((p := layerset.image_path(root, lay, row.name, item)) is not None and p.is_file() for row in lay.layers)
       if item not in lay.items and not on_disk:
          # 없는 그림을 빈 겹으로 열면 「이어 그리기」가 조용히 백지에서 시작한다 (리뷰 R2-L2)
          raise ArtToolError(f"겹 묶음에 그림 {item!r} 이 없다. 있는 그림 : {', '.join(lay.items) or '없음'} - {root}")
       canvas._folders.append(root)
+      if item in lay.picks:
+         canvas._picks[item] = dict(lay.picks[item])
       for name, arr in layerset.read_item(root, lay, item).items():
          canvas._layers[name].arr = arr.copy()
       return canvas

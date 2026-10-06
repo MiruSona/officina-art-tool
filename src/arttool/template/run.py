@@ -421,6 +421,10 @@ def _existing_set(root: Path, shown: dict) -> layerset.LayerSet | None:
    if not existing.is_file():
       return None
    old = layerset.load(existing)
+   # render 는 files 무늬를 모른다. 다시 구우면 무늬를 조용히 잃으니 split 처럼 거절한다 (지원 안 함).
+   patterned = [l.name for l in old.layers if l.files is not None]
+   if patterned:
+      raise UsageError(f"files 무늬를 쓰는 묶음({', '.join(patterned)})에는 template render 를 다시 못 한다. 다른 폴더에 render 한다 : {existing}")
    new = layerset.from_dict({"version": 1, "canvas": shown["size"], "layers": shown["layers"]}, "(render)")
    def bare(rows):
       return [{k: v for k, v in l.to_dict().items() if k != "meta"} for l in rows]

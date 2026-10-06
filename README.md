@@ -272,6 +272,8 @@ walk_south_0.png      낱장
 | `split --list-colors` | 색마다 개수 · bbox · y 범위를 낸다. 나누기 표를 쓸 때 읽는다 | 반투명 픽셀 |
 | `split` | `<out>/<겹>/<원본>.png` + `split_report.json` + `anchors.json` | 반투명 · 표에 없는 겹 이름 · 잘못된 hex · `--rig` 의 `layer_order` 와 표 `layers` 가 다름 · **되돌림 다름이 0 이 아니면 `fail`** |
 | `recolor` | 겹 × 색 벌 → PNG N장 + `recolor_report.json` (+ `--sheet` 미리보기) | `out` 에 `..` · 벌이 둘 이상인데 `out` 에 `{v}` 없음 · 같은 출력 이름 두 번 · 벌에 역할 빠짐 · **자리다름이 0 이 아니면 `fail`** |
+| `split` 색상 · 회색 | 규칙 `{"hue":[340,20],"to":..,"min_sat":0.2}` 로 색상(도)으로 겹 나누기, `--gray-levels 255,180,60` 으로 밝기를 회색 단계로 | `hue` 범위 밖 · 시작=끝 · `color` 와 `hue` 같이 · 회색 단계 겹침 (명령안내 18절) |
+| `layers` 변형 묶음 | `layers.json` 겹마다 `files`(`parts/body_{v}.png`), 그림마다 `items` 의 `pick` 으로 변형 고르기. `layers check` 는 `unused_variant` · `variant_size` · `variant_alpha` | 무늬 `{v}` 위치 · 없는 변형 · `exclusive_with` 짝 · `split` 으로 그림 더하기 (명령안내 18절) |
 
 - **겹은 캔버스를 안 자른다.** 원본과 같은 크기·좌표라 Unity 에서 같은 자리에 쌓기만 하면 맞는다.
   출력 꼴이 `layers compose` 입력 꼴과 같아 `arttool layers compose --rig R --anim <원본이름>` 으로 다시 쌓으면 원본이 나온다.

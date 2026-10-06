@@ -591,6 +591,7 @@ def _add_split(subs) -> None:
    node.add_argument("--out", dest="out", required=True, help="겹 폴더. --list-colors 면 색 목록 JSON 파일")
    node.add_argument("--rig", help="주면 프로필 rigs.<rig>.layer_order 와 표의 layers 가 같아야 한다")
    node.add_argument("--min-piece", dest="min_piece", type=int, help=f"떨어진 조각 기본 크기 (기본 {split_mod.DEFAULT_MIN_PIECE})")
+   node.add_argument("--gray-levels", dest="gray_levels", help="겹으로 나눈 뒤 밝기를 이 회색 단계로 (예 255,220,180)")
    node.add_argument("--list-colors", dest="list_colors", action="store_true", help="나누지 않고 색 목록만 낸다")
 
 
@@ -923,8 +924,8 @@ def _run_layers(args) -> dict:
 def _run_split(args) -> dict:
    """두 길이 인자를 나눠 쓴다. 한쪽 인자를 다른 길에 주면 조용히 무시하지 않고 거절한다."""
    if args.list_colors:
-      if args.spec or args.rig or args.min_piece is not None:
-         raise UsageError("--list-colors 는 --spec · --rig · --min-piece 와 같이 못 쓴다")
+      if args.spec or args.rig or args.min_piece is not None or args.gray_levels is not None:
+         raise UsageError("--list-colors 는 --spec · --rig · --min-piece · --gray-levels 와 같이 못 쓴다")
       return split_mod.run_list_colors(args.in_file, args.out)
    if not args.spec:
       raise UsageError("--spec 나누기 표가 있어야 한다 (색 목록만 보려면 --list-colors)")
@@ -933,7 +934,8 @@ def _run_split(args) -> dict:
       prof = _profile(args)
       order, prof_name = layers_mod.layer_order(prof, args.rig), prof.name
    min_piece = split_mod.DEFAULT_MIN_PIECE if args.min_piece is None else args.min_piece
-   return split_mod.run(args.in_file, args.spec, args.out, order, args.rig, prof_name, min_piece)
+   gray = None if args.gray_levels is None else split_mod.parse_gray_levels(args.gray_levels)
+   return split_mod.run(args.in_file, args.spec, args.out, order, args.rig, prof_name, min_piece, gray)
 
 
 def _run_recolor(args) -> dict:
