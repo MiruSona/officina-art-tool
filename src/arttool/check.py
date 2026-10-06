@@ -1071,6 +1071,7 @@ def _warnings(prof: Profile, frames: list[dict], groups: dict, ramps, no_ramps: 
 
    if prof.warn("ramp_shape")["enabled"] and ramps is not None and not no_ramps and ramp_report(prof) == "each":
       out += _ramp_warnings(prof, ramps)
+      info += _single_info(ramps)
 
    if prof.warn("loop_seam")["enabled"]:
       out += _loop_warnings(prof, groups)
@@ -1149,7 +1150,7 @@ def ramp_items(prof: Profile, ramps) -> list[dict]:
    items = []
    for name in ramps.names():
       m = ramp_check.measure_ramp(ramps.ramp(name), ramps.outline)
-      why = ramp_check.judge_ramp(m, cfg, materials.get(name))
+      why = ramp_check.judge_ramp(m, cfg, materials.get(name), ramps.mode)
       if why:
          items.append({"ramp": name, "why": why, "steps": m["steps"], "padded": m["padded"], "hue_steps": m["hue_steps"], "luma": m["luma"]})
    return items
@@ -1161,7 +1162,27 @@ def palette_block(prof: Profile, ramps, used_by: int) -> dict:
    열쇠는 램프 파일 이름, `used_by` 는 이 파일로 잰 그림 수. 걸린 것이 없어도 덩이는 붙는다(빈 목록).
    """
    lines = [f"{item['ramp']}: {item['why']}" for item in ramp_items(prof, ramps)]
-   return {getattr(ramps, "file", None) or ramps.name: {"ramp_shape": lines, "used_by": used_by}}
+   entry = {"ramp_shape": lines, "used_by": used_by}
+   singles = single_ramps(ramps)
+   if singles:
+      # 한 색 램프가 있을 때만 붙인다 — 없는 옛 램프 파일의 보고는 예전과 바이트까지 같다.
+      entry["single"] = singles
+   return {getattr(ramps, "file", None) or ramps.name: entry}
+
+
+def single_ramps(ramps) -> list[str]:
+   """한 색 램프 이름들 (3판 설계 2-5 가). 끝 색 되풀이를 접으면 1단 — 모양 경고 대신 알림으로만 알린다."""
+   return [name for name in ramps.names() if ramp_check.is_single(ramp_check.measure_ramp(ramps.ramp(name), ramps.outline))]
+
+
+def _single_info(ramps) -> list[dict]:
+   """그림 보고 `info` 에 붙일 한 색 램프 알림. 없으면 빈 목록(옛 보고 그대로)."""
+   names = single_ramps(ramps)
+   if not names:
+      return []
+   return [{"rule": "ramp_shape.single",
+            "detail": f"한 색 램프 {len(names)}줄 — 끝 색 되풀이를 접으면 1단이라 모양을 안 잰다",
+            "items": names}]
 
 
 PALETTE_PATH = "_path"   # `palette` 칸의 임시 칸 — 램프 파일의 전체 경로. 합칠 때만 쓰고 내보내기 전에 지운다.

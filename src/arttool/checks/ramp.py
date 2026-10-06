@@ -56,10 +56,28 @@ def measure_ramp(colors: list, outline=None) -> dict:
    }
 
 
-def judge_ramp(m: dict, cfg: dict, material: str | None = None) -> list[str]:
-   """재 둔 값 → 걸린 까닭 목록. cfg 는 프로필 `check.warn.ramp_shape`, material 은 `style.materials` 의 값."""
+def is_single(m: dict) -> bool:
+   """한 색 램프인가 — 같은 색 되풀이를 접으면 1단만 남는 램프 (3판 설계 2-5 가).
+
+   손으로 고른 한 색(예 : 눈동자 · 단추)을 `ramp_len` 칸에 맞추려고 끝 색을 되풀이한 것이다.
+   그림자 · 하이라이트 칸이 없는 게 뜻이므로 모양을 따지지 않는다.
+   """
+   return m["steps"] == 1
+
+
+def judge_ramp(m: dict, cfg: dict, material: str | None = None, len_mode: str = "fixed") -> list[str]:
+   """재 둔 값 → 걸린 까닭 목록. cfg 는 프로필 `check.warn.ramp_shape`, material 은 `style.materials` 의 값.
+
+   한 색 램프(`is_single`)는 빈 목록 — 단 수 · 밝기 · 색조를 따질 칸이 없다. 부르는 쪽이 알림(info)으로 따로 센다.
+   len_mode 는 램프 파일의 `ramp_len_mode`. max 는 짧은 램프를 일부러 받는 꼴이라 단 수가 모자란 경고만 뺀다.
+   너무 많은 쪽과 밝기 · 색조 판정은 fixed 와 같다.
+   """
+   if is_single(m):
+      return []
    why = []
    low, high = MATERIAL_STEPS.get(material or "", tuple(cfg["steps"]))
+   if len_mode == "max":
+      low = min(low, m["steps"])
    if not low <= m["steps"] <= high:
       want = f"{low}" if low == high else f"{low}~{high}"
       pad = f" (채운 칸 {m['padded']} 뺌)" if m["padded"] else ""

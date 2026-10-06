@@ -32,11 +32,18 @@ def to_hex(rgb: RGB) -> str:
 class Ramps:
    """램프 묶음 하나. 램프 = 어두운 쪽부터 밝은 쪽까지 색 목록."""
 
-   def __init__(self, name: str, ramps: dict[str, list[RGB]], outline: RGB | None, ramp_len: int):
+   def __init__(self, name: str, ramps: dict[str, list[RGB]], outline: RGB | None, ramp_len: int,
+                mode: str = "fixed"):
       self.name = name
       self.ramps = ramps
       self.outline = outline
+      # fixed : 모든 램프 길이 = ramp_len (옛 뜻).  max : ramp_len = 가장 긴 램프 길이, 짧은 램프 허용.
       self.ramp_len = ramp_len
+      self.mode = mode
+
+   def lengths(self) -> dict[str, int]:
+      """램프 이름 → 실제 칸 수. fixed 면 모두 ramp_len 이다."""
+      return {name: len(colors) for name, colors in self.ramps.items()}
 
    def colors(self) -> set[RGB]:
       out: set[RGB] = set()
@@ -55,6 +62,19 @@ class Ramps:
       return list(self.ramps)
 
 
+# 램프 파일 `ramp_len_mode` 값. 칸이 없으면 fixed(옛 뜻).
+RAMP_LEN_MODES = ("fixed", "max")
+
+
+def _check_max_lengths(lengths: dict[str, int], ramp_len: int, where) -> None:
+   """max 모드 길이 검사 : 각 길이 1..ramp_len, 가장 긴 것 = ramp_len. 읽기 · 쓰기가 같이 쓴다."""
+   bad = sorted(f"{n}={v}" for n, v in lengths.items() if not 1 <= v <= ramp_len)
+   if bad:
+      raise ArtToolError(f"램프 길이는 1 ~ ramp_len {ramp_len} 이어야 한다 : {', '.join(bad)} - {where}")
+   if max(lengths.values()) != ramp_len:
+      raise ArtToolError(f"가장 긴 램프가 {max(lengths.values())} 칸이다. ramp_len {ramp_len} 과 같아야 한다 - {where}")
+
+
 def load_ramps(path: str | os.PathLike) -> Ramps:
    file = Path(path)
    if not file.is_file():
@@ -68,25 +88,32 @@ def ramps_from_data(data, file: Path) -> Ramps:
    if not isinstance(data, dict) or "ramps" not in data:
       raise ArtToolError(f"램프 파일에 ramps 가 없다 : {file}")
 
+   mode = data.get("ramp_len_mode", "fixed")
+   if mode not in RAMP_LEN_MODES:
+      raise ArtToolError(f"ramp_len_mode 는 {' · '.join(RAMP_LEN_MODES)} 중 하나다 : {mode!r} - {file}")
    ramp_len = int(data.get("ramp_len", 0))
    ramps: dict[str, list[RGB]] = {}
    for name, colors in data["ramps"].items():
       parsed = [parse_hex(c) for c in colors]
-      if ramp_len and len(parsed) != ramp_len:
+      if mode == "fixed" and ramp_len and len(parsed) != ramp_len:
          raise ArtToolError(f"램프 {name} 의 길이가 {len(parsed)} 다. {ramp_len} 이어야 한다")
       ramps[name] = parsed
    if not ramps:
       raise ArtToolError(f"램프가 하나도 없다 : {file}")
 
-   # ramp_len 을 안 적었어도 길이가 다르면 LUT 가 굽는 중에 터진다. 여기서 막는다.
    lengths = {name: len(colors) for name, colors in ramps.items()}
-   if len(set(lengths.values())) > 1:
+   if mode == "max":
+      # 길이 다른 램프를 받는다. ramp_len 은 가장 긴 길이(안 적었으면 실제 최댓값).
+      ramp_len = ramp_len or max(lengths.values())
+      _check_max_lengths(lengths, ramp_len, file)
+   elif len(set(lengths.values())) > 1:
+      # ramp_len 을 안 적었어도 길이가 다르면 LUT 가 굽는 중에 터진다. 여기서 막는다.
       shown = ", ".join(f"{n}={v}" for n, v in sorted(lengths.items()))
       raise ArtToolError(f"램프 길이가 서로 다르다 : {shown} - {file}")
 
    outline_text = data.get("outline")
    outline = parse_hex(outline_text) if outline_text else None
-   out = Ramps(str(data.get("name", file.stem)), ramps, outline, ramp_len or len(next(iter(ramps.values()))))
+   out = Ramps(str(data.get("name", file.stem)), ramps, outline, ramp_len or len(next(iter(ramps.values()))), mode)
    # 보고 `palette` 칸의 열쇠 — 램프 파일 이름(설계 2-4). 경로는 안 싣는다(다른 PC 에서도 같은 열쇠).
    out.file = file.name
    # 해석된 전체 경로 — 판 여럿을 합칠 때 「같은 파일인가」만 가린다. 보고에는 안 싣는다.
@@ -134,7 +161,9 @@ def build_lut(ramps: Ramps, names: list[str]) -> image.RGBA:
    for row, name in enumerate(names):
       colors = ramps.ramp(name)
       for col in range(width):
-         r, g, b = colors[col]
+         # max 모드의 짧은 램프는 오른쪽을 마지막(가장 밝은) 색으로 채운다 — 셰이더가 읽는 칸 뜻은 그대로.
+         # fixed 는 길이 = width 라 min 이 아무것도 안 바꾼다.
+         r, g, b = colors[min(col, len(colors) - 1)]
          lut[row, col] = (r, g, b, 255)
    return lut
 
@@ -214,17 +243,21 @@ def shade(base: str | RGB, steps: int = 6, hue_step: float | None = None, metal:
 def ramp_asset_json(ramps: Ramps, names: list[str] | None = None) -> dict:
    """Unity PaletteRampAsset 용. 수치만 담는다."""
    picked = names or ramps.names()
-   return {
+   out = {
       "version": 1,
       "name": ramps.name,
+      # rampLen 은 늘 LUT 너비다(max 모드에서도). 램프별 실제 길이는 덧칸 rampLens 로만 더한다.
       "rampLen": ramps.ramp_len,
       "outline": to_hex(ramps.outline) if ramps.outline else None,
       "ramps": [{"name": n, "colors": [to_hex(c) for c in ramps.ramp(n)]} for n in picked],
    }
+   if ramps.mode == "max":
+      out["rampLens"] = {n: len(ramps.ramp(n)) for n in picked}
+   return out
 
 
 # 램프 파일의 본 칸. `save_ramps` 의 덧칸이 이 이름을 덮지 못한다.
-RAMP_FILE_KEYS = ("version", "name", "ramp_len", "outline", "ramps")
+RAMP_FILE_KEYS = ("version", "name", "ramp_len", "ramp_len_mode", "outline", "ramps")
 
 
 def save_ramps(path: str | os.PathLike, ramps: Ramps, extra: dict | None = None) -> Path:
@@ -235,9 +268,13 @@ def save_ramps(path: str | os.PathLike, ramps: Ramps, extra: dict | None = None)
    """
    if not ramps.ramps:
       raise ArtToolError("쓸 램프가 하나도 없다")
-   lengths = {len(colors) for colors in ramps.ramps.values()}
-   if len(lengths) > 1 or lengths != {ramps.ramp_len}:
-      raise ArtToolError(f"램프 길이가 ramp_len {ramps.ramp_len} 과 다르다 : {sorted(lengths)}")
+   mode = getattr(ramps, "mode", "fixed")
+   if mode == "max":
+      _check_max_lengths(ramps.lengths(), ramps.ramp_len, path)
+   else:
+      lengths = {len(colors) for colors in ramps.ramps.values()}
+      if len(lengths) > 1 or lengths != {ramps.ramp_len}:
+         raise ArtToolError(f"램프 길이가 ramp_len {ramps.ramp_len} 과 다르다 : {sorted(lengths)}")
    clash = sorted(set(extra or {}) & set(RAMP_FILE_KEYS))
    if clash:
       raise ArtToolError(f"덧칸이 램프 파일 본 칸과 겹친다 : {', '.join(clash)}")
@@ -246,10 +283,15 @@ def save_ramps(path: str | os.PathLike, ramps: Ramps, extra: dict | None = None)
       "version": 1,
       "name": ramps.name,
       "ramp_len": ramps.ramp_len,
+   }
+   # fixed 는 칸을 안 적는다 — 옛 파일과 바이트까지 같게.
+   if mode == "max":
+      data["ramp_len_mode"] = "max"
+   data.update({
       "outline": to_hex(ramps.outline) if ramps.outline is not None else None,
       "ramps": {name: [to_hex(c) for c in colors] for name, colors in ramps.ramps.items()},
       **(extra or {}),
-   }
+   })
    file = Path(path)
    write_json(file, data)
    return file

@@ -25,6 +25,7 @@ from .. import image, palette
 from ..check import is_guide
 from ..checks import is_background, long_side, raw_edge, warning
 from ..checks.outline import measure_outline
+from ..checks.ramp import measure_ramp
 from ..checks.pixels import cap_for, measure_isolated, measure_near_colors
 from ..checks.scale import measure_scale, measure_smooth
 from ..errors import ArtToolError, UsageError
@@ -480,6 +481,11 @@ def _write_palette(files: dict, name: str, pal: dict, summary: dict) -> None:
    if pal["singles"]:
       # 한 색 + 채운 칸 램프 : 그림자 · 하이라이트 칸이 없다. selout 이 맨 아래 칸에서 멈추니 손으로 채우거나 빼는 자리
       extra["singles"] = pal["singles"]
+   info = ramp_info(pal["ramps"])
+   if info:
+      # 같은 색 되풀이로 단 수가 칸 수보다 적은 램프만 적는 덧칸 — load_ramps 는 모르는 칸을 무시하니 옛 읽는 쪽 그대로 (3판 설계 2-5 가)
+      # ramp_info 의 kind == "single" 은 위 singles(옛 칸)와 같은 사실이다. 옛 소비자 호환으로 둘 다 적는다.
+      extra["ramp_info"] = info
    if pal["outline_candidate"] is not None and pal["outline"] is None:
       extra["outline_candidate"] = ramps.to_hex(pal["outline_candidate"])
    palette.save_ramps(files["palette"], ramp_set, extra)
@@ -489,6 +495,21 @@ def _write_palette(files: dict, name: str, pal: dict, summary: dict) -> None:
 
 
 # --- 경고 ---
+
+
+def ramp_info(ramp_rows: list[dict]) -> dict:
+   """이어진 같은 색을 접어 센 단 수가 칸 수보다 적은 램프만 `{이름: {steps, kind}}` — kind 는 single(1단) · padded.
+
+   끝 색 되풀이뿐 아니라 가운데 되풀이(예 : `[A, B, B, A]` → 3단)도 padded 로 센다.
+   램프 자체는 여전히 `ramp_len` 칸으로 채워 낸다. 그런 램프가 없으면 빈 dict(덧칸을 안 붙인다).
+   """
+   out = {}
+   for r in ramp_rows:
+      steps = measure_ramp([ramps.to_rgb(k) for k in r["colors"]])["steps"]
+      # 이어진 같은 색을 접은 단 수가 칸 수보다 적으면 — 되풀이가 어디에 있든 센다.
+      if steps < len(r["colors"]):
+         out[r["name"]] = {"steps": steps, "kind": "single" if steps == 1 else "padded"}
+   return out
 
 
 def _names(files: list[str]) -> str:

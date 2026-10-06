@@ -206,6 +206,9 @@ check:
   background: { auto: true, min_side: 128, color_cap: 64, max_colors: null }
 ```
 
+램프 파일(json)에는 `ramp_len_mode: fixed | max` 칸이 있다(프로필 칸이 아니다). `fixed`(기본)는 모든 램프 길이가 `ramp_len` 과 같아야 하고, `max` 는 램프마다 길이가 달라도 된다(가장 긴 것 = `ramp_len`). `bake` 는 짧은 램프를 마지막 색으로 채워 굽고 asset json 에 `rampLens` 를 더한다.
+`ramp_shape` 는 한 색 램프(같은 색 되풀이)를 경고 대신 `info` `ramp_shape.single` 로 알린다 (2026-10-06).
+
 ### 스킬 — 그림 그릴 때 에이전트가 읽는 글
 
 `.claude/skills/arttool-usage/` (`SKILL.md` · `기준.md` · `뽑기-pixellab.md` · `그리기-pil.md` · `scripts/` 예시 셋).
