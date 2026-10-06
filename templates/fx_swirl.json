@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "name": "fx_swirl",
+  "kind": "effect",
+  "title": "소용돌이 (64×64 · 8프레임 · 흰 1색)",
+  "sizes": [[64, 64]],
+  "values": { "frame_ms": 60, "colors": 1 },
+  "frames": [
+    { "draw": [{ "shape": "spiral", "turns": 2, "r0": 0.1, "r1": 0.95, "width": 2, "dir": "cw", "phase": 0 }] },
+    { "draw": [{ "shape": "spiral", "turns": 2, "r0": 0.1, "r1": 0.95, "width": 2, "dir": "cw", "phase": 0.125 }] },
+    { "draw": [{ "shape": "spiral", "turns": 2, "r0": 0.1, "r1": 0.95, "width": 2, "dir": "cw", "phase": 0.25 }] },
+    { "draw": [{ "shape": "spiral", "turns": 2, "r0": 0.1, "r1": 0.95, "width": 2, "dir": "cw", "phase": 0.375 }] },
+    { "draw": [{ "shape": "spiral", "turns": 2, "r0": 0.1, "r1": 0.95, "width": 2, "dir": "cw", "phase": 0.5 }] },
+    { "draw": [{ "shape": "spiral", "turns": 2, "r0": 0.1, "r1": 0.95, "width": 2, "dir": "cw", "phase": 0.625 }] },
+    { "draw": [{ "shape": "spiral", "turns": 2, "r0": 0.1, "r1": 0.95, "width": 2, "dir": "cw", "phase": 0.75 }] },
+    { "draw": [{ "shape": "spiral", "turns": 2, "r0": 0.1, "r1": 0.95, "width": 2, "dir": "cw", "phase": 0.875 }] }
+  ],
+  "check": { "style": { "outline": "none" }, "check": { "max_colors": 1 }, "frames": 8 },
+  "fixed": ["style.outline"],
+  "must": [],
+  "prompt": "pixel art {w}x{h} white swirl vortex effect, {frames} frames, {frame_ms}ms per frame, single color, no outline, transparent background",
+  "steps": [
+    "흰 1색 실루엣으로 여덟 장을 먼저 맞춘다 (_f00 ~ _f07 이 그 모양)",
+    "두 바퀴 나선을 한 장마다 1/8 바퀴(45도)씩 시계 방향으로 돌린다",
+    "색은 그 다음에 입힌다. 안쪽을 밝게, 바깥 끝을 어둡게 하면 빨려 드는 느낌이 난다"
+  ],
+  "sources": ["6판 설계 5-3 spiral 모양 + fx_swirl"],
+  "layers": [{ "name": "fx", "kind": "fx" }]
+}

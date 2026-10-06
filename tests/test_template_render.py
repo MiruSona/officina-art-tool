@@ -272,4 +272,5 @@ def test_cli_render_and_show(tmp_path, capsys):
    assert cli.main(["template", "show", "char_small", "--size", "32x32", "--json"]) == 0
    data = json.loads(capsys.readouterr().out)
    assert data["preset"] == "sd" and data["lines"]["crotch_y"] == 26
-   assert cli.main(["template", "show", "char_small", "--size", "20x20"]) == 2
+   # char_small 은 6판부터 size_range(8x8 ~ 240x240) 안 크기를 받으니 범위 밖으로 거절을 본다
+   assert cli.main(["template", "show", "char_small", "--size", "300x300"]) == 2

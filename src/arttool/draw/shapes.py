@@ -117,6 +117,41 @@ def ring(size: Size, cx: float, cy: float, r: float, width: int = 1, dash: int =
    return band & (index % 2 == 0)
 
 
+SPIRAL_MAX_WIDTH = 32
+
+
+def spiral(size: Size, cx: float, cy: float, r0: float, r1: float, turns: float,
+           width: int = 1, phase: float = 0.0, clockwise: bool = True) -> Mask:
+   """아르키메데스 나선. 안 반지름 r0 에서 바깥 r1 까지 turns 바퀴 감는다(반지름은 칸).
+
+   phase 는 시작 각도(바퀴 몫, 0.25 = 90도). clockwise 는 화면(y 아래) 기준 시계 방향.
+   한 걸음이 0.5 칸 이하가 되게 촘촘히 찍으므로 반올림 뒤에도 점끼리 8방향으로 이어진다.
+   width 는 각 점을 width×width 네모로 넓혀 굵기를 낸다.
+   """
+   w, h = _check_size(size)
+   if turns <= 0 or r1 < r0 or r0 < 0:
+      raise ArtToolError(f"나선 값이 맞지 않는다 : turns {turns} · r0 {r0} · r1 {r1}")
+   if width <= 0 or width > SPIRAL_MAX_WIDTH:
+      raise ArtToolError(f"나선 굵기는 1 ~ {SPIRAL_MAX_WIDTH} 이다 : {width}")
+   # 길이 위쪽 어림 = 바깥 원 둘레 × 바퀴 + 반지름 차. 걸음을 0.5 칸 아래로.
+   length = 2 * math.pi * r1 * turns + (r1 - r0)
+   n = int(math.ceil(length * 2)) + 2
+   t = np.linspace(0.0, 1.0, n)
+   sign = 1.0 if clockwise else -1.0
+   theta = sign * 2 * math.pi * (turns * t + phase)
+   r = r0 + (r1 - r0) * t
+   xs = np.floor(cx + r * np.cos(theta) + 0.5).astype(np.int64)
+   ys = np.floor(cy + r * np.sin(theta) + 0.5).astype(np.int64)
+   out = empty(size)
+   lo = -((width - 1) // 2)
+   for oy in range(lo, lo + width):
+      for ox in range(lo, lo + width):
+         px, py = xs + ox, ys + oy
+         keep = (px >= 0) & (px < w) & (py >= 0) & (py < h)
+         out[py[keep], px[keep]] = True
+   return out
+
+
 def _rgba(color) -> tuple[int, int, int, int]:
    if isinstance(color, str):
       return (*parse_hex(color), 255)

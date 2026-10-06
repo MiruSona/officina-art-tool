@@ -147,8 +147,8 @@ arttool provider make  --kind character --spec req.json --out gen/ --dry-run
 | 환경변수 `ARTTOOL_PALETTES` | 팔레트 뿌리(절대경로 · 있는 폴더). 프로필 램프 경로를 `$palettes/…` 로 쓴다. 템플릿의 램프 절대경로는 프로필 폴더 · 툴 폴더 · 이 뿌리 아래만 믿고, 아니면 경고 `template.ramps_outside` (2026-10-06) |
 | `color_cap.table_mode: replace` | 프로필의 색 한도 표를 기본 표에 겹치지 않고 통째로 바꾼다(기본 `merge`). `--set` 으로는 안 먹는다. `profile show` 가 표를 읽기 쉬운 줄로 보인다 (2026-10-06) |
 | `sheet … --scale per` | 그림(줄)마다 배율을 따로 `auto`. 줄 딱지 끝 ` · ×N`, 보고 `items[].scale`. `--strip` 과 같이 못 쓴다 (2026-10-06) |
-| `style extract --in refs/ --out style/ [--by-folder] [--max-colors 64] [--force]` | 기준 그림 → 팔레트 · 견본 · 프로필 조각 · 보고. **종류별(`--by-folder`)이 권장 길** |
-| `template list` · `show <이름> [--size N\|WxH] [--preset P] [--base #hex] [--material M]` · `render … --out guide/ [--over a.png]` | 그리기 전 밑판(가이드 겹 · 마스크 · 프롬프트 · 순서). **템플릿 15개** |
+| `style extract --in refs/ --out style/ [--by-folder] [--max-colors 64] [--force]` | 기준 그림 → 팔레트 · 견본 · 프로필 조각 · 보고. **종류별(`--by-folder`)이 권장 길**. 빛 판정은 투명으로 떨어진 덩이마다 따로 잡는다 — 두 덩이 이상 그림은 옛 판과 값이 다를 수 있고, 덩이끼리 엇갈리면 경고 `light_mixed` · 요약 `light.low` (2026-10-07) |
+| `template list` · `show <이름> [--size N\|WxH] [--preset P] [--base #hex] [--material M]` · `render … --out guide/ [--over a.png]` | 그리기 전 밑판(가이드 겹 · 마스크 · 프롬프트 · 순서). **템플릿 18개** — 새 `prop_small`(작은 소품) · `char_blob`(덩어리 몸) · `fx_swirl`(소용돌이). 템플릿 JSON 의 `size_range` 가 있으면 목록에 없는 크기도 그리고 경고 `template.size_free` 를 낸다 (2026-10-07, 명령안내 22절) |
 | `layers compose\|diff\|mask\|view\|check\|export\|fill` | 겹 묶음 명령. `check --cover mask.png` 는 가림판 안 빈 칸을 실패로, `fill --mask m.png --nearest a,b --out set2/` 는 그 빈 칸을 가까운 겹에 채운다(명령안내 17절). `layers.json` 버전 2 는 `meta` · 작은 겹 `size`/`offset`. `diff --carve report\|common\|apply`. 옛 `layers --profile …` 줄은 `layers compose` 로 |
 | `ui preview --in panel.png --border N\|L,B,R,T --size WxH` | 안내선 없는 9조각 늘려 보기 |
 | `tile seam` | 새 칸 `bad_px` · `bad_px_min` — 이음 줄에서 크게 다른 칸이 한 줄의 15%(최소 2px) 미만이면 통과 |
@@ -413,7 +413,7 @@ border 순서는 **[왼, 아래, 오른, 위]** 다. Unity `spriteBorder` 의 Ve
 | `src/arttool/style/` · `template/` · `draw/` | 화풍 뽑기 · 템플릿 엔진 · PIL 그리기 공개 모듈 `arttool.draw` |
 | `src/arttool/layerset.py` · `sprite/layerops.py` | 겹 묶음 꼴(`layers.json`) · `layers` 묶음 명령 |
 | `src/arttool/assets/fonts/` | Pretendard Medium + 라이선스 글 |
-| `templates/` | 템플릿 JSON 15개 |
+| `templates/` | 템플릿 JSON 18개 |
 | `.claude/skills/arttool-usage/` | 그림 그릴 때 읽는 스킬 (위 「스킬」) |
 | `Docs/Guide/명령안내.md` | 개선 판 명령의 자세한 안내 |
 | `profiles/` | 프로필. `presets/` 안에 프리셋 넷 |

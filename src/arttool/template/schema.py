@@ -26,7 +26,7 @@ TEMPLATES_DIR = "templates"
 
 TOP_KEYS = (
    "version", "name", "kind", "title", "sizes", "values", "frames", "presets", "default_preset",
-   "check", "fixed", "must", "prompt", "steps", "sources", "layers",
+   "check", "fixed", "must", "prompt", "steps", "sources", "layers", "size_range",
 )
 REQUIRED = ("version", "name", "kind", "title", "sizes", "prompt", "steps", "sources")
 MUST_WORDS = ("canvas", "alpha", "scale", "palette")
@@ -196,6 +196,30 @@ def _sizes(value, spot: str, where) -> None:
       raise _fail(where, f"{spot} 는 [너비, 높이] 양의 정수 쌍 목록이고 비면 안 된다 : {value!r}")
 
 
+def _size_range(value, where) -> None:
+   """size_range = [[최소 W, 최소 H], [최대 W, 최대 H]]. 두 쌍 모두 1 ~ MAX_SIDE 정수, 최소 ≤ 최대(변마다)."""
+   shape = "size_range 는 [[최소 너비, 최소 높이], [최대 너비, 최대 높이]] 이다"
+   if not (isinstance(value, list) and len(value) == 2):
+      raise _fail(where, f"{shape} : {value!r}")
+   for row in value:
+      good = isinstance(row, list) and len(row) == 2
+      good = good and all(isinstance(v, int) and not isinstance(v, bool) and 0 < v <= MAX_SIDE for v in row)
+      if not good:
+         raise _fail(where, f"{shape} (각 값은 1 ~ {MAX_SIDE} 정수) : {value!r}")
+   (lo_w, lo_h), (hi_w, hi_h) = value
+   if lo_w > hi_w or lo_h > hi_h:
+      raise _fail(where, f"size_range 의 최소가 최대보다 크다 : {value!r}")
+
+
+def size_range(tpl: dict) -> tuple[tuple[int, int], tuple[int, int]] | None:
+   """템플릿의 size_range. 없으면 None(목록 크기만 받는다)."""
+   value = tpl.get("size_range")
+   if value is None:
+      return None
+   (lo_w, lo_h), (hi_w, hi_h) = value
+   return (int(lo_w), int(lo_h)), (int(hi_w), int(hi_h))
+
+
 def _dig(node: dict, dotted: str):
    """점 경로 값. 없으면 KeyError."""
    cur = node
@@ -276,6 +300,8 @@ def validate(data, where="(사전)") -> None:
    _str_list(data["steps"], "steps", where)
    _str_list(data["sources"], "sources", where)
    _sizes(data["sizes"], "sizes", where)
+   if "size_range" in data:
+      _size_range(data["size_range"], where)
 
    values = data.get("values", {})
    if not isinstance(values, dict):

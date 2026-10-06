@@ -13,7 +13,7 @@ from arttool.template.run import build, list_templates
 FIRST_TWELVE = {
    "char_small", "char_parts", "bg_screen", "ui9_panel", "icon_set", "tile_base",
    "palette_ramp", "cycle_char", "fx_ring_burst", "fx_sparkle", "fx_dust", "motion_guide",
-   "building", "machine", "screen_piece",
+   "building", "machine", "screen_piece", "prop_small", "char_blob", "fx_swirl",
 }
 
 
@@ -32,8 +32,8 @@ def write(tmp_path: Path, data: dict, name: str = "t.json") -> str:
 def test_first_twelve_all_load_and_list():
    listed = list_templates()
    assert {row["name"] for row in listed["templates"]} == FIRST_TWELVE
-   assert list_templates("effect")["count"] == 3
-   assert list_templates("prop")["count"] == 2
+   assert list_templates("effect")["count"] == 4
+   assert list_templates("prop")["count"] == 3
    # 파일 이름 = name 칸 (이름으로 찾기가 맞물리게)
    for row in listed["templates"]:
       assert Path(schema.find(row["name"])).stem == row["name"]

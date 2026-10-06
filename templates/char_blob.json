@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "name": "char_blob",
+  "kind": "blob",
+  "title": "덩어리 몸 (슬라임 · 둥근 동물 · 얼굴 칸 · 머리 장식 · 통통 튀기 4프레임)",
+  "sizes": [[32, 32], [48, 48], [64, 64], [96, 96]],
+  "size_range": [[16, 16], [128, 128]],
+  "values": {
+    "body_w_ratio": 0.66,
+    "body_h_ratio": 0.55,
+    "foot_ratio": 0.205,
+    "widest_ratio": 0.63,
+    "face_w_ratio": 0.38,
+    "face_h_ratio": 0.23,
+    "face_y_ratio": 0.37,
+    "eye": { "16": 1 },
+    "eye_gap_ratio": 0.36,
+    "mouth_ratio": 0.48,
+    "deco_ratio": 0.33,
+    "deco_rise_ratio": 0.12,
+    "deco_dx_ratio": 0.07,
+    "frames": [[1, 1], [1.12, 0.83], [0.9, 1.14], [0.95, 1.06]],
+    "frame_ms": 120
+  },
+  "check": {
+    "check": { "allow_alpha": "binary" }
+  },
+  "fixed": [],
+  "must": [],
+  "prompt": "pixel art {w}x{h} front view round blob creature (slime), one soft body wider near the bottom, flat bottom on the ground line, small face with two dot eyes, small ornament on top slightly right, 1px dark outline, {outline}, {light}, palette {palette}, transparent background",
+  "steps": [
+    "분홍 바닥 줄이 땅에 닿는 줄이다. 몸 아래 끝을 이 줄에 맞추고, 튈 때도 이 줄은 안 움직인다",
+    "몸은 한 덩어리 — 가장 넓은 줄이 몸 아래쪽에 있어야 무게가 앉아 보인다",
+    "얼굴(하늘색 칸) 안에 두 눈을 찍고, 입은 칸 아래 줄에 둔다",
+    "머리 장식(노란 칸)은 deco 겹에 따로 — 몸 꼭대기 위로 조금 솟고 가운데에서 살짝 오른쪽",
+    "프레임마다 몸 크기만 바꾼다(납작 · 길쭉). 몸 넓이는 거의 같게 두어야 살이 붙어 보이지 않는다"
+  ],
+  "sources": ["64x64 덩어리 캐릭터 실물을 재서 정한 몫 (6판 T2 · 2026-10-07) : 몸 42x35 · 좌우 여백 11 · 위 16 · 아래 13 · 얼굴 칸 16x8 · 눈 중심 사이 15 · 입 20 · 장식 14x14 · 튀기 4프레임 몸 42x35 / 47x29 / 38x40 / 40x37"],
+  "layers": [
+    { "name": "body", "kind": "body" },
+    { "name": "face", "kind": "face" },
+    { "name": "deco", "kind": "deco", "optional": true }
+  ]
+}

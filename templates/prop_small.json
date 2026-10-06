@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "name": "prop_small",
+  "kind": "prop",
+  "title": "작은 소품 밑판 (24 ~ 64 칸 상자 · 통 · 화분 · 바닥선 · 얇은 1px 외곽선)",
+  "sizes": [[24, 24], [32, 32], [48, 48], [64, 64]],
+  "size_range": [[16, 16], [96, 96]],
+  "values": {
+    "top_ratio": { "16": 0.0625, "48": 0.042 },
+    "foot_ratio": { "16": 0.125, "48": 0.083 },
+    "side_ratio": { "16": 0.125, "48": 0.083 },
+    "bands": [["top", 0.25], ["body", 0.6], ["foot", 0.15]],
+    "door": null,
+    "shadow_ratio": 0.08,
+    "outline_px": 1
+  },
+  "check": {
+    "check": { "allow_alpha": "binary" }
+  },
+  "fixed": [],
+  "must": [],
+  "prompt": "pixel art {w}x{h} front view small prop, lid on the upper part, body in the middle, base at the bottom, standing on the ground line, small ground shadow, {outline_text} dark outline, {outline}, {light}, palette {palette}, transparent background",
+  "steps": [
+    "분홍 바닥선이 땅에 닿는 줄이다. 받침 아래 끝을 이 줄에 맞춘다",
+    "몸통 → 뚜껑 → 받침 순서로 겹마다 그린다 (칸 {band_list}). 작은 그림이라 칸마다 한두 색이면 된다",
+    "외곽선은 {outline_text} 두께로 한 바퀴 — 왼쪽 위 하늘색 ㄱ 자가 그 두께 견본이다",
+    "모서리는 1px 만 깎는다. 더 깎으면 작은 소품은 둥근 덩어리로만 읽힌다",
+    "바닥 그림자(노란 타원)는 shadow 겹에 어두운 한 색으로"
+  ],
+  "sources": ["machine 템플릿의 몫 꼴을 24 ~ 64 칸 소품용으로 줄인 것 (6판 T4 · 2026-10-07). 여백은 큰 물건보다 비율을 키워 최소 1~2px 이 남게 했다"],
+  "layers": [
+    { "name": "shadow", "kind": "deco", "optional": true },
+    { "name": "body", "kind": "base" },
+    { "name": "top", "kind": "structure" },
+    { "name": "foot", "kind": "structure" }
+  ]
+}

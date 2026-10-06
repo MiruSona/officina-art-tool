@@ -244,6 +244,10 @@ class Character(Kind):
       for key in ("eye_h", "eye_w"):
          _need(values, key, _pos_int, "양의 정수 px", where)
       _need(values, "eye_gap", lambda v: _is_int(v) and v >= 0, "0 이상 정수 px", where)
+      # 눈 치수 하나가 캔버스보다 크면 fit 이 조용히 줄여 버린다 — 템플릿 잘못이니 그리기 전에 거절 (6판 T3)
+      for key, limit in (("eye_w", size[0]), ("eye_gap", size[0]), ("eye_h", size[1])):
+         if values[key] > limit:
+            raise _fail(where, f"{size[0]}x{size[1]} 에서 values.{key} = {values[key]} 가 캔버스보다 크다")
       if "eye_ratio" in values:
          _need(values, "eye_ratio", lambda v: _is_num(v) and 0 <= v <= 1, "0 ~ 1", where)
       if "cheek" in values:
@@ -913,8 +917,13 @@ SHAPE_KEYS = {
    "plus": ("r", "hollow"),
    "cross": ("r",),
    "diamond": ("r", "filled"),
+   "spiral": ("turns", "r0", "r1", "width", "dir", "phase"),
 }
-SHAPE_NEED = {"disc": ("r",), "ring": ("r",), "box": ("w", "h"), "line": ("x0", "y0", "x1", "y1"), "plus": ("r",), "cross": ("r",), "diamond": ("r",)}
+SHAPE_NEED = {"disc": ("r",), "ring": ("r",), "box": ("w", "h"), "line": ("x0", "y0", "x1", "y1"), "plus": ("r",), "cross": ("r",), "diamond": ("r",),
+              "spiral": ("turns", "r1")}
+SPIRAL_TURNS = (0.5, 4.0)
+EFFECT_MAX_FRAMES = 64
+SPIRAL_DIRS = ("cw", "ccw")
 
 
 def _center(size: Size, spec: dict) -> tuple[float, float]:
@@ -940,6 +949,11 @@ def effect_shape(size: Size, spec: dict) -> Mask:
       return shapes.box(size, x0, y0, x0 + bw, y0 + bh, bool(spec.get("filled", True)))
    if kind == "line":
       return shapes.line(size, px + spec["x0"], py + spec["y0"], px + spec["x1"], py + spec["y1"])
+   if kind == "spiral":
+      # r0 · r1 은 반지름 몫(0 ~ 1) — 짧은 변 절반에 곱해 칸으로 바꾼다. 캔버스 크기가 달라도 같은 꼴.
+      half = (min(size) - 1) / 2
+      return shapes.spiral(size, cx, cy, spec.get("r0", 0) * half, spec["r1"] * half, spec["turns"],
+                           int(spec.get("width", 1)), spec.get("phase", 0), spec.get("dir", "cw") == "cw")
    r = int(spec["r"])
    if kind == "plus":
       out = shapes.line(size, px - r, py, px + r, py) | shapes.line(size, px, py - r, px, py + r)
@@ -968,6 +982,9 @@ def _validate_shape(spec, where, spot: str) -> None:
    missing = [k for k in SHAPE_NEED.get(kind, ()) if k not in spec]
    if missing:
       raise _fail(where, f"{spot} ({kind}) 에 {', '.join(missing)} 가 없다")
+   if kind == "spiral":
+      _validate_spiral(spec, where, spot)
+      return
    for key, value in spec.items():
       if key in ("shape",):
          continue
@@ -983,6 +1000,25 @@ def _validate_shape(spec, where, spot: str) -> None:
          raise _fail(where, f"{spot}.{key} 는 0 이상이다 : {value!r}")
 
 
+def _validate_spiral(spec: dict, where, spot: str) -> None:
+   """나선 값 검사. 바퀴 0.5 ~ 4 · 반지름 몫 0 ≤ r0 < r1 ≤ 1 · 굵기 1 ~ 32 정수 · 회전 몫 0 ≤ phase < 1."""
+   for key in ("dx", "dy", "turns", "r0", "r1", "phase"):
+      if key in spec and not _is_num(spec[key]):
+         raise _fail(where, f"{spot}.{key} 는 수다 : {spec[key]!r}")
+   lo, hi = SPIRAL_TURNS
+   if not lo <= spec["turns"] <= hi:
+      raise _fail(where, f"{spot}.turns 는 {lo:g} ~ {hi:g} 다 : {spec['turns']!r}")
+   r0, r1 = spec.get("r0", 0), spec["r1"]
+   if not 0 <= r0 < r1 <= 1:
+      raise _fail(where, f"{spot} 의 r0 · r1 은 0 ≤ r0 < r1 ≤ 1 인 반지름 몫이다 : r0 {r0!r} · r1 {r1!r}")
+   if "width" in spec and not (_is_int(spec["width"]) and 1 <= spec["width"] <= shapes.SPIRAL_MAX_WIDTH):
+      raise _fail(where, f"{spot}.width 는 1 ~ {shapes.SPIRAL_MAX_WIDTH} 정수다 : {spec['width']!r}")
+   if not 0 <= spec.get("phase", 0) < 1:
+      raise _fail(where, f"{spot}.phase 는 0 이상 1 미만 바퀴 몫이다 : {spec['phase']!r}")
+   if spec.get("dir", "cw") not in SPIRAL_DIRS:
+      raise _fail(where, f"{spot}.dir 는 {' · '.join(SPIRAL_DIRS)} 중 하나다 : {spec['dir']!r}")
+
+
 class Effect(Kind):
    """이펙트 프레임 공식 — 프레임마다 흰 1색 모양(도형 목록)."""
 
@@ -996,6 +1032,8 @@ class Effect(Kind):
    def validate_frames(self, frames, where) -> None:
       if not isinstance(frames, list) or not frames:
          raise _fail(where, "frames 는 프레임 목록이고 비면 안 된다")
+      if len(frames) > EFFECT_MAX_FRAMES:
+         raise _fail(where, f"frames 는 {EFFECT_MAX_FRAMES} 장까지다 : {len(frames)} 장")
       for i, frame in enumerate(frames):
          if not isinstance(frame, dict) or set(frame) != {"draw"} or not isinstance(frame["draw"], list):
             raise _fail(where, f"frames[{i}] 는 {{\"draw\": [도형…]}} 이다 (빈 장은 \"draw\": [])")
@@ -1169,9 +1207,181 @@ def _shift(rect, dy: int) -> list[int]:
    return [x0, y0 + dy, x1, y1 + dy]
 
 
+# ── blob (덩어리 몸) ─────────────────────────────────
+
+
+BLOB_RATIOS = (
+   "body_w_ratio", "body_h_ratio", "widest_ratio", "face_w_ratio", "face_h_ratio", "face_y_ratio",
+   "eye_gap_ratio", "mouth_ratio", "deco_ratio", "deco_rise_ratio", "deco_dx_ratio",
+)
+BLOB_SQUASH = (0.8, 1.25)   # 프레임 몸 넓이(가로 몫 × 세로 몫)가 이 범위 밖이면 거절 — 튈 때 살이 붙거나 빠지면 안 된다
+BLOB_MAX_FRAMES = 16
+
+
+def _blob_mask(size: Size, body, widest: float) -> Mask:
+   """몸 실루엣 : 가장 넓은 줄(몸 높이의 widest 몫) 위는 반타원, 아래는 바닥이 평평한 초타원(지수 4).
+
+   줄마다 반너비를 한 번에 셈한다(numpy). 칸 가운데(+0.5)로 재서 좌우가 정확히 대칭이다.
+   """
+   x0, top, x1, bottom = body
+   cx = (x0 + x1) / 2
+   yc = top + (bottom - top) * widest
+   ys = np.arange(size[1]) + 0.5
+   up = np.clip((yc - ys) / max(yc - top, 1e-9), 0, None)
+   down = np.clip((ys - yc) / max(bottom - yc, 1e-9), 0, None)
+   with np.errstate(invalid="ignore"):
+      half = np.where(ys <= yc, np.sqrt(np.clip(1 - up ** 2, 0, None)), np.clip(1 - down ** 4, 0, None) ** 0.25)
+   half = half * (x1 - x0) / 2
+   inside_rows = (ys > top) & (ys < bottom)
+   xs = np.arange(size[0]) + 0.5
+   return (np.abs(xs[None, :] - cx) < half[:, None]) & inside_rows[:, None]
+
+
+def _edge(mask: Mask) -> Mask:
+   """1px 외곽선 : 네 이웃 중 하나라도 빈 칸인 칸."""
+   pad = np.pad(mask, 1)
+   inner = pad[:-2, 1:-1] & pad[2:, 1:-1] & pad[1:-1, :-2] & pad[1:-1, 2:]
+   return mask & ~inner
+
+
+class Blob(Kind):
+   """덩어리 몸(슬라임 · 둥근 동물) 틀 : 몸 실루엣 하나 · 얼굴 칸 · 눈 · 입 · 머리 장식 자리 · 통통 튀기 프레임.
+
+   - 몸 상자는 가운데 정렬, 아래 끝이 바닥 줄(`baseline_y`)에 붙는다. 너비 · 높이는 캔버스 몫.
+   - `widest_ratio` : 가장 넓은 줄의 자리(몸 꼭대기에서 몸 높이의 몫).
+   - 얼굴 · 눈 · 입 · 장식은 몸 상자 몫. `eye` 는 눈 한 변 px(크기 표 가능).
+   - `frames` : [[가로 몫, 세로 몫], …] 프레임마다 몸 크기. 바닥 줄은 고정, 몸 넓이 몫은 0.8 ~ 1.25.
+   """
+
+   name = "blob"
+   value_keys = ("foot_ratio", "eye", "frames", "frame_ms") + BLOB_RATIOS
+   mask_files = True
+   preview = "frames"
+   labels = (
+      ("body", "몸 상자", "line"),
+      ("widest_y", "가장 넓은 줄", "line"),
+      ("face_box", "얼굴 칸", "dot"),
+      ("deco_box", "머리 장식", "keep"),
+      ("baseline_y", "바닥 줄 (땅에 닿는 줄)", "line"),
+   )
+
+   def check_values(self, values, size, tpl, where) -> None:
+      for key in BLOB_RATIOS:
+         _need(values, key, lambda v: _is_num(v) and 0 < v <= 1, "0 초과 1 이하", where)
+      _need(values, "foot_ratio", _ratio, "0 이상 1 미만", where)
+      _need(values, "eye", _pos_int, "양의 정수 px", where)
+      _need(values, "frame_ms", _pos_int, "양의 정수 ms", where)
+      frames = values.get("frames")
+      ok = isinstance(frames, list) and 1 <= len(frames) <= BLOB_MAX_FRAMES and all(
+         isinstance(f, list) and len(f) == 2 and all(_is_num(s) and 0 < s <= 2 for s in f) for f in frames
+      )
+      if not ok:
+         raise _fail(where, f"values.frames 는 [[가로 몫, 세로 몫 0~2], …] 1 ~ {BLOB_MAX_FRAMES} 개다 : {frames!r}")
+      lo, hi = BLOB_SQUASH
+      for f in frames:
+         if not lo <= f[0] * f[1] <= hi:
+            raise _fail(where, f"values.frames 의 {f} 는 몸 넓이 몫 {f[0] * f[1]:.2f} 가 {lo} ~ {hi} 밖이다")
+      # 크기 검사는 그림을 만들기 전에 상자 셈만으로 한다
+      calc = self.compute(Ctx(tpl, size, values))
+      w, h, spot = size[0], size[1], f"{size[0]}x{size[1]}"
+      for x0, y0, x1, y1 in [calc["body"]] + calc["frame_bodies"]:
+         if x0 < 0 or y0 < 0 or x1 > w or y1 > h or x1 - x0 < 3 or y1 - y0 < 3:
+            raise _fail(where, f"{spot} 에서 몸 상자 {[x0, y0, x1, y1]} 가 캔버스 밖이거나 3px 보다 작다")
+      bx0, by0, bx1, by1 = calc["body"]
+      fx0, fy0, fx1, fy1 = calc["face_box"]
+      if fx0 < bx0 or fy0 < by0 or fx1 > bx1 or fy1 > by1:
+         raise _fail(where, f"{spot} 에서 얼굴 칸 {calc['face_box']} 가 몸 상자 {calc['body']} 밖이다")
+      for ex0, ey0, ex1, ey1 in calc["eye_boxes"]:
+         if ex0 < fx0 or ey0 < fy0 or ex1 > fx1 or ey1 > fy1:
+            raise _fail(where, f"{spot} 에서 눈 {[ex0, ey0, ex1, ey1]} 가 얼굴 칸 {calc['face_box']} 밖이다")
+      mx0, _, mx1 = calc["mouth"]
+      if mx0 < bx0 or mx1 > bx1:
+         raise _fail(where, f"{spot} 에서 입 {calc['mouth']} 가 몸 너비 밖이다")
+      dx0, dy0, dx1, dy1 = calc["deco_box"]
+      if dx0 < 0 or dy0 < 0 or dx1 > w or dy1 > h:
+         raise _fail(where, f"{spot} 에서 머리 장식 {calc['deco_box']} 가 캔버스 밖이다")
+
+   def frame_count(self, ctx: Ctx) -> int:
+      return len(ctx.values["frames"])
+
+   @staticmethod
+   def _body(w: int, h: int, v: dict, sx: float = 1.0, sy: float = 1.0) -> list[int]:
+      """몸 상자 [x0, top, x1, baseline+1). 가로는 가운데, 아래 끝은 바닥 줄에 붙는다."""
+      baseline = h - 1 - int(math.floor(h * v["foot_ratio"]))
+      bw = max(1, rhu(w * v["body_w_ratio"] * sx))
+      bh = max(1, rhu(h * v["body_h_ratio"] * sy))
+      x0 = (w - bw) // 2
+      return [x0, baseline + 1 - bh, x0 + bw, baseline + 1]
+
+   def compute(self, ctx: Ctx) -> dict:
+      v, w, h = ctx.values, ctx.w, ctx.h
+      body = self._body(w, h, v)
+      x0, top, x1, bottom = body
+      bw, bh = x1 - x0, bottom - top
+      fw, fh = max(1, rhu(bw * v["face_w_ratio"])), max(1, rhu(bh * v["face_h_ratio"]))
+      # 몸 너비와 홀짝을 맞춰야 얼굴 칸 · 입이 정확히 가운데 온다(어긋나면 1px 넓힌다, 몸 너비는 넘지 않는다)
+      fw = min(bw, fw + (bw - fw) % 2)
+      fx0, fy0 = x0 + (bw - fw) // 2, top + rhu(bh * v["face_y_ratio"])
+      # 눈 : 중심 사이 gap, 한 변 e. 왼눈을 정하고 오른눈은 몸 가운데로 거울 — 좌우가 정확히 같다
+      e, gap = int(v["eye"]), max(1, rhu(bw * v["eye_gap_ratio"]))
+      lx0 = int(math.floor(x0 + bw / 2 - gap / 2 - e / 2 + 0.5))
+      rx0 = 2 * x0 + bw - lx0 - e
+      eye_boxes = [[lx0, fy0, lx0 + e, fy0 + e], [rx0, fy0, rx0 + e, fy0 + e]]
+      mw = max(1, rhu(bw * v["mouth_ratio"]))
+      mw = min(bw, mw + (bw - mw) % 2)
+      mx0 = x0 + (bw - mw) // 2
+      dw = max(1, rhu(bw * v["deco_ratio"]))
+      dx0 = x0 + (bw - dw) // 2 + rhu(bw * v["deco_dx_ratio"])
+      dy0 = top - rhu(bh * v["deco_rise_ratio"])
+      return {
+         "top_y": top,
+         "baseline_y": bottom - 1,
+         "body": body,
+         "widest_y": top + int(math.floor(bh * v["widest_ratio"])),
+         "face_box": [fx0, fy0, fx0 + fw, fy0 + fh],
+         "eye_boxes": eye_boxes,
+         "eyes": [[b[0] + e // 2, fy0 + e // 2] for b in eye_boxes],
+         "mouth": [mx0, fy0 + fh - 1, mx0 + mw],
+         "deco_box": [dx0, dy0, dx0 + dw, dy0 + dw],
+         "frame_bodies": [self._body(w, h, v, f[0], f[1]) for f in v["frames"]],
+      }
+
+   def _silhouette(self, ctx: Ctx, body) -> Mask:
+      return _blob_mask(ctx.size, body, ctx.values["widest_ratio"])
+
+   def guide(self, ctx: Ctx, calc: dict) -> Guide:
+      size = ctx.size
+      g = Guide.blank(size)
+      g.line |= _edge(self._silhouette(ctx, calc["body"]))
+      g.line |= shapes.line(size, 0, calc["baseline_y"], ctx.w - 1, calc["baseline_y"])
+      g.dot |= _box(size, calc["face_box"], filled=False)
+      for eye in calc["eye_boxes"]:
+         g.dot |= _box(size, eye)
+      mx0, my, mx1 = calc["mouth"]
+      g.dot |= shapes.line(size, mx0, my, mx1 - 1, my)
+      g.keep |= _box(size, calc["deco_box"], filled=False)
+      return g
+
+   def frames(self, ctx: Ctx, calc: dict) -> list[image.RGBA]:
+      out = []
+      for body in calc["frame_bodies"]:
+         sil = self._silhouette(ctx, body)
+         arr = shapes.to_image(sil, "#FFFFFF")
+         shapes.paint(arr, _edge(sil), "#202020")      # 외곽선 1px
+         shapes.paint(arr, shapes.line(ctx.size, 0, calc["baseline_y"], ctx.w - 1, calc["baseline_y"]), "#FF00FF")
+         out.append(arr)
+      return out
+
+   def masks(self, ctx: Ctx, calc: dict) -> dict[str, Mask]:
+      sil = self._silhouette(ctx, calc["body"])
+      face = _box(ctx.size, calc["face_box"])
+      return {"body": sil & ~face, "face": sil & face, "deco": _box(ctx.size, calc["deco_box"]) & ~sil}
+
+
 HANDLERS: dict[str, Kind] = {
    k.name: k
-   for k in (Character(), Parts(), Background(), Ui9(), IconSet(), Tile(), Prop(), Palette(), Effect(), Cycle(), Motion())
+   for k in (Character(), Parts(), Background(), Ui9(), IconSet(), Tile(), Prop(), Palette(), Effect(), Cycle(), Motion(),
+             Blob())
 }
 KINDS = tuple(HANDLERS)
 

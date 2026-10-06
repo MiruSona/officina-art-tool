@@ -334,7 +334,11 @@ def measure_one(arr, background: bool, prof: Profile, where: str) -> dict:
       if outline["edge_top"] is not None:
          # 가장자리 최빈 색과 그 칸 수 — 무리 판정이 solid 면 이것들을 모아 외곽선 색을 고른다
          item.update(edge_color=palette.to_hex(tuple(outline["edge_top"])), edge_color_count=outline["edge_top_count"])
-      item["light"] = estimate_light(arr)["light"]
+      light = estimate_light(arr)
+      item["light"] = light["light"]
+      if light["confidence"] == "low":
+         # 엇갈린 장에만 싣는다 — 한 덩이 그림의 장별 보고는 옛 꼴 그대로
+         item["light_confidence"] = light["confidence"]
    return item
 
 
@@ -370,7 +374,8 @@ def _summarize(items: list[dict], prof: Profile) -> dict:
       "backgrounds": sum(1 for i in pixel if i["background"]),
       "outline": {"table": dict(outline), "pick": _pick(outline, sum(outline.values())), "total": sum(outline.values()),
                   "solid_color": (sorted(solid_colors.items(), key=lambda kv: (-kv[1], kv[0]))[0][0] if solid_colors else None)},
-      "light": {"table": dict(light), "pick": _pick(light, len(sprites)), "total": len(sprites)},
+      "light": {"table": dict(light), "pick": _pick(light, len(sprites)), "total": len(sprites),
+                "low": sum(1 for i in sprites if i.get("light_confidence") == "low")},
       "scale": {"table": {str(k): v for k, v in scale.items()}, "pick": scale_pick, "count": scale.get(scale_pick, 0),
                 "total": sum(scale.values())},
       "size_bins": _size_bins(sprites, prof),
@@ -525,6 +530,9 @@ def _warn_limits(items: list[dict], summary: dict, warnings: list[dict], in_dirs
    mixed = [i["file"] for i in items if i.get("scale_mixed")]
    if mixed:
       warnings.append(warning("mixed_scale", f"한 장 안에 도트 굵기가 섞인 그림 {len(mixed)}장 : {_names(mixed)}", mixed))
+   low = [i["file"] for i in items if i.get("light_confidence") == "low"]
+   if low:
+      warnings.append(warning("light_mixed", f"빛 판정이 덩이끼리 엇갈린 그림 {len(low)}장 — 표를 그대로 믿지 말고 눈으로 본다", low))
    split = _split_tables(summary)
    if split:
       subs = [str(p) for d in in_dirs for p in kind_dirs(d)]
@@ -652,7 +660,9 @@ def _report(name, items, summary, pal, warnings, files, length) -> dict:
       "name": name,
       "summary": {k: summary[k] for k in ("images", "pixel", "not_pixel", "sprites", "backgrounds")},
       "outline": {"table": summary["outline"]["table"], "pick": summary["outline"]["pick"][0]},
-      "light": {"table": summary["light"]["table"], "pick": summary["light"]["pick"][0]},
+      # low 는 엇갈린 장이 있을 때만 — 한 덩이 그림 폴더의 보고는 옛 꼴 그대로
+      "light": {"table": summary["light"]["table"], "pick": summary["light"]["pick"][0],
+                **({"low": summary["light"]["low"]} if summary["light"]["low"] else {})},
       "scale": {"table": summary["scale"]["table"], "pick": summary["scale"]["pick"]},
       "held": held_reason(summary),
       "size_bins": summary["size_bins"],

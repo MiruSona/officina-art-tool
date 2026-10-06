@@ -50,10 +50,22 @@ def run(args) -> dict:
       return list_templates(getattr(args, "kind", None))
    if sub == "show":
       shown, warnings, _ = build(args.name, getattr(args, "size", None), _preset(args), _profile(args), getattr(args, "base", None), _material(args))
-      return {**shown, "status": "warn" if warnings else "ok", "warnings": warnings}
+      return {**shown, **_range_line(args.name), "status": "warn" if warnings else "ok", "warnings": warnings}
    if sub == "render":
       return render(args)
    raise UsageError(f"template 하위 명령은 list · show · render 다 : {sub}")
+
+
+def _range_line(name: str) -> dict:
+   """show 에 붙일 범위 칸. size_range 를 안 쓴 템플릿은 빈 사전이라 옛 show 출력이 그대로다.
+   꼴 : 「크기 : 64x64, 96x96 · 범위 16x16 ~ 512x512」."""
+   tpl = schema.load(name)
+   span = schema.size_range(tpl)
+   if span is None:
+      return {}
+   listed = ", ".join(f"{w}x{h}" for w, h in tpl["sizes"])
+   (w0, h0), (w1, h1) = span
+   return {"size_range": [[w0, h0], [w1, h1]], "size_line": f"크기 : {listed} · 범위 {w0}x{h0} ~ {w1}x{h1}"}
 
 
 def _material(args) -> str | None:
@@ -91,6 +103,8 @@ def list_templates(kind: str | None = None) -> dict:
          "title": tpl["title"],
          "sizes": tpl["sizes"],
          "presets": schema.preset_names(tpl),
+         # size_range 를 쓴 템플릿만 칸이 붙는다 (옛 템플릿의 목록 꼴은 그대로)
+         **({"size_range": tpl["size_range"]} if "size_range" in tpl else {}),
       })
    return {"status": "ok", "dir": str(schema.templates_dir()), "count": len(rows), "templates": rows}
 
@@ -112,17 +126,63 @@ def _profile_sizes(kind_name: str, prof) -> list[tuple[int, int]]:
    return []
 
 
-def _pick_size(tpl: dict, size_text: str | None, prof) -> tuple[int, int]:
+def _allowed_sizes(tpl: dict, prof) -> list[tuple[int, int]]:
+   """받는 크기 목록 = 템플릿 맨 위(또는 프리셋) sizes + 프로필 크기. size_range 는 여기 안 든다."""
    own = schema.size_list(tpl)
    from_prof = _profile_sizes(tpl["kind"], prof)
-   allowed = own + [s for s in from_prof if s not in own]
+   return own + [s for s in from_prof if s not in own]
+
+
+def _preset_owns_sizes(loaded: dict, chosen: str | None) -> bool:
+   """고른 프리셋이 자기 sizes 를 가졌나. flat 프리셋(cycle 등)은 칸이 전부 values 로 가니 해당 없다."""
+   if chosen is None or handler(loaded["kind"]).flat_presets:
+      return False
+   return "sizes" in (loaded.get("presets") or {}).get(chosen, {})
+
+
+def _pick_size(tpl: dict, size_text: str | None, prof, preset_list: str | None = None) -> tuple[int, int]:
+   """고른 크기. 목록에 없으면 size_range 안일 때만 받는다(값 검사는 build 가 그 크기로 한 번 더 한다).
+   preset_list = 자기 크기 목록을 가진 프리셋 이름. 맨 위 size_range 는 그때도 듣고,
+   size_range 가 없는 템플릿에서만 「이 프리셋은 … 만 받는다」 로 거절한다."""
+   own = schema.size_list(tpl)
+   from_prof = _profile_sizes(tpl["kind"], prof)
+   allowed = _allowed_sizes(tpl, prof)
    if not size_text:
       return from_prof[0] if from_prof else own[0]
    size = schema.parse_size(size_text)
    if size not in allowed:
-      shown = ", ".join(f"{w}x{h}" for w, h in allowed)
-      raise UsageError(f"{tpl['name']} 가 받는 크기가 아니다 : {size[0]}x{size[1]} (받는 것 : {shown})")
+      span = schema.size_range(tpl)
+      inside = span is not None and all(lo <= v <= hi for v, lo, hi in zip(size, span[0], span[1]))
+      if not inside:
+         shown = ", ".join(f"{w}x{h}" for w, h in allowed)
+         if preset_list and span is None:
+            raise UsageError(f"{tpl['name']} 가 받는 크기가 아니다 : {size[0]}x{size[1]} "
+                             f"(이 프리셋은 {shown} 만 받는다 : {preset_list})")
+         if span is not None:
+            shown += f" · 또는 {span[0][0]}x{span[0][1]} ~ {span[1][0]}x{span[1][1]} 사이"
+         raise UsageError(f"{tpl['name']} 가 받는 크기가 아니다 : {size[0]}x{size[1]} (받는 것 : {shown})")
    return size
+
+
+def _free_size_warning(size: tuple[int, int], allowed: list, raw_values: dict,
+                       preset_list: str | None = None) -> dict:
+   """template.size_free — 목록 밖 크기로 그렸다는 경고. 가장 가까운 목록 크기(|ΔW|+|ΔH|, 같으면 앞쪽)와
+   크기 표 값이 어느 숫자 열쇠로 풀렸는지(큰 그림이 작은 열쇠 값으로 그려지는 일을 바로 알아보게) 같이 적는다."""
+   near = min(allowed, key=lambda s: abs(s[0] - size[0]) + abs(s[1] - size[1]))
+   exact = f"{size[0]}x{size[1]}"
+   keys = set()
+   for value in raw_values.values():
+      if isinstance(value, dict) and value and exact not in value:
+         numbers = sorted(int(k) for k in value if k.isdigit())
+         if numbers:
+            keys.add(max([k for k in numbers if k <= min(size)] or [numbers[0]]))
+   if preset_list:
+      text = f"{exact} 은 이 프리셋({preset_list})의 정해진 크기가 아니다. 가장 가까운 목록 크기 : {near[0]}x{near[1]}"
+   else:
+      text = f"{exact} 은 목록 밖 크기다. 가장 가까운 목록 크기 : {near[0]}x{near[1]}"
+   if keys:
+      text += " (숫자 값은 열쇠 " + ", ".join(f'"{k}"' for k in sorted(keys)) + " 으로 풀렸다)"
+   return _warn("template.size_free", text)
 
 
 def palette_info(prof, warnings: list) -> dict | None:
@@ -262,9 +322,22 @@ def build(name: str, size_text: str | None, preset: str | None, prof, base: str 
       preset = schema.default_preset(loaded, _pick_size(loaded, size_text, prof))
    tpl, chosen = schema.apply_preset(loaded, preset)
    kind = handler(tpl["kind"])
-   size = _pick_size(tpl, size_text, prof)
+   # 프리셋이 자기 크기 목록을 가져도 맨 위 size_range 는 듣는다 — 범위 안·목록 밖이면 경고(template.size_free)
+   own_list = chosen if _preset_owns_sizes(loaded, chosen) else None
+   size = _pick_size(tpl, size_text, prof, own_list)
    values = resolve_values(tpl.get("values") or {}, size)
-   kind.check_values(values, size, tpl, loaded["_source"])
+   allowed = _allowed_sizes(tpl, prof)
+   if size in allowed:
+      kind.check_values(values, size, tpl, loaded["_source"])
+   else:
+      # 목록 밖(size_range 안) 크기 : 값이 그 크기에 안 맞으면 템플릿 파일이 아니라 사람이 준 크기 탓이라 종료 2
+      try:
+         kind.check_values(values, size, tpl, loaded["_source"])
+      except TemplateError as exc:
+         reason = str(exc).removeprefix("템플릿이 잘못됐다 : ")
+         raise UsageError(f"이 크기에서는 안 맞는다 : {size[0]}x{size[1]} — {reason}") from exc
+      # tpl 은 프리셋을 합친 사본이라 프리셋 값 표의 열쇠도 여기서 보인다
+      warnings.append(_free_size_warning(size, allowed, tpl.get("values") or {}, own_list))
    palette = palette_info(prof, warnings)
 
    extra = {}

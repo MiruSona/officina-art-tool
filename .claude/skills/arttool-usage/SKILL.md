@@ -50,13 +50,14 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 
 | 하고 싶은 것 | 명령 |
 | --- | --- |
-| 템플릿 목록 (15개) | `arttool template list [--kind effect]` |
+| 템플릿 목록 (18개) | `arttool template list [--kind effect]` |
+| 목록 밖 크기 · 새 틀 | 템플릿에 `size_range` 가 있으면 범위 안 크기는 그린다(경고 `template.size_free`, 범위 밖은 종료 2). 새 틀 `prop_small` · `char_blob`(덩어리 몸) · `fx_swirl`(소용돌이) · 120×240 큰 사람. 큰 사람의 무릎 자리 · 눈 사이 · 걷기 오르내림은 어림값 (`명령안내.md` 22절) |
 | 값 · 프롬프트 · 순서 보기 | `arttool template show char_small --size 48x64 --profile P` |
 | 밑판 · 마스크 · 프레임 밑그림 | `arttool template render char_small --size 48x64 --out work/guide` |
 | 있는 그림 위에 밑판 얹어 보기 | `arttool template render char_small --size 48x64 --over a.png --out work/over` (크기가 달라도 아래 가운데 맞춤) |
 | 동작 · 램프 템플릿 | `template render cycle_char --size 32 --preset walk …` · `template render palette_ramp --size 16 --base #6FA85A --material stone …` |
 | 건물 · 큰 물건 · 화면 조각 · 말풍선 | `template render building --size 92x77 …` · `machine` · `screen_piece` · `template render ui9_panel --size 54x34 --preset bubble …` |
-| 기준 그림 → 화풍 조각 (종류별) | `arttool style extract --in refs/ --out style/ --name mygame --by-folder` (`refs/char/` · `refs/tile/` … 하위 폴더 = 종류) |
+| 기준 그림 → 화풍 조각 (종류별) | `arttool style extract --in refs/ --out style/ --name mygame --by-folder` (`refs/char/` · `refs/tile/` … 하위 폴더 = 종류). 빛은 투명으로 떨어진 덩이마다 따로 잰다(2026-10-07) — 경고 `light_mixed` 가 뜨면 빛 표를 믿지 말고 그림을 눈으로 본다 |
 | 받은 그림 한 번에 손질 | `arttool intake --in raw/ --out clean/ [--key edge\|corner\|#hex] [--tol N] [--shave N] [--pad N] [--template t.json] --sheet s.png --report i.json` (배경 그림은 바탕 지우기를 건너뛴다) |
 | 배경만 지우기 / 여백만 걷기 | `arttool cutout --in raw --out cut --key corner --tol 10 --shave 2` · `arttool trim --in raw --out t --pad 1 [--common]` (`--canvas 32x32 [--anchor bottom] [--margin 1]` 을 더하면 W×H 투명 판에 다시 깐다) |
 | 검사 | `arttool check --in clean --template work/guide/template.json --report c.json [--no-warn]` (`odd_size` 경고 : 홀수 크기라 피벗이 반 픽셀에 놓이면 `trim --canvas` 로 짝수로) |

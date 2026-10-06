@@ -197,7 +197,7 @@ def find_spots(scene: np.ndarray, old: np.ndarray) -> tuple[list[list[int]], int
 
    def check_time(left: int) -> None:
       if time.monotonic() - started > FIND_SECONDS:
-         raise ArtToolError(f"--find 가 {FIND_SECONDS}초 안에 못 끝났다 (후보 {left}곳) — --crop 으로 장면을 줄인다")
+         raise ArtToolError(f"--find 가 {FIND_SECONDS}초 안에 못 끝났다 (후보 {left}곳) — 장면이나 찾는 그림을 작게 잘라 다시 준다 (--find 는 --crop 전 장면 전체에서 찾는다)")
 
    dy, dx = int(dys[0]), int(dxs[0])
    ys, xs = np.nonzero(packed[dy:dy + sh - h + 1, dx:dx + sw - w + 1] == want[dy, dx])

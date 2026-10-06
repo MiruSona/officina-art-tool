@@ -16,6 +16,7 @@ import math
 import numpy as np
 
 from ..checks import long_side, luma, opaque
+from ..sprite.split import DEFAULT_MIN_PIECE
 from . import ramps
 
 MIN_SHIFT = 0.05        # 치우침이 그림 크기(불투명 bbox 긴 변)의 이 몫 미만이면 「모름」
@@ -24,6 +25,12 @@ TOP_MAX = 120.0
 
 UNKNOWN = "unknown"
 BOTTOM = "bottom"
+
+MIN_PIECE = DEFAULT_MIN_PIECE   # 이보다 작은 자리 덩이(눈 반짝임 · 티끌)는 덩이로 안 센다 — split 과 같은 기준
+MIN_PIECE_SHARE = 0.1           # 가장 큰 덩이 칸 수의 이 몫 미만인 덩이(작은 장식)도 덩이로 안 센다
+MAX_PIECES = 64                 # 덩이별 판정은 큰 덩이부터 이만큼만 — 자잘한 덩이 수천 개에서 느려지지 않게
+HIGH = "high"
+LOW = "low"
 
 
 def _group_ids(keys: np.ndarray) -> np.ndarray | None:
@@ -41,26 +48,67 @@ def _group_ids(keys: np.ndarray) -> np.ndarray | None:
    return np.where(src[at] == keys, dst[at], -1)
 
 
-def estimate_light(arr: np.ndarray) -> dict:
-   """빛 방향 어림. 돌려주는 것 : {light, dx, dy, shift, size}.
+def _labels(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+   """8방향 이어짐 덩이 번호(큰 덩이부터 0, 1, …, 덩이 밖 -1)와 덩이별 칸 수.
 
-   - `light` : top_left · top · top_right · bottom(아래쪽 — `style.light` 는 안 받는다) · unknown
-   - `dx` · `dy` : 치우침(칸, 오른쪽 · 아래가 +) · `shift` : 그 길이 ÷ 크기
+   numpy 로만 짠다 — 줄마다 이어진 칸(run)을 뽑고, 윗줄 · 아랫줄 run 이 닿으면(대각선 포함) 잇는다.
+   잇기는 「작은 번호로 맞추기 + 번호 건너뛰기」 를 안 바뀔 때까지 되풀이한다.
    """
-   size = long_side(arr)
-   out = {"light": UNKNOWN, "dx": 0.0, "dy": 0.0, "shift": 0.0, "size": size}
-   if int(opaque(arr).sum()) < 4:
-      return out
-   ids = _group_ids(ramps.key_map(arr))
-   if ids is None:
-      return out
-   ys, xs = np.nonzero(ids >= 0)
-   if len(ys) < 4:
-      return out
-   gid = ids[ys, xs]
+   h, w = mask.shape
+   edge = np.diff(np.pad(mask.astype(np.int8), ((0, 0), (1, 1))), axis=1)
+   rows, starts = np.nonzero(edge == 1)
+   _, ends = np.nonzero(edge == -1)            # 끝 칸 + 1. 같은 줄 순서라 starts 와 짝이 맞는다
+   n = len(rows)
+   if n == 0:
+      return np.full(mask.shape, -1, dtype=np.int64), np.zeros(0, dtype=np.int64)
+   # 아랫줄에서 닿는 run 은 이어진 구간 [lo, hi) — 줄 · 칸을 한 열쇠로 묶어 searchsorted 로 찾는다
+   span = w + 4
+   lo = np.searchsorted(rows * span + ends, (rows + 1) * span + starts, side="left")       # 끝 >= 내 시작 - 1
+   hi = np.searchsorted(rows * span + starts + 1, (rows + 1) * span + ends + 1, side="right")  # 시작 <= 내 끝 + 1
+   count = np.maximum(hi - lo, 0)
+   a = np.repeat(np.arange(n), count)
+   b = np.repeat(lo, count) + (np.arange(int(count.sum())) - np.repeat(np.cumsum(count) - count, count))
+   comp = np.arange(n)
+   while True:
+      low = np.minimum(comp[a], comp[b])
+      new = comp.copy()
+      np.minimum.at(new, a, low)
+      np.minimum.at(new, b, low)
+      new = new[new]
+      if np.array_equal(new, comp):
+         break
+      comp = new
+   lengths = ends - starts
+   _, comp = np.unique(comp, return_inverse=True)
+   comp = comp.reshape(-1)
+   sizes = np.bincount(comp, lengths)
+   order = np.argsort(-sizes, kind="stable")    # 큰 덩이부터
+   rank = np.empty_like(order)
+   rank[order] = np.arange(len(order))
+   comp = rank[comp]
+   # run 번호를 칸에 칠한다 — 시작에 +번호, 끝 다음 칸에 -번호를 놓고 줄 따라 누적
+   paint = np.zeros(h * w + 1, dtype=np.int64)
+   np.add.at(paint, rows * w + starts, comp + 1)
+   np.add.at(paint, rows * w + ends, -(comp + 1))
+   label = np.cumsum(paint[:-1]).reshape(h, w) - 1
+   return label, sizes[order].astype(np.int64)
+
+
+def _piece_ids(arr: np.ndarray) -> tuple[np.ndarray, int]:
+   """칸마다 뜻 있는 덩이 번호(큰 덩이부터 0, 1, …, 그 밖 -1)와 그 수.
+
+   덩이는 투명으로 떨어진 불투명 덩이(외곽선 포함)다 — 검정 선이 안을 갈라도 한 덩이.
+   뜻 있는 덩이 = MIN_PIECE 칸 이상이고 가장 큰 덩이의 MIN_PIECE_SHARE 이상.
+   """
+   label, sizes = _labels(opaque(arr))
+   keep = int(((sizes >= MIN_PIECE) & (sizes >= MIN_PIECE_SHARE * (sizes[0] if len(sizes) else 0))).sum())
+   return np.where(label < keep, label, -1), keep
+
+
+def _judge(out: dict, ys: np.ndarray, xs: np.ndarray, gid: np.ndarray, bright: np.ndarray, size: int) -> dict:
+   """묶음 번호 gid(0 부터 빈틈없이)로 무게 · 무게중심을 잡아 치우침과 판정을 out 에 채운다."""
    n = int(gid.max()) + 1
    cells = np.bincount(gid, minlength=n).astype(np.float64)
-   bright = luma(arr[ys, xs, :3])
    weight = bright - (np.bincount(gid, bright, n) / np.maximum(cells, 1))[gid]
    cx = xs - (np.bincount(gid, xs.astype(np.float64), n) / np.maximum(cells, 1))[gid]
    cy = ys - (np.bincount(gid, ys.astype(np.float64), n) / np.maximum(cells, 1))[gid]
@@ -80,3 +128,64 @@ def estimate_light(arr: np.ndarray) -> dict:
    angle = math.degrees(math.atan2(-dy, dx))
    out["light"] = "top_right" if angle < TOP_RIGHT_MAX else "top" if angle <= TOP_MAX else "top_left"
    return out
+
+
+def estimate_light(arr: np.ndarray) -> dict:
+   """빛 방향 어림. 돌려주는 것 : {light, dx, dy, shift, size, confidence, pieces}.
+
+   - `light` : top_left · top · top_right · bottom(아래쪽 — `style.light` 는 안 받는다) · unknown
+   - `dx` · `dy` : 치우침(칸, 오른쪽 · 아래가 +) · `shift` : 그 길이 ÷ 크기
+   - `pieces` : 뜻 있는 덩이 수(1 이하 = 덩이 나누기 없이 옛 셈)
+   - `confidence` : 덩이마다 따로 낸 판정(모름 빼고)이 엇갈리면 "low", 아니면 "high"
+
+   덩이는 투명으로 떨어진 불투명 덩이(외곽선 포함)다. 검정 선이 안을 갈라도 한 덩이로 센다 —
+   검정 뺀 칸으로 나누면 선으로 갈린 한 캐릭터의 판정이 조용히 바뀐다(리뷰 실측).
+   뜻 있는 덩이(MIN_PIECE 칸 이상 · 가장 큰 덩이의 MIN_PIECE_SHARE 이상)가 하나 이하면
+   티끌까지 그림 전체로 옛 셈을 그대로 한다 — light · dx · dy · shift · size 가 옛 판과 같다.
+
+   둘 이상이면 무게중심을 (램프 덩어리, 덩이) 쌍마다 잡고, 뜻 없는 작은 덩이 칸은 뺀다.
+   같은 램프의 두 덩이가 무게중심 하나를 나눠 가지면 그 점이 두 덩이 사이 빈 곳에 놓여
+   「어느 덩이가 더 밝은가」 가 판정을 좌우하기 때문이다.
+   외곽선을 같이 쓰는(투명으로 안 떨어진) 두 덩이는 한 덩이로 세어 옛 셈으로 간다 — 이건 못 가른다.
+   """
+   size = long_side(arr)
+   out = {"light": UNKNOWN, "dx": 0.0, "dy": 0.0, "shift": 0.0, "size": size, "confidence": HIGH, "pieces": 0}
+   if int(opaque(arr).sum()) < 4:
+      return out
+   ids = _group_ids(ramps.key_map(arr))
+   if ids is None:
+      return out
+   piece, count = _piece_ids(arr)
+   out["pieces"] = count
+   # 뜻 있는 덩이가 하나 이하면 그림 전체(티끌 포함)로 옛 셈 그대로
+   ys, xs = np.nonzero((ids >= 0) & (piece >= 0)) if count > 1 else np.nonzero(ids >= 0)
+   if len(ys) < 4:
+      return out
+   bright = luma(arr[ys, xs, :3])
+   gid = ids[ys, xs]
+   if count > 1:
+      # (램프 덩어리, 자리 덩이) 쌍을 빈틈없는 번호로
+      pid = piece[ys, xs]
+      _, gid = np.unique(gid * count + pid, return_inverse=True)
+      gid = gid.reshape(-1)
+      out["confidence"] = _confidence(ys, xs, gid, pid, bright)
+   return _judge(out, ys, xs, gid, bright, size)
+
+
+def _confidence(ys: np.ndarray, xs: np.ndarray, gid: np.ndarray, pid: np.ndarray, bright: np.ndarray) -> str:
+   """큰 덩이부터 MAX_PIECES 개까지 덩이마다 따로 판정해, 모름 뺀 판정이 둘 이상 갈리면 low.
+
+   덩이 크기는 그 덩이 bbox 긴 변 — MIN_SHIFT 를 덩이 크기에 맞춰 잰다.
+   """
+   seen = set()
+   for k in range(min(int(pid.max()) + 1, MAX_PIECES)):
+      sel = pid == k
+      if int(sel.sum()) < 4:
+         continue
+      py, px = ys[sel], xs[sel]
+      size = max(int(px.max() - px.min()), int(py.max() - py.min())) + 1
+      _, sub = np.unique(gid[sel], return_inverse=True)
+      verdict = _judge({"light": UNKNOWN}, py, px, sub.reshape(-1), bright[sel], size)["light"]
+      if verdict != UNKNOWN:
+         seen.add(verdict)
+   return LOW if len(seen) > 1 else HIGH
