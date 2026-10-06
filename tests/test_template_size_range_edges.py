@@ -192,9 +192,15 @@ def _char_small_heads(tmp_path, heads) -> str:
    return _write(tmp_path, data)
 
 
-def test_char_small_heads_half_renders(tmp_path):
-   # 0.5 등신은 머리 높이가 머리 자리(head_room)로 잘려 그려진다 — 막지는 않는다
-   report = _render(_char_small_heads(tmp_path, 0.5), "32x32", tmp_path / "out")
+def test_char_small_heads_half_is_template_error(tmp_path):
+   # 1 미만 등신은 머리가 몸보다 큰 셈이라 거절한다 (6판 「막지 않는다」를 2026-10-07 뒤집음)
+   with pytest.raises(TemplateError, match="1 이상 등신"):
+      _render(_char_small_heads(tmp_path, 0.5), "32x32", tmp_path / "out")
+
+
+def test_char_small_heads_one_renders(tmp_path):
+   # 경계 : 1 등신은 받는다 — 머리 높이가 머리 자리(head_room)로 잘려 그려진다
+   report = _render(_char_small_heads(tmp_path, 1), "32x32", tmp_path / "out")
    assert report["size"] == [32, 32]
 
 

@@ -236,7 +236,7 @@ class Character(Kind):
 
    def check_values(self, values, size, tpl, where) -> None:
       super().check_values(values, size, tpl, where)
-      _need(values, "heads", _pos_num, "양수 등신", where)
+      _need(values, "heads", lambda v: _is_num(v) and v >= 1, "1 이상 등신", where)
       for key in ("top_ratio", "foot_ratio", "crotch_ratio", "knee_ratio"):
          _need(values, key, _ratio, "0 이상 1 미만", where)
       for key in ("head_aspect", "torso_ratio"):

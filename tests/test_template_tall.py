@@ -67,6 +67,19 @@ def test_tall_walk_frames_keep_baseline(tmp_path, preset, frames):
    assert [t - ln["top_y"] for t in ln["head_top_y"]] == ln["bob"]
 
 
+def test_tall_walk_bob_is_three_px(tmp_path):
+   # 키 240 에서 ±1px 은 안 보인다 — bob 크기 표의 "120" 열쇠로 ±3px (폭 6)
+   _, tpl = _render("cycle_char", "120x240", tmp_path / "out", preset="walk")
+   bob = tpl["lines"]["bob"]
+   assert bob == [0, 3, 0, -3, 0, 3, 0, -3] and max(bob) - min(bob) == 6
+
+
+def test_small_walk_bob_unchanged(tmp_path):
+   # 다른 크기 지킴이 : 64x80 은 짧은 변 64 라 "16" 열쇠(옛 값) 그대로
+   _, tpl = _render("cycle_char", "64x80", tmp_path / "out", preset="walk")
+   assert tpl["lines"]["bob"] == [0, 1, 0, -1, 0, 1, 0, -1]
+
+
 def _bad_copy(tmp_path, name, key, value, preset=None):
    data = json.loads((tool_home() / "templates" / f"{name}.json").read_text(encoding="utf-8"))
    table = data["presets"][preset]["values"] if preset else data["values"]
@@ -77,13 +90,20 @@ def _bad_copy(tmp_path, name, key, value, preset=None):
 
 
 @pytest.mark.parametrize("key,value", [
-   ("heads", -1), ("heads", True), ("heads", "2.5"), ("top_ratio", 1.5), ("top_ratio", -0.1),
+   ("heads", -1), ("heads", 0.5), ("heads", True), ("heads", "2.5"), ("top_ratio", 1.5), ("top_ratio", -0.1),
    ("eye_w", 0), ("eye_w", 1.5), ("eye_h", True), ("eye_gap", -1), ("eye_ratio", 2),
    ("eye_w", 10**9), ("eye_h", 241), ("eye_gap", 121),
 ])
 def test_tall_bad_values_refused(tmp_path, key, value):
    path = _bad_copy(tmp_path, "cycle_char", key, value)
    with pytest.raises((TemplateError, UsageError)):
+      _render(path, "120x240", tmp_path / "out")
+
+
+def test_tall_heads_half_refused_by_heads_rule(tmp_path):
+   # heads 0.5 가 다른 까닭이 아니라 「1 이상 등신」 규칙으로 거절되는지 문구까지 본다
+   path = _bad_copy(tmp_path, "cycle_char", "heads", 0.5)
+   with pytest.raises((TemplateError, UsageError), match="1 이상 등신"):
       _render(path, "120x240", tmp_path / "out")
 
 
