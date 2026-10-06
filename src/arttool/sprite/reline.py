@@ -35,6 +35,9 @@ PICKS = ("dark", "all")
 SCOPES = ("ring", "colors")
 # 합친 색이 이보다 많으면 외곽선이 아니라 음영까지 먹었을 수 있다.
 MANY_COLORS = 6
+# 선과 옆 면의 밝기(luma 0~255) 차가 이보다 작으면 선이 면에 묻힌다 (1판 설계 4절).
+DARK_GAP = 24
+MAX_DEPTH = 8
 
 
 def ring_mask(arr: image.RGBA) -> np.ndarray:
@@ -67,7 +70,8 @@ def _color_keys(rgb: np.ndarray) -> np.ndarray:
    return (keys[..., 0] << 16) | (keys[..., 1] << 8) | keys[..., 2]
 
 
-def reline(arr: image.RGBA, target, pick: str = "dark", scope: str = "ring", tol: int = 40, from_colors=None) -> tuple[image.RGBA, dict]:
+def reline(arr: image.RGBA, target, pick: str = "dark", scope: str = "ring", tol: int = 40, from_colors=None,
+           depth: int = 1, color_dark=None, dark_gap: int = DARK_GAP) -> tuple[image.RGBA, dict]:
    """외곽선을 맞춘 그림과 보고 한 줄. target 이 None 이면 고리에서 고른다.
 
    from_colors 를 주면 pick 대신 목록 색인 칸을 고른다 — scope ring 은 고리 칸만, colors 는 그림 전체의 불투명 칸.
@@ -75,10 +79,10 @@ def reline(arr: image.RGBA, target, pick: str = "dark", scope: str = "ring", tol
    """
    out = arr.copy()
    if not np.any(arr[:, :, 3] == 0):
-      return out, {"changed": 0, "merged_colors": [], "target": to_hex(target) if target else None, "no_alpha": True}
+      return out, {"changed": 0, "merged_colors": [], "target": to_hex(target) if target else None, "no_alpha": True, "changed_ring": 0, "changed_inner": 0, "changed_dark": 0}
    ring = ring_mask(arr)
    if not ring.any():
-      return out, {"changed": 0, "merged_colors": [], "target": to_hex(target) if target else None, "no_alpha": False}
+      return out, {"changed": 0, "merged_colors": [], "target": to_hex(target) if target else None, "no_alpha": False, "changed_ring": 0, "changed_inner": 0, "changed_dark": 0}
 
    rgb = arr[:, :, :3]
    keys = _color_keys(rgb)
@@ -104,10 +108,93 @@ def reline(arr: image.RGBA, target, pick: str = "dark", scope: str = "ring", tol
    if target is None:
       target = _most_common(arr, dark)
 
-   moved = chosen & np.any(rgb != np.array(target, dtype=np.uint8), axis=2)
+   paint = chosen
+   if depth > 1 and scope == "ring":
+      allowed = _color_keys(np.array(from_colors, dtype=np.uint32)) if from_colors else np.unique(keys[chosen])
+      paint = _grow(chosen, depth_mask(arr, depth) & np.isin(keys, allowed))
+
+   # 칸마다 색 : 안쪽 면 이웃과 밝기가 비슷하면 둘째 색 (1판 설계 4절)
+   low = paint & _low_contrast(arr, paint, _luma_of(target), dark_gap)
+   colors = np.empty(rgb.shape, dtype=np.uint8)
+   colors[...] = target
+   if color_dark is not None:
+      colors[low] = color_dark
+   moved = paint & np.any(rgb != colors, axis=2)
    merged = sorted({to_hex(tuple(int(v) for v in c)) for c in rgb[moved]})
-   out[moved, :3] = target
-   return out, {"changed": int(np.count_nonzero(moved)), "merged_colors": merged, "target": to_hex(target), **info}
+   out[moved, :3] = colors[moved]
+   return out, {
+      "changed": int(np.count_nonzero(moved)),
+      "changed_ring": int(np.count_nonzero(moved & ring)),
+      "changed_inner": int(np.count_nonzero(moved & ~ring)),
+      "changed_dark": int(np.count_nonzero(moved & low)) if color_dark is not None else 0,
+      "merged_colors": merged, "target": to_hex(target), **info,
+      "inner_left": _inner_left(keys, opaque, ring, moved) if depth == 1 and scope == "ring" else 0,
+      "low_contrast": int(np.count_nonzero(moved & low)) if color_dark is None else 0,
+   }
+
+
+def _near(mask: np.ndarray, dy: int, dx: int) -> np.ndarray:
+   """[y, x] 에 mask[y + dy, x + dx] 를 둔 판. 그림 밖은 False."""
+   padded = np.pad(mask, 1)
+   h, w = mask.shape
+   return padded[1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w]
+
+
+STEPS = ((-1, 0), (1, 0), (0, -1), (0, 1))
+
+
+def depth_mask(arr: image.RGBA, depth: int) -> np.ndarray:
+   """투명(그림 밖 포함)에서 4방향 걸음으로 depth 칸 안인 불투명 칸. depth 1 이면 ring_mask 와 같다."""
+   left = arr[:, :, 3] > 0
+   inside = np.zeros_like(left)
+   for _ in range(depth):
+      edge = left & ~(_near(left, -1, 0) & _near(left, 1, 0) & _near(left, 0, -1) & _near(left, 0, 1))
+      inside |= edge
+      left = left & ~edge
+   return inside
+
+
+def _grow(seed: np.ndarray, allowed: np.ndarray) -> np.ndarray:
+   """seed 에서 allowed 칸만 밟아 4방향으로 이어진 칸 (seed 포함)."""
+   grown = seed.copy()
+   while True:
+      step = allowed & ~grown & (_near(grown, -1, 0) | _near(grown, 1, 0) | _near(grown, 0, -1) | _near(grown, 0, 1))
+      if not step.any():
+         return grown
+      grown |= step
+
+
+def _luma_of(color) -> float:
+   return float(image.luma(np.array([[[*color, 255]]], dtype=np.uint8))[0, 0])
+
+
+def _low_contrast(arr: image.RGBA, paint: np.ndarray, line_luma: float, gap: int) -> np.ndarray:
+   """안쪽 면 이웃(불투명이고 이번에 안 바뀌는 칸)의 평균 밝기가 선 색과 gap 보다 가까운 칸. 면 이웃이 없으면 False."""
+   face = (arr[:, :, 3] > 0) & ~paint
+   luma = image.luma(arr).astype(np.float64)
+   total = np.zeros(paint.shape, dtype=np.float64)
+   count = np.zeros(paint.shape, dtype=np.int32)
+   for dy, dx in STEPS:
+      near = _near(face, dy, dx)
+      total += np.where(near, _near_values(luma, dy, dx), 0.0)
+      count += near
+   mean = np.divide(total, count, out=np.zeros_like(total), where=count > 0)
+   return (count > 0) & (np.abs(mean - line_luma) < gap)
+
+
+def _near_values(values: np.ndarray, dy: int, dx: int) -> np.ndarray:
+   padded = np.pad(values, 1)
+   h, w = values.shape
+   return padded[1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w]
+
+
+def _inner_left(keys: np.ndarray, opaque: np.ndarray, ring: np.ndarray, moved: np.ndarray) -> int:
+   """바꾼 고리 칸에 4방향으로 붙은, 그 칸의 옛 색과 같은 안쪽 칸 수 (2px 선의 안쪽 줄)."""
+   left = np.zeros_like(moved)
+   inner = opaque & ~ring & ~moved
+   for dy, dx in STEPS:
+      left |= inner & _near(moved, dy, dx) & (keys == _near_values(keys, dy, dx))
+   return int(np.count_nonzero(left))
 
 
 def _target(args) -> tuple[int, int, int] | None:
@@ -139,6 +226,10 @@ def image_warnings(name: str, info: dict) -> list[dict]:
    if len(info["merged_colors"]) > MANY_COLORS:
       hint = "--from 목록을 줄여 본다" if "from_missing" in info else "--tol 을 줄여 본다"
       found.append(warning("reline.many_colors", f"{name} : 한 색으로 합친 색이 {len(info['merged_colors'])}개 — 음영까지 먹었을 수 있다. {hint}", [name]))
+   if info.get("inner_left"):
+      found.append(warning("reline.inner_left", f"{name} : 바꾼 고리 칸 옆에 같은 옛 색 안쪽 칸 {info['inner_left']}칸이 남았다 — 2px 선이면 --depth 2 를 본다", [name]))
+   if info.get("low_contrast"):
+      found.append(warning("reline.low_contrast", f"{name} : 바꾼 칸 {info['low_contrast']}칸이 옆 면과 밝기가 비슷해 선이 묻힌다 — --color-dark 를 본다", [name]))
    return found
 
 
@@ -170,6 +261,20 @@ def run(args) -> dict:
       raise UsageError(f"--scope 는 {' · '.join(SCOPES)} 중 하나다 : {scope}")
    if not 0 <= tol <= 255:
       raise UsageError(f"--tol 은 0~255 다 : {tol}")
+   depth = getattr(args, "depth", None)
+   depth = 1 if depth is None else int(depth)
+   if not 1 <= depth <= MAX_DEPTH:
+      raise UsageError(f"--depth 는 1~{MAX_DEPTH} 다 : {depth}")
+   if depth > 1 and scope == "colors":
+      raise UsageError("--depth 는 --scope colors 와 같이 못 쓴다 (colors 는 이미 그림 전체를 본다)")
+   dark_text = getattr(args, "color_dark", None)
+   gap = getattr(args, "dark_gap", None)
+   if gap is not None and dark_text is None:
+      raise UsageError("--dark-gap 은 --color-dark 와 같이 쓴다")
+   color_dark = _parse(dark_text, "--color-dark") if dark_text is not None else None
+   gap = DARK_GAP if gap is None else int(gap)
+   if not 0 <= gap <= 255:
+      raise UsageError(f"--dark-gap 은 0~255 다 : {gap}")
    target = _target(args)
    dry_run = is_dry_run(args)
 
@@ -179,13 +284,15 @@ def run(args) -> dict:
       guard_outside(outs, [args.in_dir])      # 입력 폴더 안에 쓰면 다음 판에 결과를 또 읽는다
    rows, warnings = [], []
    for source, dest in zip(inputs, outs):
-      result, info = reline(image.load(source), target, pick, scope, tol, from_colors)
+      result, info = reline(image.load(source), target, pick, scope, tol, from_colors, depth, color_dark, gap)
       if not dry_run:
          image.save(dest, result)
       warnings += image_warnings(source.name, info)
       info.pop("no_alpha")
       info.pop("no_target", None)
       info.pop("from_missing", None)       # 경고 reline.from_missing 에 싣는다
+      info.pop("inner_left", None)         # 경고 reline.inner_left · low_contrast 에 싣는다
+      info.pop("low_contrast", None)
       rows.append({"file": source.name, "out": None if dry_run else str(dest), **info})
 
    return {
@@ -196,6 +303,9 @@ def run(args) -> dict:
       "scope": scope,
       "tol": tol,
       "from": [to_hex(c) for c in from_colors] if from_colors else None,
+      "depth": depth,
+      "color_dark": to_hex(color_dark) if color_dark else None,
+      "dark_gap": gap if color_dark else None,
       "images": rows,
       "warnings": warnings,
       "out": str(Path(outs[0]).parent),

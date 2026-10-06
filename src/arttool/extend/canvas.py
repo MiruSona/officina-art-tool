@@ -30,6 +30,10 @@ def _offset(anchor: str, small: int, big: int, low: str, high: str) -> int:
    return (big - small) // 2
 
 
+# trim --canvas 가 놓을 자리 셈만 빌린다 (가장자리 채움은 안 빌린다).
+offset = _offset
+
+
 def axis_map(length: int, offset: int, total: int, band: int) -> list[int]:
    """한 축의 결과 칸 → 원본 칸. 원본 앞쪽은 처음 band 줄을, 뒤쪽은 마지막 band 줄을 위상 맞춰 되풀이한다."""
    picks = []

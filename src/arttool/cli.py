@@ -24,6 +24,7 @@
 | `extend period` · `ring` · `canvas` | `arttool.extend.period` · `ring` · `canvas` 의 `run` |
 | `ui glyphs` · `reline` · `tint` | `arttool.ui.glyphs` · `sprite.reline` · `sprite.tint` 의 `run` |
 | `merge-colors` | `arttool.sprite.merge.run` (2026-10-05) |
+| `shift` | `arttool.sprite.shift.run` (2026-10-06) |
 | `layers compose` | 여기서 `sprite.layers.compose_sheets` 를 바로 부른다 (옛 `layers`) |
 | `check --no-warn · --mode · --template` | `check.run(prof, in_dir, no_ramps, *, warn, mode, template)` — 그 세 칸을 받게 되면 넘긴다 |
 """
@@ -95,6 +96,7 @@ LATE: dict[tuple[str, str | None], tuple[str, str]] = {
    ("reline", None): ("arttool.sprite.reline", "run"),
    ("tint", None): ("arttool.sprite.tint", "run"),
    ("merge-colors", None): ("arttool.sprite.merge", "run"),
+   ("shift", None): ("arttool.sprite.shift", "run"),
 }
 
 # check.run 이 이 세 칸을 키워드로 받게 되면(D 갈래) 새 인자를 넘긴다.
@@ -171,6 +173,7 @@ def build_parser() -> argparse.ArgumentParser:
    _add_reline(subs)
    _add_tint(subs)
    _add_merge(subs)
+   _add_shift(subs)
    return parser
 
 
@@ -285,7 +288,22 @@ def _add_trim(subs) -> None:
    node.add_argument("--pad", dest="pad", type=int, default=0, help="자른 뒤 둘레에 투명 N 칸 (기본 0)")
    node.add_argument("--square", dest="square", action="store_true", help="긴 변에 맞춰 정사각으로 채운다")
    node.add_argument("--common", dest="common", action="store_true", help="폴더 전체에 bbox 하나")
+   node.add_argument("--canvas", dest="canvas", help="WxH — 자른 그림을 이 크기의 투명 판에 놓는다 (--pad · --square 와 같이 못 쓴다)")
+   node.add_argument("--anchor", dest="anchor", help="판의 어디에 붙이나 : top · bottom · left · right · center · top-left … (기본 bottom, --canvas 필요)")
+   node.add_argument("--margin", dest="margin", type=int, help="붙인 변에서 N 칸 띄운다. 가운데 놓는 축에는 안 먹는다 (기본 0, --canvas 필요)")
    node.add_argument("--report", dest="report", help="보고 JSON")
+
+
+def _add_shift(subs) -> None:
+   node = subs.add_parser("shift", help="색을 HSV 로 옮기기 (색상 · 채도 · 명도)", parents=[COMMON])
+   node.add_argument("--in", dest="in_dir", required=True, help="PNG 한 장 또는 폴더(바로 아래 .png)")
+   node.add_argument("--out", dest="out_dir", required=True, help="결과 폴더 (한 장이면 .png 도 된다)")
+   node.add_argument("--hue", dest="hue", type=float, default=0, help="색상에 D 도 더한다 (-360~360, 기본 0)")
+   node.add_argument("--sat", dest="sat", type=float, default=1.0, help="채도에 K 를 곱한다 (0 이상, 기본 1)")
+   node.add_argument("--light", dest="light", type=float, default=0, help="HSV 명도(V)에 L 을 더한다 (-1~1, 기본 0)")
+   node.add_argument("--pick", dest="pick", help="이 색만 옮긴다 #RRGGBB[,#RRGGBB…] (없으면 불투명 색 전부)")
+   node.add_argument("--report", dest="report",
+                     help="보고 JSON. 옮긴 색은 대개 ramps_file 밖이라 check 의 palette 에 걸린다 — 뒤에 merge-colors 로 램프에 붙인다")
 
 
 def _add_sheet(subs) -> None:
@@ -430,6 +448,10 @@ def _add_reline(subs) -> None:
    node.add_argument("--tol", dest="tol", type=int, help="dark 폭. 고리의 가장 어두운 밝기 + N 까지 (기본 40)")
    node.add_argument("--from", dest="from_colors",
                      help="바꿀 선 색 #RRGGBB[,#RRGGBB…]. 고리 칸 중 이 색인 칸만 바꾼다 (--pick · --tol 과 같이 못 쓴다)")
+   node.add_argument("--depth", dest="depth", type=int,
+                     help="투명에서 N 칸 안까지 본다 (1~8, 기본 1). 2 면 2px 선의 안쪽 줄도 바꾼다 (--scope ring 만)")
+   node.add_argument("--color-dark", dest="color_dark", help="둘째 선 색 #RRGGBB. 옆 면과 밝기가 비슷한 칸에만 쓴다")
+   node.add_argument("--dark-gap", dest="dark_gap", type=int, help="밝기 차가 G 보다 작으면 둘째 색 (기본 24, --color-dark 와 같이)")
    node.add_argument("--report", dest="report", help="보고 JSON")
 
 
@@ -658,7 +680,7 @@ def _guard_report(args) -> None:
 # 공통 인자를 실제로 쓰는 명령 (2026-10-05). 표 밖 명령에 그 인자가 오면 조용히 무시하지 않고 종료 2 로 거절한다.
 # dry-run 은 세 무리로 나눈다. 새 명령은 셋 중 한 곳에 꼭 넣는다 — 빠뜨리면 test_dry_run 이 깨진다.
 DRY_RUN_TAKES = {
-   ("cutout", None), ("trim", None), ("reline", None), ("tint", None), ("merge-colors", None),   # 안 쓰고 보고만
+   ("cutout", None), ("trim", None), ("reline", None), ("tint", None), ("merge-colors", None), ("shift", None),   # 안 쓰고 보고만
    ("intake", None),                                                                             # 검수용 임시 폴더만 쓰고 지운다
    # 정해진 파일 한두 개를 쓰는 명령 (2026-10-06) — 안 쓰고 보고만
    ("stitch", None), ("sheet", None), ("bands", None), ("anchors", None),

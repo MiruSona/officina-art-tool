@@ -252,3 +252,104 @@ def test_reline_bad_values_exit2(tmp_path):
       with pytest.raises(UsageError):
          reline.run(_args(src, tmp_path / "out", **over))
    assert not (tmp_path / "out").exists()
+
+
+# --- 1판 : --depth · --color-dark · 보고 나누기 (2026-10-06 설계 4절) ---
+
+BLACK = (0, 0, 0)
+LINE = (60, 50, 40)
+
+
+def _framed(size=10, thick=2, body=(200, 160, 120)):
+   """투명 1칸 테두리 안에 thick 칸 검정 선, 그 안이 몸통인 네모."""
+   arr = np.zeros((size, size, 4), dtype=np.uint8)
+   arr[1:-1, 1:-1] = (*BLACK, 255)
+   arr[1 + thick : -1 - thick, 1 + thick : -1 - thick] = (*body, 255)
+   return arr
+
+
+def test_depth2_fills_2px_line():
+   out, info = reline.reline(_framed(), LINE, depth=2)
+   assert not np.any(np.all(out[:, :, :3] == BLACK, axis=2) & (out[:, :, 3] > 0))
+   assert info["changed_inner"] > 0
+
+
+def test_depth2_skips_detached_eye():
+   arr = _framed(size=12)
+   arr[6, 6] = (*BLACK, 255)          # 선과 떨어진 눈동자
+   out, _ = reline.reline(arr, LINE, depth=2)
+   assert tuple(out[6, 6, :3]) == BLACK
+
+
+def test_depth_with_from_stays_in_list():
+   arr = _framed()
+   arr[2, 2:8] = (10, 10, 10, 255)    # 안쪽 줄 일부가 목록 밖 색
+   out, _ = reline.reline(arr, LINE, from_colors=[BLACK], depth=2)
+   assert tuple(out[2, 4, :3]) == (10, 10, 10)
+
+
+def test_depth_with_scope_colors_usage_error(tmp_path):
+   image.save(tmp_path / "a.png", _framed())
+   with pytest.raises(UsageError, match="--depth"):
+      reline.run(_args(tmp_path / "a.png", tmp_path / "out", depth=2, scope="colors"))
+
+
+def test_dark_gap_without_color_usage_error(tmp_path):
+   image.save(tmp_path / "a.png", _framed())
+   with pytest.raises(UsageError, match="--dark-gap"):
+      reline.run(_args(tmp_path / "a.png", tmp_path / "out", dark_gap=10))
+
+
+def test_color_dark_on_low_contrast():
+   arr = _framed(thick=1, body=(62, 52, 42))   # 면이 선 색과 밝기가 거의 같다
+   out, info = reline.reline(arr, LINE, color_dark=(250, 250, 250))
+   assert info["changed_dark"] > 0
+   assert tuple(out[1, 1, :3]) == LINE          # 모서리 칸은 면 이웃이 없어 기본 색
+   assert tuple(out[2, 1, :3]) == (250, 250, 250)
+
+
+def test_changed_split_sums():
+   _, info = reline.reline(_framed(), LINE, depth=2, color_dark=(250, 250, 250))
+   assert info["changed"] == info["changed_ring"] + info["changed_inner"]
+   _, colors = reline.reline(_framed(), LINE, pick="all", scope="colors")
+   assert colors["changed"] == colors["changed_ring"] + colors["changed_inner"]
+
+
+def test_inner_left_warns():
+   _, info = reline.reline(_framed(), LINE)
+   assert info["inner_left"] > 0
+   rules = [w["rule"] for w in reline.image_warnings("a.png", {**info, "no_alpha": False})]
+   assert "reline.inner_left" in rules
+
+
+def test_low_contrast_warns():
+   _, info = reline.reline(_framed(thick=1, body=(62, 52, 42)), LINE)
+   rules = [w["rule"] for w in reline.image_warnings("a.png", {**info, "no_alpha": False})]
+   assert "reline.low_contrast" in rules
+
+
+def test_default_call_same_as_before():
+   arr = _framed()
+   out, info = reline.reline(arr, LINE)
+   ring = reline.ring_mask(arr)
+   expect = arr.copy()
+   expect[ring, :3] = LINE
+   assert np.array_equal(out, expect)
+   assert info["changed"] == int(ring.sum()) and info["changed_inner"] == 0 and info["changed_dark"] == 0
+
+
+def test_depth_zero_is_usage_not_one(tmp_path):
+   image.save(tmp_path / "a.png", _framed())
+   with pytest.raises(UsageError, match="--depth"):
+      reline.run(_args(tmp_path / "a.png", tmp_path / "out", depth=0))
+   assert not (tmp_path / "out").exists()
+
+
+def test_early_return_reports_have_same_keys_as_full_report():
+   full = reline.reline(_framed(), LINE)[1]
+   no_alpha = reline.reline(np.full((6, 6, 4), 255, dtype=np.uint8), LINE)[1]
+   no_ring = reline.reline(np.zeros((6, 6, 4), dtype=np.uint8), LINE)[1]
+   for info in (no_alpha, no_ring):
+      assert {"changed_ring", "changed_inner", "changed_dark"} <= set(info)
+      assert info["changed_ring"] == info["changed_inner"] == info["changed_dark"] == 0
+   assert {"changed_ring", "changed_inner", "changed_dark"} <= set(full)

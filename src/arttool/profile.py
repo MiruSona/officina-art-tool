@@ -29,7 +29,7 @@ PRESET_NAMES = ("platformer", "beltscroll", "topdown_action", "iso")
 STYLE_OUTLINES = ("unset", "none", "black", "solid", "selout", "selout+light")   # solid = 검정이 아닌 한 색 선
 STYLE_LIGHTS = ("top_left", "top", "top_right")
 MATERIALS = ("metal", "ice", "gem", "goo", "stone", "wood", "cloth")
-WARN_RULES = ("integer_scale", "outline", "isolated", "color_cap", "near_colors", "ramp_shape", "loop_seam")
+WARN_RULES = ("integer_scale", "outline", "isolated", "color_cap", "near_colors", "ramp_shape", "loop_seam", "odd_size")
 
 DIRECTION_NAMES = {
    1: ["south"],
@@ -54,6 +54,7 @@ WARN_DEFAULTS: dict = {
    "near_colors": {"enabled": True, "max_delta": 4, "min_pairs": 20},   # 짝이 20 개 넘어야 경고 (기준 38% → 3.4%)
    "ramp_shape": {"enabled": True, "steps": [4, 6], "hue_min": 5, "hue_max": 30},
    "loop_seam": {"enabled": True, "k": 2.0, "anims": ["idle", "walk", "run"]},
+   "odd_size": {"enabled": True},     # 피벗이 반 픽셀에 놓이는 홀수 크기 (2026-10-06 1판 3절)
 }
 
 UI_DEFAULTS: dict = {

@@ -524,3 +524,60 @@ def test_profile_applied_template_wins_whole_and_brings_ramps(tmp_path):
 def test_bad_template_is_usage_error(tmp_path, data, match):
    with pytest.raises(UsageError, match=match):
       check.run(helpers.tiny_profile(tmp_path), loose_dir(tmp_path), template=write_template(tmp_path, **data))
+
+
+# --- 홀수 크기 경고 odd_size (1판 설계 3절) ---
+
+
+def odd_dir(tmp_path, sizes):
+   out = tmp_path / "odd"
+   out.mkdir(parents=True, exist_ok=True)
+   for index, (w, h) in enumerate(sizes):
+      image.save(out / f"pic_{index}.png", helpers.blob(w, h))
+   return out
+
+
+def odd_warning(report):
+   return next((w for w in report["warnings"] if w["rule"] == "odd_size"), None)
+
+
+def test_odd_size_bottom_center_width(tmp_path):
+   prof = helpers.tiny_profile(tmp_path)
+   report = check.run(prof, odd_dir(tmp_path, [(9, 8), (8, 9)]))
+   found = odd_warning(report)
+   assert found is not None
+   assert [i["where"] for i in found["items"]] == ["pic_0.png"]      # 세로 홀수는 bottom_center 와 상관없다
+   assert "가로 9" in found["detail"]
+
+
+def test_odd_size_center_both(tmp_path):
+   prof = helpers.tiny_profile(tmp_path, **{"canvas.pivot": "center"})
+   report = check.run(prof, odd_dir(tmp_path, [(9, 8), (8, 9), (8, 8)]))
+   assert [i["where"] for i in odd_warning(report)["items"]] == ["pic_0.png", "pic_1.png"]
+
+
+def test_odd_size_top_left_silent(tmp_path):
+   prof = helpers.tiny_profile(tmp_path, **{"canvas.pivot": "top_left"})
+   assert odd_warning(check.run(prof, odd_dir(tmp_path, [(9, 9)]))) is None
+
+
+def test_odd_size_frame_mode_uses_profile(tmp_path):
+   prof, out = build(tmp_path)
+   assert odd_warning(check.run(prof, out)) is None          # 짝수 프레임이면 시트 안 그림 크기는 안 본다
+   odd = helpers.tiny_profile(tmp_path, **{"canvas.frame": [9, 8], "canvas.baseline_y": 6, "canvas.center_x": 4.0})
+   frames = [{"anim": "walk", "direction": "s", "frame": i, "arr": image.new(9, 8)} for i in range(3)]
+   found = check._odd_size_warnings(odd, frames)
+   assert len(found) == 1 and "9x8" in found[0]["detail"]
+   assert found[0]["items"] == [{"where": "profile.canvas.frame", "size": [9, 8], "odd": found[0]["items"][0]["odd"]}]
+
+
+def test_odd_size_disabled(tmp_path):
+   prof = helpers.tiny_profile(tmp_path, **{"check.warn.odd_size.enabled": False})
+   assert odd_warning(check.run(prof, odd_dir(tmp_path, [(9, 8)]))) is None
+
+
+def test_odd_size_one_line_many_files(tmp_path):
+   prof = helpers.tiny_profile(tmp_path)
+   report = check.run(prof, odd_dir(tmp_path, [(9, 8), (11, 8), (13, 8)]))
+   rows = [w for w in report["warnings"] if w["rule"] == "odd_size"]
+   assert len(rows) == 1 and len(rows[0]["items"]) == 3

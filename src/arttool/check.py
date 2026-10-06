@@ -587,7 +587,43 @@ def _warnings(prof: Profile, frames: list[dict], groups: dict, ramps, no_ramps: 
 
    if prof.warn("loop_seam")["enabled"]:
       out += _loop_warnings(prof, groups)
+
+   if prof.warn("odd_size")["enabled"]:
+      out += _odd_size_warnings(prof, frames)
    return out
+
+
+def _odd_axes(pivot: str, w: int, h: int) -> list[str]:
+   """피벗이 반 픽셀에 놓이는 축. bottom_center 는 가로만, center 는 가로·세로, top_left 는 안 본다."""
+   axes = []
+   if pivot in ("bottom_center", "center") and w % 2:
+      axes.append(f"가로 {w}")
+   if pivot == "center" and h % 2:
+      axes.append(f"세로 {h}")
+   return axes
+
+
+def _odd_size_warnings(prof: Profile, frames: list[dict]) -> list[dict]:
+   """홀수 크기 — 걸린 파일을 한 줄에 모은다. 프레임 모드는 프로필 프레임 크기만 한 번 본다 (1판 설계 3절)."""
+   pivot = prof.canvas.get("pivot", "bottom_center")
+   hint = "trim --canvas 로 짝수로 맞춘다"
+   if any("anim" in item for item in frames):
+      frame_w, frame_h = prof.frame
+      axes = _odd_axes(pivot, frame_w, frame_h)
+      if not axes:
+         return []
+      return [warning("odd_size", f"프로필 프레임 {frame_w}x{frame_h} 의 {' · '.join(axes)} — {pivot} 피벗이 반 픽셀에 놓인다. 프로필 frame 을 짝수로 맞춘다", [{"where": "profile.canvas.frame", "size": [frame_w, frame_h], "odd": axes}])]
+   items = []
+   for item in frames:
+      h, w = item["arr"].shape[:2]
+      axes = _odd_axes(pivot, w, h)
+      if axes:
+         items.append({"where": where(item), "size": [w, h], "odd": axes})
+   if not items:
+      return []
+   first = items[0]
+   detail = f"{len(items)}장이 홀수 크기 (예 : {first['where']} {' · '.join(first['odd'])}) — {pivot} 피벗이 반 픽셀에 놓인다. {hint}"
+   return [warning("odd_size", detail, items)]
 
 
 def _outline_warnings(prof: Profile, frames: list[dict], info: list, cache: dict) -> list[dict]:

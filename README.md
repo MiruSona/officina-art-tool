@@ -132,9 +132,10 @@ arttool provider make  --kind character --spec req.json --out gen/ --dry-run
 | --- | --- |
 | `cutout --in raw/ --out cut/ [--key edge\|corner\|#hex] [--tol 10] [--shave N]` | 바탕 지우기. `--shave` 면 깎아 낸 고리에서 바탕 색을 고른다 |
 | `trim --in raw/ --out t/ [--pad N] [--square] [--common]` | 여백 걷기. `--common` 은 폴더에 bbox 하나(크기가 섞이면 종료 2) |
+| `trim … --canvas WxH [--anchor bottom] [--margin N]` | 자른 그림을 W×H 투명 판에 다시 깐다. `--pad` · `--square` 와 같이 못 쓴다 (2026-10-06) |
 | `intake --in raw/ --out clean/ [--sheet s.png] [--template t.json] [--no-trim]` | cutout → trim → check → sheet 한 번에. 배경 그림은 cutout 을 건너뛴다. 이번에 쓴 파일만 검수 |
 | `sheet --in a.png b/ --out s.png [--kinds zoom,silhouette,colors4,blur,tile] [--label]` | 사람이 보는 비교판. `--scale` 은 64 까지 |
-| `check … [--no-warn] [--mode auto\|sprite\|background] [--template t.json]` | 실패 규칙 다섯 + **경고 일곱**(`integer_scale` · `outline` · `isolated` · `color_cap` · `near_colors` · `ramp_shape` · `loop_seam`) |
+| `check … [--no-warn] [--mode auto\|sprite\|background] [--template t.json]` | 실패 규칙 다섯 + **경고 일곱**(`integer_scale` · `outline` · `isolated` · `color_cap` · `near_colors` · `ramp_shape` · `loop_seam`). 홀수 크기 경고 `odd_size` 도 난다 — 피벗이 반 픽셀에 놓일 때, `trim --canvas` 로 짝수로 맞춘다 (2026-10-06) |
 | `style extract --in refs/ --out style/ [--by-folder] [--max-colors 64] [--force]` | 기준 그림 → 팔레트 · 견본 · 프로필 조각 · 보고. **종류별(`--by-folder`)이 권장 길** |
 | `template list` · `show <이름> [--size N\|WxH] [--preset P] [--base #hex] [--material M]` · `render … --out guide/ [--over a.png]` | 그리기 전 밑판(가이드 겹 · 마스크 · 프롬프트 · 순서). **템플릿 15개** |
 | `layers compose\|diff\|mask\|view\|check\|export` | 겹 묶음 명령. `diff --carve report\|common\|apply`. 옛 `layers --profile …` 줄은 `layers compose` 로 |
@@ -155,7 +156,9 @@ arttool provider make  --kind character --spec req.json --out gen/ --dry-run
 | `extend ring --in ring.png --border N\|L,B,R,T --size WxH --out o.png [--snap]` | 한 바퀴 그림 늘리기. 단위가 잘리면 경고, `--snap` 이면 맞는 크기로 |
 | `extend canvas --in bg.png --size WxH --out o.png [--anchor bottom] [--band 1]` | 배경 늘리기 — 가장자리 줄 · 띠를 바깥으로 되풀이 |
 | `reline --in raw/ --out o/ [--color #hex] [--pick dark\|all] [--scope ring\|colors] [--tol 40]` | 외곽선을 한 색으로 |
+| `reline … [--depth N] [--color-dark #hex [--dark-gap N]]` | `--depth` 는 2px 선의 안쪽 줄까지(1~8, `--scope colors` 와 못 씀), `--color-dark` 는 면과 밝기가 비슷해 묻힌 선 칸만 둘째 색 (2026-10-06) |
 | `reline … --from #hex[,#hex…]` | 바꿀 선 색을 직접 준다 — 고리 칸 중 그 색만(`--scope colors` 면 그림 전체의 그 색). `--pick` · `--tol` 과 같이 못 쓴다 (2026-10-05) |
+| `shift --in raw/ --out o/ [--hue D] [--sat S] [--light L] [--pick #hex,…] [--dry-run]` | 색상 · 채도 · 밝기를 옮긴다 (알파 그대로). 셋 다 기본값이면 종료 2 (2026-10-06) |
 | `tint --in white/ --colors #E85D5D,#5DA0E8 --out t/ [--sheet s.png]` | 흰 겹 × 색 곱하기 → 색마다 한 장 |
 | `merge-colors --in raw/ --out o/ [--tol N \| --max-colors N \| --palette] [--keep #hex,…] [--per-image] [--clean] [--sheet s.png] [--dry-run]` | 가까운 색을 많이 쓰인 쪽으로 합친다 — `check` 가 `max_colors` · `near_colors` 로 걸릴 때. 평균색은 안 만든다 (2026-10-05). `--clean` 은 합친 뒤 둘레에 묻힌 잡티 점(외톨이 · 2칸)만 메운다 (2026-10-06) |
 | `ui glyphs --font f.ttf (--text "…" \| --text-file t.txt)` | 글꼴에 없는 글자 찾기. 있으면 `fail`(종료 4) |

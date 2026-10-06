@@ -4,6 +4,8 @@
 - `--square` : 긴 변에 맞춰 정사각으로 채운다. 가운데 맞춤은 `ui.icons.fit_square` 와 같은 floor(v + 0.5).
 - `--pad N` : 자르고(정사각으로 채운) 뒤 둘레에 투명 N 칸.
 - `--common` : 폴더 전체에 bbox 하나. 겹 폴더를 잘라도 쌓은 자리가 그대로다.
+- `--canvas WxH` · `--anchor` · `--margin` : 자른 그림을 새 투명 판에 놓는다 (2026-10-06 1판 설계 2절).
+  놓을 자리 셈은 `extend.canvas.offset`, 붙인 변 쪽이면 margin 만큼 안으로. 넘치면 `trim.too_big` UsageError.
 
 보고의 `offset` 은 **결과 그림의 (0, 0) 이 원본에서 어디였나**다. pad · square 로 늘린 몫까지 넣은 값이라
 음수일 수 있다. 원래 자리로 되돌릴 때는 원본 캔버스의 (offset) 에 결과를 그대로 얹으면 된다.
@@ -75,6 +77,52 @@ def trim_one(arr: image.RGBA, pad: int = 0, square: bool = False) -> tuple[image
    return crop_box(arr, box, pad, square)
 
 
+def _canvas_args(args, pad: int, square: bool) -> tuple[tuple[int, int] | None, str, int]:
+   """--canvas · --anchor · --margin 을 읽는다. --canvas 가 없으면 (None, …) — 지금 동작 그대로."""
+   from ..extend import parse_size
+   from ..extend.canvas import ANCHORS
+   text, anchor, margin = getattr(args, "canvas", None), getattr(args, "anchor", None), getattr(args, "margin", None)
+   if text is None:
+      if anchor is not None or margin is not None:
+         raise UsageError("--anchor · --margin 은 --canvas 와 같이 쓴다")
+      return None, "bottom", 0
+   if pad or square:
+      raise UsageError("--canvas 는 --pad · --square 와 같이 못 쓴다 (판 크기가 이미 정해진다)")
+   anchor = anchor or "bottom"
+   if anchor not in ANCHORS:
+      raise UsageError(f"--anchor 는 {', '.join(ANCHORS)} 중 하나다 : {anchor}")
+   margin = int(margin or 0)
+   if margin < 0:
+      raise UsageError(f"--margin 은 0 이상이다 : {margin}")
+   return parse_size(text, "--canvas"), anchor, margin
+
+
+def _axis(anchor: str, small: int, big: int, margin: int, low: str, high: str) -> tuple[int, int, bool]:
+   """한 축의 놓을 자리 · 필요한 길이 · 가운데라 반 칸 남는지. 붙인 변 쪽이면 margin 만큼 안으로 민다."""
+   from ..extend.canvas import offset
+   at = offset(anchor, small, big, low, high)
+   if low in anchor:
+      return at + margin, small + margin, False
+   if high in anchor:
+      return at - margin, small + margin, False
+   return at, small, (big - small) % 2 == 1
+
+
+def place(cut: image.RGBA, offset: tuple[int, int], size: tuple[int, int], anchor: str, margin: int,
+          name: str) -> tuple[image.RGBA, tuple[int, int], bool]:
+   """자른 그림을 새 투명 판에 놓는다. 넘치면 UsageError. 돌려주는 offset 은 판 (0,0) 의 원본 좌표."""
+   width, height = size
+   cw, ch = image.size(cut)
+   ox, need_w, half_x = _axis(anchor, cw, width, margin, "left", "right")
+   oy, need_h, half_y = _axis(anchor, ch, height, margin, "top", "bottom")
+   if need_w > width or need_h > height:
+      raise UsageError(f"trim.too_big : {name} 의 내용 {cw}x{ch} (+ margin {margin}) 이 판 {width}x{height} 보다 크다. "
+                       "--canvas 를 키우거나 --margin 을 줄인다")
+   board = image.new(width, height)
+   board[oy : oy + ch, ox : ox + cw] = cut
+   return board, (offset[0] - ox, offset[1] - oy), half_x or half_y
+
+
 def _check_same_size(files: list[Path], arrs: list[image.RGBA]) -> None:
    """--common 은 크기가 같은 그림만 받는다. 다르면 어느 파일이 다른지 적어 UsageError (실물 버그 8)."""
    sizes = [image.size(arr) for arr in arrs]
@@ -95,6 +143,7 @@ def run(args) -> dict:
    if pad < 0:
       raise UsageError(f"--pad 는 0 이상이다 : {pad}")
    square, common = bool(args.square), bool(args.common)
+   board_size, anchor, margin = _canvas_args(args, pad, square)
 
    dry_run = is_dry_run(args)
    inputs = list_inputs(args.in_dir)
@@ -109,7 +158,19 @@ def run(args) -> dict:
    else:
       results = [trim_one(arr, pad, square) for arr in arrs]
 
-   rows, warnings = [], []
+   rows, warnings, half = [], [], []
+   if board_size is not None:
+      # 아무것도 쓰기 전에 다 놓아 본다 — 한 장이라도 넘치면 trim.too_big 으로 아무것도 안 쓴다
+      placed = []
+      for source, result in zip(inputs, results):
+         if result is None:
+            placed.append(None)
+            continue
+         board, offset, odd = place(result[0], result[1], board_size, anchor, margin, source.name)
+         placed.append((board, offset))
+         if odd:
+            half.append(source.name)
+      results = placed
    for source, target, arr, result in zip(inputs, outs, arrs, results):
       width, height = image.size(arr)
       row = {"file": source.name, "size_before": [width, height]}
@@ -125,7 +186,11 @@ def run(args) -> dict:
       if common and image.bbox(arr) is None:
          warnings.append(warning("trim.empty", f"{source.name} : 빈 그림이다 (--common 이라 같은 자리로 잘라 썼다)", [source.name]))
       rows.append({**row, "out": None if dry_run else str(target), "size": list(image.size(cut)), "offset": list(offset), "skipped": False})
+   if half:
+      warnings.append(warning("trim.half_pixel", f"가운데 놓는 축에 남는 칸이 홀수라 1칸이 오른쪽 · 아래로 간다 : {', '.join(half)}", half))
 
+   # --canvas 를 안 주면 보고 칸도 옛것 그대로 (바이트까지 같게)
+   placed_fields = {} if board_size is None else {"canvas": list(board_size), "anchor": anchor, "margin": margin}
    return {
       **dry_run_fields(dry_run, would_write),
       "version": VERSION,
@@ -133,6 +198,7 @@ def run(args) -> dict:
       "pad": pad,
       "square": square,
       "common": common,
+      **placed_fields,
       "images": rows,
       "warnings": warnings,
       "out": str(Path(outs[0]).parent),

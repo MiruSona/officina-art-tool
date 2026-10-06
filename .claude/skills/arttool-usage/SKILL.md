@@ -58,8 +58,8 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 | 건물 · 큰 물건 · 화면 조각 · 말풍선 | `template render building --size 92x77 …` · `machine` · `screen_piece` · `template render ui9_panel --size 54x34 --preset bubble …` |
 | 기준 그림 → 화풍 조각 (종류별) | `arttool style extract --in refs/ --out style/ --name mygame --by-folder` (`refs/char/` · `refs/tile/` … 하위 폴더 = 종류) |
 | 받은 그림 한 번에 손질 | `arttool intake --in raw/ --out clean/ [--key edge\|corner\|#hex] [--tol N] [--shave N] [--pad N] [--template t.json] --sheet s.png --report i.json` (배경 그림은 바탕 지우기를 건너뛴다) |
-| 배경만 지우기 / 여백만 걷기 | `arttool cutout --in raw --out cut --key corner --tol 10 --shave 2` · `arttool trim --in raw --out t --pad 1 [--common]` |
-| 검사 | `arttool check --in clean --template work/guide/template.json --report c.json [--no-warn]` |
+| 배경만 지우기 / 여백만 걷기 | `arttool cutout --in raw --out cut --key corner --tol 10 --shave 2` · `arttool trim --in raw --out t --pad 1 [--common]` (`--canvas 32x32 [--anchor bottom] [--margin 1]` 을 더하면 W×H 투명 판에 다시 깐다) |
+| 검사 | `arttool check --in clean --template work/guide/template.json --report c.json [--no-warn]` (`odd_size` 경고 : 홀수 크기라 피벗이 반 픽셀에 놓이면 `trim --canvas` 로 짝수로) |
 | 비교판 | `arttool sheet --in a.png clean/ --kinds zoom,silhouette,colors4,blur --label --out s.png` |
 | 기본체 + inpaint → 겹 | `arttool layers diff --base base.png --in inpainted/ --out set/ --template t.json --carve report` |
 | 「이 색 칸만」 마스크 | `arttool layers mask --in base.png --colors #2B2233 --grow 1 --out m.png` |
@@ -71,7 +71,7 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 | 무늬 이어 넓히기 (판자 · 울타리) | `arttool stitch --in a.png:0-40 a.png:20-40 a.png:20-40 --axis x --out wide.png` (되풀이 구간을 여러 번 준다) |
 | 바탕 타일 이음매 지우기 | `arttool tile offset --in g.png --out s.png --mask cross.png` → 둘을 inpaint → `tile seam` |
 | 되풀이 단위 · 한 바퀴 그림 · 배경 늘리기 | `arttool extend period --in fence.png --tile 32` · `extend ring … --snap` · `extend canvas --in bg.png --size 360x1000 --out o.png` |
-| 외곽선 한 색 · 흰 겹에 색 곱하기 | `arttool reline --in raw --out o [--color #hex] [--from #hex,#hex]` (`--from` 은 바꿀 선 색을 직접 고른다 — 밝기가 같은 다른 선은 그대로. `--scope colors` 를 더하면 그림 전체의 그 색) · `arttool tint --in white --colors #E85D5D,#5DA0E8 --out t --sheet s.png` |
+| 외곽선 한 색 · 흰 겹에 색 곱하기 | `arttool reline --in raw --out o [--color #hex] [--from #hex,#hex] [--depth 2] [--color-dark #hex]` (`--depth 2` 는 2px 선 안쪽 줄까지, `--color-dark` 는 면에 묻힌 선 칸만 둘째 색. `--from` 은 바꿀 선 색을 직접 고른다 — 밝기가 같은 다른 선은 그대로. `--scope colors` 를 더하면 그림 전체의 그 색) · `arttool shift --in raw --out o --hue 30 [--sat 0.8] [--light 0.1] [--pick #hex]` 색 돌리기 · `arttool tint --in white --colors #E85D5D,#5DA0E8 --out t --sheet s.png` |
 | 겹 떼기에서 뺨 · 옷 점 빼기 | `layers diff … --drop hair:#F2C9A0` |
 | 가까운 색 합치기 (`check` 가 `max_colors` · `near_colors` 로 걸리면) | `arttool merge-colors --in raw --out o [--max-colors 24] [--keep #hex] --sheet s.png` (아무것도 안 주면 `near_colors` 문턱으로. 평균색은 안 만든다. `--dry-run` 으로 `merge_table` 먼저 보기). 합친 뒤에도 `isolated` 가 걸리면 `--clean` — 둘레 6/8 이 한 색이고 가까운 잡티 점만 메운다 |
 | 좌표 읽는 눈금 판 · 글꼴에 없는 글자 | `arttool sheet --in a.png --grid 8 --out g.png` · `arttool ui glyphs --font f.ttf --text-file chars.txt` |

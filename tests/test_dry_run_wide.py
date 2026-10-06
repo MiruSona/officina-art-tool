@@ -458,3 +458,27 @@ def test_intake_unstage_replaces_posix_form_too(tmp_path):
    report = {"a": str(stage / "x.png"), "b": [stage.as_posix() + "/y.png"], "c": stage.resolve().as_posix() + "/z.png"}
    got = intake._unstage(report, Path(stage), out)
    assert got == {"a": str(out / "x.png"), "b": [out.as_posix() + "/y.png"], "c": out.as_posix() + "/z.png"}
+
+
+def test_shift_and_trim_canvas_refusals_match_dry_run(work):
+   """shift · trim --canvas 도 --dry-run 과 진짜 판의 거절 종료가 같고, 아무것도 안 쓴다 (2026-10-06)."""
+   src = work / "in"
+   src.mkdir()
+   _png(src / "w.png", _flat(4, (230, 230, 230)))
+   before = _snap(work)
+   assert _same_exit(["shift", "--in", str(src / "w.png"), "--out", str(src / "w.png"), "--hue", "10"]) == (errors.EXIT_USAGE, errors.EXIT_USAGE)
+   assert _same_exit(["shift", "--in", str(src), "--out", "o"]) == (errors.EXIT_USAGE, errors.EXIT_USAGE)
+   assert _same_exit(["trim", "--in", str(src), "--out", "o", "--canvas", "2x2"]) == (errors.EXIT_USAGE, errors.EXIT_USAGE)
+   assert _snap(work) == before
+
+
+def test_reline_depth_exit_matches_dry_run(work):
+   """reline --depth 2 는 둘 다 통과하고 --depth 0 은 둘 다 거절한다 (2026-10-06)."""
+   src = work / "in"
+   src.mkdir()
+   _png(src / "w.png", _flat(4, (230, 230, 230)))
+   before = _snap(work)
+   ok = _same_exit(["reline", "--in", str(src), "--out", "o", "--depth", "2"])
+   assert ok[0] == ok[1]
+   assert _same_exit(["reline", "--in", str(src), "--out", "o", "--depth", "0"]) == (errors.EXIT_USAGE, errors.EXIT_USAGE)
+   assert not (work / "o" / "w.png").exists() or ok[0] == 0

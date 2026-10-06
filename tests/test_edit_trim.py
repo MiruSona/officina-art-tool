@@ -120,3 +120,52 @@ def test_cli_refuses_overwrite_and_bad_pad(tmp_path, capsys):
    image.save(src / "a.png", _with_box(8, 8, 1, 1, 3, 3))
    assert cli.main(["trim", "--in", str(src), "--out", str(src)]) == errors.EXIT_USAGE
    assert cli.main(["trim", "--in", str(src), "--out", str(tmp_path / "o"), "--pad", "-1"]) == errors.EXIT_USAGE
+
+
+# --- --canvas · --anchor · --margin (2026-10-06 1판 설계 2절) ---
+
+def _trim(tmp_path, *extra):
+   report = tmp_path / "c.json"
+   code = cli.main(["trim", "--in", str(tmp_path / "raw"), "--out", str(tmp_path / "c"), "--report", str(report), *extra])
+   return code, (json.loads(report.read_text(encoding="utf-8")) if report.exists() else None)
+
+
+def test_canvas_bottom_margin_places_and_offsets(tmp_path):
+   (tmp_path / "raw").mkdir()
+   image.save(tmp_path / "raw" / "a.png", _with_box(20, 20, 3, 5, 9, 15))
+   code, rep = _trim(tmp_path, "--canvas", "16x16", "--margin", "1")
+   assert code == errors.EXIT_OK and rep["status"] == "ok"
+   out = image.load(tmp_path / "c" / "a.png")
+   assert image.size(out) == (16, 16)
+   # 너비 6 을 16 가운데 : (16-6)//2 = 5, 바닥에서 1칸 : 16-10-1 = 5
+   assert image.bbox(out) == (5, 5, 11, 15)
+   assert rep["images"][0]["offset"] == [3 - 5, 5 - 5]
+   assert (rep["canvas"], rep["anchor"], rep["margin"]) == ([16, 16], "bottom", 1)
+
+
+def test_canvas_half_pixel_warns_and_common_keeps_place(tmp_path):
+   (tmp_path / "raw").mkdir()
+   image.save(tmp_path / "raw" / "a.png", _with_box(20, 20, 3, 5, 8, 15))
+   image.save(tmp_path / "raw" / "b.png", _with_box(20, 20, 4, 6, 6, 9, BLUE))
+   _, rep = _trim(tmp_path, "--canvas", "10x12", "--anchor", "top-left", "--margin", "2", "--common")
+   assert rep["images"][0]["offset"] == rep["images"][1]["offset"] == [1, 3]
+   assert image.bbox(image.load(tmp_path / "c" / "a.png")) == (2, 2, 7, 12)
+   _, rep = _trim(tmp_path, "--canvas", "10x12", "--anchor", "center")
+   assert [w["rule"] for w in rep["warnings"]] == ["trim.half_pixel"]
+
+
+def test_canvas_too_big_and_bad_mixes_are_usage(tmp_path, capsys):
+   (tmp_path / "raw").mkdir()
+   image.save(tmp_path / "raw" / "a.png", _with_box(20, 20, 3, 5, 9, 15))
+   for extra in (["--canvas", "6x10", "--margin", "1"], ["--anchor", "top"], ["--margin", "1"],
+                 ["--canvas", "16x16", "--pad", "1"], ["--canvas", "16x16", "--square"], ["--canvas", "16x16", "--anchor", "up"]):
+      assert _trim(tmp_path, *extra)[0] == errors.EXIT_USAGE
+   assert not (tmp_path / "c").exists()
+   assert "trim.too_big" in capsys.readouterr().err
+
+
+def test_no_canvas_report_has_no_new_keys(tmp_path):
+   (tmp_path / "raw").mkdir()
+   image.save(tmp_path / "raw" / "a.png", _with_box(20, 20, 3, 5, 9, 15))
+   _, rep = _trim(tmp_path)
+   assert set(rep) == {"version", "status", "pad", "square", "common", "images", "warnings", "out"}   # 옛 trim 보고 꼴 (HEAD)

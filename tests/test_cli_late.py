@@ -113,6 +113,7 @@ CONTRACT = [
    (["layers", "diff", "--base", "b.png", "--in", "inp", "--out", "set"], {"drop": None, "drop_tol": 24}),
    (["sheet", "--in", "a.png", "--out", "s.png"], {"grid": 0, "grid_color": None}),
    (["sheet", "--in", "a.png", "--out", "s.png", "--grid", "8", "--grid-color", "#00FF00"], {"grid": 8, "grid_color": "#00FF00"}),
+   (["shift", "--in", "a.png", "--out", "o", "--hue", "-10"], {"in_dir": "a.png", "out_dir": "o", "hue": -10, "sat": 1.0, "light": 0, "pick": None}),
 ]
 
 

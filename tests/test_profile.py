@@ -243,3 +243,12 @@ def test_load_profile_args():
    prof = P.load_profile_args(argparse.Namespace(profile="topdown_action", directions=8))
    assert prof.directions == 8
    assert P.load_profile_args(argparse.Namespace()).name == "default"
+
+
+def test_odd_size_in_warn_defaults():
+   from arttool import profile
+   assert profile.WARN_DEFAULTS["odd_size"] == {"enabled": True}
+   assert "odd_size" in profile.WARN_RULES
+   warn = {**profile.WARN_DEFAULTS, "odd_size": {"enabled": "yes"}}
+   with pytest.raises(profile.ProfileError):
+      profile.validate_warn(warn)
