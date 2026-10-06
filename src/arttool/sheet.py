@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import numpy as np
@@ -39,6 +40,8 @@ SHEET_BACK = (44, 44, 52, 255)
 LABEL_COLOR = (240, 240, 240, 255)
 GAP = 4
 ELLIPSIS = "…"
+FIND_SECONDS = 10          # --find 가 이보다 오래 걸리면 거절 (고른 무늬 장면에서 후보가 안 줄 때)
+FIND_LIST_MAX = 20         # find_many 경고에 싣는 자리 수 상한
 
 
 # ── 인자 읽기 ──
@@ -90,14 +93,34 @@ def fit_down(arr: np.ndarray, target: int) -> np.ndarray:
    return arr[ys][:, xs]
 
 
-def parse_bg(text: str) -> tuple[int, int, int, int] | None:
-   """checker 면 None, #RRGGBB 면 그 색."""
+def parse_bg(text: str) -> tuple[int, int, int, int] | np.ndarray | None:
+   """checker 면 None, 색 꼴이면 그 색, 그 밖은 타일 PNG 그림(원래 크기 그대로).
+
+   색 꼴에 맞으면 색으로 본다 — 옛 `--bg #hex` 호출이 그대로 돈다. 아니면 경로로 보고, 파일이 없으면 거절한다.
+   """
    if text == "checker":
       return None
    try:
       return (*parse_hex(text), 255)
    except ArtToolError as exc:
-      raise UsageError(f"--bg 는 checker 또는 #RRGGBB 다 : {text}") from exc
+      path = Path(text)
+      if text.startswith("#") or not is_plain_file(path):
+         raise UsageError(f"--bg 는 checker · #RRGGBB · PNG 경로 중 하나다 : {text}") from exc
+   tile = image.load(path)
+   image.check_pixels(tile.shape[1], tile.shape[0], "--bg 타일")
+   return tile
+
+
+def bg_layer(width: int, height: int, tile: np.ndarray, scale: int) -> np.ndarray:
+   """타일을 칸 배율로 키운 무늬를 왼쪽 위부터 되풀이 깐다.
+
+   키운 타일을 통째로 만들지 않고, 칸의 픽셀마다 「타일 몇 번째 칸인가」 를 셈해 바로 집는다 —
+   큰 타일 × 큰 배율이라도 메모리는 칸 크기만큼만 쓴다.
+   """
+   th, tw = tile.shape[:2]
+   ys = (np.arange(height) // scale) % th
+   xs = (np.arange(width) // scale) % tw
+   return tile[ys[:, None], xs[None, :]]
 
 
 def pick_scale(text: str, items: list[np.ndarray]) -> int:
@@ -113,6 +136,155 @@ def pick_scale(text: str, items: list[np.ndarray]) -> int:
    if value > SCALE_MAX:
       raise UsageError(f"--scale 은 {SCALE_MAX} 이하다 : {text}")
    return value
+
+
+def parse_ints(text: str, name: str, count: int) -> list[int]:
+   """`x,y` · `x,y,w,h` 꼴 정수 묶음."""
+   parts = str(text).split(",")
+   try:
+      values = [int(part.strip()) for part in parts]
+   except ValueError as exc:
+      raise UsageError(f"{name} 는 정수 {count}개를 쉼표로 잇는다 : {text}") from exc
+   if len(values) != count:
+      raise UsageError(f"{name} 는 정수 {count}개를 쉼표로 잇는다 : {text}")
+   return values
+
+
+def over_rgba(top: np.ndarray, bottom: np.ndarray) -> np.ndarray:
+   """알파 합성(over) — `over` 와 달리 bottom 이 투명일 수 있어 알파도 섞는다 (투명 칸에는 뒤에서 --bg 가 깔린다)."""
+   ta = top[:, :, 3:4].astype(np.float64) / 255.0
+   ba = bottom[:, :, 3:4].astype(np.float64) / 255.0
+   oa = ta + ba * (1.0 - ta)
+   rgb = top[:, :, :3] * ta + bottom[:, :, :3] * ba * (1.0 - ta)
+   rgb = np.divide(rgb, oa, out=np.zeros_like(rgb), where=oa > 0)
+   out = np.empty_like(bottom)
+   out[:, :, :3] = np.rint(rgb).astype(np.uint8)
+   out[:, :, 3] = np.rint(oa[:, :, 0] * 255.0).astype(np.uint8)
+   return out
+
+
+def place_on(scene: np.ndarray, arr: np.ndarray, x: int, y: int) -> tuple[np.ndarray, bool]:
+   """장면 사본에 arr 를 (x, y) 에 얹는다. 장면 밖으로 나간 부분은 자르고 잘렸는지를 같이 돌려준다."""
+   out = scene.copy()
+   sh, sw = scene.shape[:2]
+   h, w = arr.shape[:2]
+   x0, y0, x1, y1 = max(x, 0), max(y, 0), min(x + w, sw), min(y + h, sh)
+   clipped = (x0, y0, x1, y1) != (x, y, x + w, y + h)
+   if x0 < x1 and y0 < y1:
+      part = arr[y0 - y:y1 - y, x0 - x:x1 - x]
+      out[y0:y1, x0:x1] = over_rgba(part, out[y0:y1, x0:x1])
+   return out, clipped
+
+
+def find_spots(scene: np.ndarray, old: np.ndarray) -> tuple[list[list[int]], int]:
+   """장면에서 old 의 불투명 칸이 정확히 같은 자리를 찾는다 (알파 0 칸은 안 본다). ([x, y] 목록, 모두 몇 곳).
+
+   목록은 위→아래 · 왼→오 순서로 FIND_LIST_MAX 개까지만 만든다 — 단색 장면에서 1x1 을 찾으면 후보가 수백만 곳이라
+   파이썬 목록으로 다 만들지 않는다. 개수는 numpy 로 센다.
+   첫 불투명 칸으로 후보 자리를 한 번에 거른 뒤, 남은 후보만 칸마다 numpy 로 좁힌다 — 보통 몇 칸 만에 후보가 거의 사라진다.
+   무늬가 고른 장면처럼 후보가 끝까지 많이 남는 경우를 위해 걸리는 시간에 상한을 둔다 (반복 안 · 앞뒤 모두 본다).
+   """
+   sh, sw = scene.shape[:2]
+   h, w = old.shape[:2]
+   if h > sh or w > sw:
+      return [], 0
+   dys, dxs = np.nonzero(old[:, :, 3] > 0)
+   if dys.size == 0:
+      raise UsageError("--find 그림에 불투명 칸이 없다")
+   packed = np.ascontiguousarray(scene).view(np.uint32)[:, :, 0]      # RGBA 네 바이트를 한 수로 — 한 번에 견준다
+   want = np.ascontiguousarray(old).view(np.uint32)[:, :, 0]
+   started = time.monotonic()
+
+   def check_time(left: int) -> None:
+      if time.monotonic() - started > FIND_SECONDS:
+         raise ArtToolError(f"--find 가 {FIND_SECONDS}초 안에 못 끝났다 (후보 {left}곳) — --crop 으로 장면을 줄인다")
+
+   dy, dx = int(dys[0]), int(dxs[0])
+   ys, xs = np.nonzero(packed[dy:dy + sh - h + 1, dx:dx + sw - w + 1] == want[dy, dx])
+   check_time(ys.size)
+   for dy, dx in zip(dys[1:].tolist(), dxs[1:].tolist()):
+      if ys.size == 0:
+         break
+      keep = packed[ys + dy, xs + dx] == want[dy, dx]
+      ys, xs = ys[keep], xs[keep]
+      check_time(ys.size)
+   check_time(ys.size)
+   # np.nonzero 는 행 우선 순서라 걸러도 위→아래 · 왼→오 가 그대로다
+   spots = [[int(x), int(y)] for y, x in zip(ys[:FIND_LIST_MAX].tolist(), xs[:FIND_LIST_MAX].tolist())]
+   return spots, int(ys.size)
+
+
+def scene_options(args, files: list[Path]) -> dict | None:
+   """--on · --at · --crop · --find 를 읽어 장면 설정으로 묶는다. --on 이 없으면 None (옛 sheet 그대로)."""
+   on, at, crop, find = (getattr(args, name, None) for name in ("on_scene", "at", "crop", "find_old"))
+   clear = bool(getattr(args, "find_clear", False))
+   if on is None:
+      given = [name for name, value in (("--at", at), ("--crop", crop), ("--find", find), ("--find-clear", clear or None))
+               if value is not None]
+      if given:
+         raise UsageError(f"{', '.join(given)} 는 --on 과 같이 쓴다")
+      return None
+   if (at is None) == (find is None):
+      raise UsageError("--on 에는 --at 과 --find 중 하나만 준다")
+   if clear and find is None:
+      raise UsageError("--find-clear 는 --find 와 같이 쓴다")
+   scene = _load_arg(on, "--on")
+   sh, sw = scene.shape[:2]
+   box = [0, 0, sw, sh]
+   if crop is not None:
+      box = parse_ints(crop, "--crop", 4)
+      if box[2] <= 0 or box[3] <= 0 or box[0] < 0 or box[1] < 0 or box[0] + box[2] > sw or box[1] + box[3] > sh:
+         raise UsageError(f"--crop 상자가 장면({sw}x{sh}) 안에 있지 않다 : {crop}")
+   # 사본이 입력 수만큼 생기니 만들기 전에 합친 크기를 본다
+   image.check_pixels(box[2], box[3] * len(files), "장면 사본")
+   warnings = []
+   count = None
+   bx, by, bw, bh = box
+   if find is not None:
+      old = _load_arg(find, "--find")
+      spots, count = find_spots(scene, old)
+      if not spots:
+         raise UsageError(f"--find 그림을 장면에서 못 찾았다 : {find}")
+      if count > 1:
+         warnings.append(_warn("find_many", f"--find 자리가 모두 {count}곳이라 첫 자리를 썼다 (목록은 {FIND_LIST_MAX}곳까지)",
+                               spots))
+      x, y = spots[0]
+   else:
+      x, y = parse_ints(at, "--at", 2)
+   # 장면을 먼저 상자로 잘라 사본으로 둔다 — 칸마다 상자 크기만큼만 쓰게 (위 크기 검사와 셈이 맞는다)
+   cut = scene[by:by + bh, bx:bx + bw].copy()
+   del scene
+   if clear:
+      # --find-clear : 찾은 자리에서 옛 그림의 불투명 칸을 투명으로 비운다 — 뒤에서 --bg 가 비친다
+      dys, dxs = np.nonzero(old[:, :, 3] > 0)
+      ys, xs = dys + (y - by), dxs + (x - bx)
+      keep = (ys >= 0) & (ys < bh) & (xs >= 0) & (xs < bw)
+      cut[ys[keep], xs[keep]] = 0
+   return {"scene": cut, "path": on, "at": [x, y], "rel": [x - bx, y - by], "box": box, "crop": crop is not None,
+           "find": find, "find_count": count, "find_clear": clear, "warnings": warnings}
+
+
+def _load_arg(path: str, name: str) -> np.ndarray:
+   """--on · --find 로 준 PNG — 없거나 못 읽으면 인자 잘못(종료 2)이다."""
+   try:
+      return image.load(path)
+   except ArtToolError as exc:
+      raise UsageError(f"{name} : {exc}") from exc
+
+
+def compose_scene(items: list[np.ndarray], files: list[Path], spec: dict) -> tuple[list[np.ndarray], list[dict]]:
+   """입력 그림마다 (이미 --crop 상자로 자른) 장면 사본에 얹는다."""
+   x, y = spec["rel"]
+   out, clipped = [], []
+   for path, arr in zip(files, items):
+      cell, cut = place_on(spec["scene"], arr, x, y)
+      if cut:
+         clipped.append(path.name)
+      out.append(cell)
+   warnings = list(spec["warnings"])
+   if clipped:
+      warnings.append(_warn("on_clipped", "얹은 그림이 장면(또는 --crop 상자) 밖으로 나가 잘렸다", clipped))
+   return out, warnings
 
 
 def collect_inputs(paths: list[str]) -> tuple[list[Path], list[dict]]:
@@ -141,8 +313,10 @@ def _warn(rule: str, detail: str, items: list) -> dict:
 
 # ── 판 만들기 ──
 
-def backdrop(width: int, height: int, bg: tuple[int, int, int, int] | None) -> np.ndarray:
-   """칸 배경. bg 가 None 이면 바둑판."""
+def backdrop(width: int, height: int, bg: tuple[int, int, int, int] | np.ndarray | None, scale: int = 1) -> np.ndarray:
+   """칸 배경. bg 가 None 이면 바둑판, 그림이면 그 타일 (반투명 타일은 바둑판 위에 먼저 깐다)."""
+   if isinstance(bg, np.ndarray):
+      return over(bg_layer(width, height, bg, scale), backdrop(width, height, None))
    if bg is not None:
       return image.new(width, height, bg)
    ys, xs = np.indices((height, width))
@@ -179,10 +353,11 @@ def kind_layer(arr: np.ndarray, kind: str, scale: int, tile: int = 2) -> np.ndar
    raise UsageError(f"모르는 판 : {kind}")
 
 
-def render_kind(arr: np.ndarray, kind: str, scale: int, tile: int = 2, bg: tuple[int, int, int, int] | None = None) -> np.ndarray:
+def render_kind(arr: np.ndarray, kind: str, scale: int, tile: int = 2,
+                bg: tuple[int, int, int, int] | np.ndarray | None = None) -> np.ndarray:
    """칸 하나 — 판을 배경 위에 얹은 불투명 그림."""
    layer = kind_layer(arr, kind, scale, tile)
-   out = over(layer, backdrop(layer.shape[1], layer.shape[0], bg))
+   out = over(layer, backdrop(layer.shape[1], layer.shape[0], bg, scale))
    if kind == "blur":
       out = image.blur(out, scale)
    return out
@@ -378,7 +553,12 @@ def run_strip(args) -> dict:
                                          ("--grid-color", getattr(args, "grid_color", None)),
                                          ("--tile", getattr(args, "tile", 2) not in (None, 2)),
                                          ("--bg", getattr(args, "bg", "checker") not in (None, "checker")),
-                                         ("--label", getattr(args, "label", False)))
+                                         ("--label", getattr(args, "label", False)),
+                                         ("--on", getattr(args, "on_scene", None)),
+                                         ("--at", getattr(args, "at", None)),
+                                         ("--crop", getattr(args, "crop", None)),
+                                         ("--find", getattr(args, "find_old", None)),
+                                         ("--find-clear", getattr(args, "find_clear", False)))
             if value]       # 기본값(zoom · auto · 0 · 없음 · 2 · checker · 끔)과 다르면 준 것으로 본다 — strip 은 이것들을 안 쓴다
    if given:
       raise UsageError(f"--strip 은 {', '.join(given)} 와 같이 못 쓴다 (뜻이 섞인다)")
@@ -416,8 +596,17 @@ def run(args) -> dict:
    grid, grid_color = grid_options(args, kinds)
 
    files, warnings = collect_inputs(list(args.in_paths))
-   guard_overwrite([out_file], files)          # 비교판이 입력 PNG 를 덮지 않게 (R1-H1)
+   # 비교판이 입력 PNG(--bg 타일 · --on 장면 · --find 그림 포함)를 덮지 않게 (R1-H1)
+   extra = [Path(p) for p in (args.bg if isinstance(bg, np.ndarray) else None,
+                              getattr(args, "on_scene", None), getattr(args, "find_old", None)) if p]
+   guard_overwrite([out_file], files + extra)
+   spec = scene_options(args, files)
    items = [image.load(path) for path in files]
+   originals = items
+   if spec is not None:
+      # 칸 = 장면 사본 — 배율 · 판 · 눈금은 얹은 장면을 한 그림으로 보고 그대로 돈다
+      items, scene_warnings = compose_scene(items, files, spec)
+      warnings.extend(scene_warnings)
    # --scale per (2판 C10) : 그림(줄)마다 auto 배율을 따로 정한다. 25px 소품이 397px 조각 탓에 1배로 나오지 않게.
    per = str(args.scale) == SCALE_PER
    if per:
@@ -457,7 +646,7 @@ def run(args) -> dict:
               for row, s in zip(rows, scales)]
    report_items = []
    row_labels = []
-   for index, (path, arr, s) in enumerate(zip(files, items, scales), start=1):
+   for index, (path, arr, s) in enumerate(zip(files, originals, scales), start=1):
       w, h = image.size(arr)
       numbers = measure(arr)
       entry = {"no": index, "name": path.name, "path": str(path), "size": [w, h], **numbers}
@@ -488,6 +677,10 @@ def run(args) -> dict:
       "items": report_items,
       "warnings": warnings,
    }
+   if spec is not None:
+      result["on"] = {"scene": str(spec["path"]), "at": spec["at"], "crop": spec["box"] if spec["crop"] else None,
+                      "find": str(spec["find"]) if spec["find"] else None, "find_count": spec["find_count"],
+                      "find_clear": spec["find_clear"]}
    if grid:
       result.update({"grid": grid, "grid_color": getattr(args, "grid_color", None) or GRID_COLOR, "grid_margin": list(margin)})
    return result

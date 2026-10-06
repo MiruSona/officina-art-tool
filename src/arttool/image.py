@@ -174,6 +174,31 @@ def paste(dst: RGBA, src: RGBA, x: int, y: int) -> None:
    area[mask] = src[mask]
 
 
+def paste_over(dst: RGBA, src: RGBA, x: int, y: int) -> None:
+   """위에 알파 합성(source-over)으로 얹는다. 아래가 투명이어도 알파까지 섞는다 (`sheet.over_rgba` 와 같은 셈)."""
+   h, w = src.shape[0], src.shape[1]
+   if x < 0 or y < 0 or x + w > dst.shape[1] or y + h > dst.shape[0]:
+      raise ArtToolError(f"붙일 자리가 캔버스를 넘는다 : ({x}, {y})")
+   area = dst[y : y + h, x : x + w]
+   ta = src[:, :, 3:4].astype(np.float64) / 255.0
+   ba = area[:, :, 3:4].astype(np.float64) / 255.0
+   oa = ta + ba * (1.0 - ta)
+   rgb = src[:, :, :3] * ta + area[:, :, :3] * ba * (1.0 - ta)
+   rgb = np.divide(rgb, oa, out=np.zeros_like(rgb), where=oa > 0)
+   area[:, :, :3] = np.rint(rgb).astype(np.uint8)
+   area[:, :, 3] = np.rint(oa[:, :, 0] * 255.0).astype(np.uint8)
+
+
+def read_size(path: str | os.PathLike) -> tuple[int, int]:
+   """그림 머리만 읽어 (너비, 높이). 화소는 풀지 않는다."""
+   file = Path(path)
+   try:
+      with Image.open(file) as img:
+         return int(img.width), int(img.height)
+   except (OSError, ValueError) as exc:
+      raise ArtToolError(f"그림을 못 읽었다 (잘렸거나 PNG 가 아니다) : {file} - {exc}") from exc
+
+
 def flip_x(arr: RGBA) -> RGBA:
    return arr[:, ::-1].copy()
 
@@ -398,6 +423,20 @@ def text_mask(font, text: str, width: int, height: int, x: int, y: int) -> np.nd
    draw.fontmode = "1"
    draw.text((x, y), text, font=font, fill=255)
    return np.array(canvas, dtype=np.uint8)
+
+
+def text_line_mask(font, text: str, x: int, y: int) -> tuple[np.ndarray, int, int]:
+   """글자 한 줄을 줄 크기 판에만 그린다. (마스크, 판 왼쪽 위 x, y) — 마스크는 0 · 255 uint8, 빈 줄이면 0×0."""
+   from PIL import ImageDraw
+
+   left, top, right, bottom = font.getbbox(text) if text else (0, 0, 0, 0)
+   width, height = max(right - left, 0), max(bottom - top, 0)
+   canvas = Image.new("L", (width, height), 0)
+   if width and height:
+      draw = ImageDraw.Draw(canvas)
+      draw.fontmode = "1"
+      draw.text((-left, -top), text, font=font, fill=255)
+   return np.array(canvas, dtype=np.uint8).reshape(height, width), x + left, y + top
 
 
 def has_label_font() -> bool:

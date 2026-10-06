@@ -52,6 +52,10 @@ CONTRACT = [
       {"sub": "fill", "in_dir": "set", "mask": "m.png", "nearest": "ring,core", "color": None, "items": None, "out_dir": "o"},
    ),
    (
+      ["ui", "mockup", "--scene", "s.json", "--out", "m.png", "--set", "a=b.png"],
+      {"sub": "mockup", "scene": "s.json", "out": "m.png", "scale": 1, "set": ["a=b.png"]},
+   ),
+   (
       ["frames", "bake", "--in", "f", "--out", "o", "--foot", "auto", "--gif", "a.gif", "--scale", "2"],
       {"sub": "bake", "in_dir": "f", "out_dir": "o", "foot": "auto", "cover": None, "cover_from": None, "crop": None,
        "strip": None, "gif": "a.gif", "duration": None, "loop": None, "scale": 2},
@@ -122,6 +126,11 @@ CONTRACT = [
    (["layers", "diff", "--base", "b.png", "--in", "inp", "--out", "set"], {"drop": None, "drop_tol": 24}),
    (["sheet", "--in", "a.png", "--out", "s.png"], {"grid": 0, "grid_color": None}),
    (["sheet", "--in", "a.png", "--out", "s.png", "--grid", "8", "--grid-color", "#00FF00"], {"grid": 8, "grid_color": "#00FF00"}),
+   (["sheet", "--in", "a.png", "--out", "s.png"], {"bg": "checker", "on_scene": None, "at": None, "crop": None, "find_old": None}),
+   (["sheet", "--in", "a.png", "--out", "s.png", "--bg", "t.png", "--on", "sc.png", "--at=-2,3", "--crop", "0,0,8,8"],
+    {"bg": "t.png", "on_scene": "sc.png", "at": "-2,3", "crop": "0,0,8,8", "find_old": None, "find_clear": False}),
+   (["sheet", "--in", "a.png", "--out", "s.png", "--on", "sc.png", "--find", "o.png", "--find-clear"],
+    {"find_old": "o.png", "find_clear": True, "at": None}),
    (["shift", "--in", "a.png", "--out", "o", "--hue", "-10"], {"in_dir": "a.png", "out_dir": "o", "hue": -10, "sat": 1.0, "light": 0, "pick": None}),
    (["outline", "--in", "a.png", "--out", "o"], {"in_dir": "a.png", "out_dir": "o", "mode": "black", "where": "outside", "width": 1, "color": None, "grow": False}),
    (["fill", "--in", "a.png", "--out", "o", "--enclosed", "--color", "#ff0000"], {"in_dir": "a.png", "out_dir": "o", "enclosed": True, "color": "#ff0000", "max_area": None}),

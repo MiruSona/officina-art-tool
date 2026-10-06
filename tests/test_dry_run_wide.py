@@ -218,6 +218,13 @@ def _case_frames_bake(work):
            ["fo/f0.png", "fo/f1.png", "s.png", "a.gif"])
 
 
+def _case_ui_mockup(work):
+   image.save(work / "pic.png", image.new(2, 2, (255, 0, 0, 255)))
+   (work / "sc.json").write_text('{"version":1,"canvas":[4,4],"nodes":[{"kind":"image","src":"pic.png","at":[1,1]}]}',
+                                 encoding="utf-8")
+   return (["ui", "mockup", "--scene", str(work / "sc.json"), "--out", "mock.png"], ["mock.png"])
+
+
 def _case_layers_fill(work):
    test_layers_ops.write_set(work / "set", test_layers_ops.three_layers())
    mask = image.new(test_layers_ops.W, test_layers_ops.H)
@@ -240,6 +247,7 @@ TAKES_CASES = {
    ("layers", "view"): _case_view,
    ("layers", "fill"): _case_layers_fill,
    ("frames", "bake"): _case_frames_bake,
+   ("ui", "mockup"): _case_ui_mockup,
    ("tile", "preview"): _case_tile_preview,
    ("tile", "ldtk"): _case_ldtk,
    ("tile", "seam"): _case_seam,

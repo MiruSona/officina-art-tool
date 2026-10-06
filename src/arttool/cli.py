@@ -24,6 +24,7 @@
 | `style ref` · `bands` · `stitch` · `tile offset` | `arttool.style.ref` · `edit.bands` · `edit.stitch` · `tiles.offset` 의 `run` (피드백 후속 설계) |
 | `extend period` · `ring` · `canvas` | `arttool.extend.period` · `ring` · `canvas` 의 `run` |
 | `ui glyphs` · `reline` · `tint` | `arttool.ui.glyphs` · `sprite.reline` · `sprite.tint` 의 `run` |
+| `ui mockup` | `arttool.ui.mockup.run` (장면 JSON → 감옥 안 그림 · 글꼴 → z 순서로 얹기 → PNG) |
 | `merge-colors` | `arttool.sprite.merge.run` (2026-10-05) |
 | `shift` | `arttool.sprite.shift.run` (2026-10-06) |
 | `outline` · `fill` · `diff` | `arttool.sprite.outline` · `edit.fill` · `sprite.diff` 의 `run` (2026-10-06) |
@@ -102,6 +103,7 @@ LATE: dict[tuple[str, str | None], tuple[str, str]] = {
    ("extend", "ring"): ("arttool.extend.ring", "run"),
    ("extend", "canvas"): ("arttool.extend.canvas", "run"),
    ("ui", "glyphs"): ("arttool.ui.glyphs", "run"),
+   ("ui", "mockup"): ("arttool.ui.mockup", "run"),
    ("reline", None): ("arttool.sprite.reline", "run"),
    ("tint", None): ("arttool.sprite.tint", "run"),
    ("merge-colors", None): ("arttool.sprite.merge", "run"),
@@ -416,7 +418,15 @@ def _add_sheet(subs) -> None:
    node.add_argument("--strip", dest="strip", action="store_true",
                      help="여백 0 · 딱지 없음 · 배율 1 · 투명 바탕으로 --in 순서대로 가로로 붙인다 (--kinds · --scale · --grid 와 같이 못 쓴다)")
    node.add_argument("--tile", dest="tile", type=int, default=2, choices=[2, 4], help="tile 판의 반복 수 (기본 2)")
-   node.add_argument("--bg", dest="bg", default="checker", help="checker 또는 #RRGGBB (기본 checker)")
+   node.add_argument("--bg", dest="bg", default="checker",
+                     help="checker · #RRGGBB · 타일 PNG 경로 중 하나 (기본 checker). PNG 는 칸마다 왼쪽 위부터 칸 배율로 되풀이 깐다")
+   node.add_argument("--on", dest="on_scene", help="장면 PNG — 입력 그림 하나하나를 장면 사본에 얹어 칸 하나로 만든다")
+   node.add_argument("--at", dest="at", help="--on 장면 위 얹을 자리 x,y (장면 원래 픽셀 좌표)")
+   node.add_argument("--crop", dest="crop", help="--on 장면에서 보여 줄 상자 x,y,w,h (큰 캡처에서 둘레만)")
+   node.add_argument("--find", dest="find_old", help="--at 대신 : 장면에서 이 PNG 의 불투명 칸이 똑같은 자리를 찾아 얹는다 "
+                          "(크기가 다른 그림은 옛 그림의 왼쪽 위에 맞춘다)")
+   node.add_argument("--find-clear", dest="find_clear", action="store_true",
+                     help="--find 와 같이 : 찾은 자리의 옛 그림 불투명 칸을 투명으로 비운 뒤(--bg 가 비친다) 얹는다")
    node.add_argument("--label", dest="label", action="store_true", help="이름 · 크기 · 색 수 딱지")
    node.add_argument("--grid", dest="grid", type=int, default=0, help="zoom 판에 원본 N 칸마다 눈금선 · 좌표 (기본 0 = 끔, 배율은 4 이상으로 올린다)")
    node.add_argument("--grid-color", dest="grid_color", help="눈금선 색 #RRGGBB (기본 #FF00FF)")
@@ -729,6 +739,12 @@ def _add_ui(subs) -> None:
    glyphs.add_argument("--size", dest="size", type=int, default=16, help="그려 볼 글자 크기 (기본 16)")
    glyphs.add_argument("--report", dest="report", help="보고 JSON")
 
+   mockup = inner.add_parser("mockup", help="장면 JSON → UI 시안 PNG 한 장", parents=[COMMON])
+   mockup.add_argument("--scene", dest="scene", required=True, help="장면 JSON (그림 · 글꼴 경로는 이 파일 폴더 기준)")
+   mockup.add_argument("--out", dest="out", required=True, help="목업 PNG")
+   mockup.add_argument("--scale", dest="scale", type=int, default=1, help="다 그린 뒤 통째로 키움 (기본 1)")
+   mockup.add_argument("--set", dest="set", action="append", help="id=src — 그 id 노드의 src 만 바꿔 그림. 여러 번 줄 수 있다")
+
 
 def _add_provider(subs) -> None:
    node = subs.add_parser("provider", help="제공자")
@@ -777,9 +793,9 @@ def _run_late(args, module_name: str, func_name: str) -> dict:
 
 # --report 와 견줄 인자들 — 읽는 파일 · 쓰는 그림. 보고 JSON 이 이 중 하나를 덮으면 안 된다 (리뷰 R1-M5)
 REPORT_GUARDED = ("in_dir", "in_file", "base", "original", "template", "spec", "manifest", "layout", "tileset",
-                  "rules", "map_file", "skeleton", "markers", "out_file", "out_dir", "sheet", "out",
+                  "rules", "map_file", "skeleton", "markers", "out_file", "out_dir", "sheet", "out", "scene",
                   "b64", "mark", "mask", "font", "text_file", "gif", "known", "baseline",
-                  "in_path", "from_shape", "like", "profile_map", "ramps", "cover")
+                  "in_path", "from_shape", "like", "profile_map", "ramps", "cover", "bg", "on_scene", "find_old")
 
 
 def _guard_report(args) -> None:
@@ -813,6 +829,7 @@ DRY_RUN_TAKES = {
    ("layers", "mask"), ("layers", "view"), ("ui", "preview"), ("ui", "font"),
    ("layers", "fill"),                                                                          # 새 묶음 폴더 — 쓸 목록을 보고만
    ("frames", "bake"),                                                                          # 프레임 폴더 · 띠 · gif — 쓸 목록을 보고만
+   ("ui", "mockup"),                                                                            # 장면을 다 검증 · 그리고 쓸 PNG 만 보고
    ("tile", "offset"), ("tile", "preview"), ("tile", "ldtk"), ("tile", "seam"),
    ("tile", "place"), ("provider", "make"),                                                      # 바깥을 안 부르고 요청 JSON 만
 }

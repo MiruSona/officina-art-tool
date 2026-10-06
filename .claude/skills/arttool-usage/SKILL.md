@@ -83,6 +83,8 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 | 변형 낱장을 겹 묶음으로 | `layers.json` 겹마다 `"files":"parts/body_{v}.png"` · `"items":["idle",{"name":"x","pick":{"body":"hop"}}]` (version 2). `layers check` 가 `unused_variant` · `variant_size` · `variant_alpha` 경고. `split` 으로 그림 더하기는 거절 |
 | 프레임 폴더 한 번에 굽기 | `arttool frames bake --in frames --out baked --foot auto [--cover m.png] [--crop union] [--strip s.png] [--gif w.gif --duration 110] [--scale 4]` (발 줄 → 덮기 → 자르기 → 띠 → gif 고정 순서. `foot_clipped` · `gif_alpha_cut` 경고) |
 | 가까운 색 합치기 (`check` 가 `max_colors` · `near_colors` 로 걸리면) | `arttool merge-colors --in raw --out o [--max-colors 24] [--keep #hex] --sheet s.png` (아무것도 안 주면 `near_colors` 문턱으로. 평균색은 안 만든다. `--dry-run` 으로 `merge_table` 먼저 보기). 합친 뒤에도 `isolated` 가 걸리면 `--clean` — 둘레 6/8 이 한 색이고 가까운 잡티 점만 메운다 |
+| 그림을 화면 캡처 위에 얹어 보기 | `arttool sheet --in new.png --out s.png --on shot.png (--at x,y \| --find old.png) [--crop x,y,w,h]` (`--bg` 에 타일 PNG 도 된다) |
+| UI 시안 한 장 그리기 | `arttool ui mockup --scene s.json --out m.png [--scale N] [--set id=src]` (장면 JSON 의 그림 · 글꼴은 장면 폴더 안에서만 읽는다) |
 | 좌표 읽는 눈금 판 · 글꼴에 없는 글자 | `arttool sheet --in a.png --grid 8 --out g.png` · `arttool ui glyphs --font f.ttf --text-file chars.txt` |
 | 그림마다 다른 프로필 · 램프만 검사 | `arttool check --in clean --profile-map map.yaml --report c.json` (줄 `match` 글롭 → `profile` · `set`, 위에서 처음 맞는 하나, 안 맞으면 `default`. 낱장 검수만, `--profile` 과 같이 못 쓴다) · `arttool palette check --profile P` (그림 없이 `ramp_shape`. 걸려도 종료 0) |
 | 길이 다른 램프 · 한 색 램프 | 램프 파일 json 에 `ramp_len_mode: max`(기본 `fixed`. 가장 긴 램프 = `ramp_len`. 프로필 칸 아님). 한 색 램프는 `ramp_shape` 경고 대신 `info` `ramp_shape.single` |

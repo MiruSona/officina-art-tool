@@ -178,6 +178,8 @@ arttool provider make  --kind character --spec req.json --out gen/ --dry-run
 | `ui glyphs --font f.ttf (--text "…" \| --text-file t.txt)` | 글꼴에 없는 글자 찾기. 있으면 `fail`(종료 4) |
 | `layers diff … --drop 겹:#hex[,#hex] [--drop-tol 24]` | 겹 떼기에서 그 겹의 이 색 칸을 뺀다 (뺨 · 옷 점이 머리 겹에 묻을 때) |
 | `sheet … --grid 8 [--grid-color #hex]` | zoom 판에 원본 N 칸 눈금 · 좌표 (배율 4 이상) |
+| `sheet --in new.png --out s.png --on shot.png (--at x,y \| --find old.png) [--crop x,y,w,h] [--bg checker\|#hex\|tile.png]` | 그림을 게임 화면 캡처 위에 얹어 본다. `--find` 는 옛 그림과 같은 자리를 찾아 얹는다 (2026-10-07) |
+| `ui mockup --scene s.json --out m.png [--scale N] [--set id=src]` | 장면 JSON(그림 · 9조각 패널 · 글자)으로 UI 시안 한 장을 그린다 (2026-10-07) |
 
 **`arttool.draw`** 는 PIL 로 겹별로 그리는 파이썬 공개 모듈이다(`Canvas` · `shade` · 도형 · `outline`). 쓰는 법은 스킬의 `그리기-pil.md`.
 
