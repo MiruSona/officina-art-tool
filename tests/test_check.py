@@ -499,7 +499,9 @@ def test_profile_wins_unless_fixed(tmp_path):
    assert check.apply_template(prof, fixed)[0].style["outline"] == "none"
 
 
-def test_profile_applied_template_wins_whole_and_brings_ramps(tmp_path):
+def test_profile_applied_template_wins_whole_and_brings_ramps(tmp_path, monkeypatch):
+   # 3판 : 템플릿 절대경로는 팔레트 뿌리 안이어야 믿는다. 게임 저장소 자리를 ARTTOOL_PALETTES 로 연다.
+   monkeypatch.setenv("ARTTOOL_PALETTES", str(tmp_path))
    prof = helpers.tiny_profile(tmp_path, **{"style.outline": "black"})
    ramps = tmp_path / "game_ramps.json"
    jsonio.write_json(ramps, {"version": 1, "name": "g", "ramp_len": 2, "ramps": {"blue": ["#1B2A4A", "#3D5C9B"]}})
@@ -581,3 +583,14 @@ def test_odd_size_one_line_many_files(tmp_path):
    report = check.run(prof, odd_dir(tmp_path, [(9, 8), (11, 8), (13, 8)]))
    rows = [w for w in report["warnings"] if w["rule"] == "odd_size"]
    assert len(rows) == 1 and len(rows[0]["items"]) == 3
+
+def test_template_ramps_outside_roots_warns_and_falls_back(tmp_path, monkeypatch):
+   monkeypatch.delenv("ARTTOOL_PALETTES", raising=False)
+   prof = helpers.tiny_profile(tmp_path)
+   ramps = tmp_path / "game_ramps.json"
+   jsonio.write_json(ramps, {"version": 1, "name": "g", "ramp_len": 2, "ramps": {"blue": ["#1B2A4A", "#3D5C9B"]}})
+   tpl = write_template(tmp_path, kind="character", size=[8, 8], profile_applied=True,
+                        check={"palette": {"ramps_file": str(ramps)}})
+   notes: list = []
+   _, override = check.apply_template(prof, check.load_template(tpl), notes)
+   assert override is None and [n["rule"] for n in notes] == ["template.ramps_outside"]

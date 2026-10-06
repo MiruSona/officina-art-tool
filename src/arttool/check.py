@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import sys
 import time
 from fnmatch import fnmatchcase
@@ -23,8 +24,8 @@ from .checks import ramp as ramp_check
 from .checks import scale as scale_check
 from .errors import ArtToolError, ProfileError, UsageError
 from .jsonio import read_json
-from .paths import png_files
-from .profile import Profile, deep_merge, reject_unknown, validate
+from .paths import png_files, trusted_ramps
+from .profile import Profile, apply_table_mode, cap_left_line, deep_merge, reject_unknown, validate
 from .template import schema
 
 VERSION = 1
@@ -123,13 +124,27 @@ def check_source(path: str | Path) -> Path:
    return source
 
 
-def load_loose(path: str | Path, skipped: list[str] | None = None) -> list[dict]:
+def _png_tree(source: Path) -> list[Path]:
+   """하위 폴더까지 PNG 를 상대경로순으로. 링크(파일 · 폴더)는 안 따라간다 — `--profile-map` 낱장 훑기 전용."""
+   found = []
+   for root, dirs, names in os.walk(source, followlinks=False):
+      base = Path(root)
+      dirs[:] = sorted(d for d in dirs if not (base / d).is_symlink())
+      found += [base / n for n in names if n.lower().endswith(".png") and not (base / n).is_symlink() and (base / n).is_file()]
+   return sorted(found, key=lambda f: f.relative_to(source).as_posix())
+
+
+def load_loose(path: str | Path, skipped: list[str] | None = None, recursive: bool = False) -> list[dict]:
    """낱장 PNG 를 이름순으로 읽는다. 파일 하나를 주면 그 한 장만 본다(가이드 이름이어도 본다).
 
    skipped 목록을 주면 건너뛴 가이드 파일 이름을 거기 더한다 (보고 `skipped_files`).
+   recursive 면(지도 검수) 하위 폴더까지 내려가고 `where` 는 폴더 기준 상대경로(`/` 구분)다.
    """
    source = Path(path)
-   files = [source] if source.is_file() else png_files(source)
+   if recursive and source.is_dir():
+      files = _png_tree(source)
+   else:
+      files = [source] if source.is_file() else png_files(source)
    if source.is_dir():
       name = render_name(source)
       guides = [f for f in files if is_guide(f, name)] if name else []
@@ -140,6 +155,8 @@ def load_loose(path: str | Path, skipped: list[str] | None = None) -> list[dict]
             skipped += [f.name for f in guides]
    if not files:
       raise ArtToolError(f"검수할 PNG 가 하나도 없다 : {source}")
+   if recursive and source.is_dir():
+      return [{"where": f.relative_to(source).as_posix(), "arr": image.load(f)} for f in files]
    return [{"where": f.name, "arr": image.load(f)} for f in files]
 
 
@@ -246,7 +263,7 @@ def rule_bbox_drift(frames: list[dict], limit: int) -> dict:
 def _pick_ramps(prof: Profile, override: Path | None = None) -> tuple[object | None, str | None]:
    """램프를 읽는다. 프로필에 적혔는데 파일이 없으면 그 이름을 같이 돌려준다.
 
-   override 는 템플릿이 박은 램프 파일(절대 경로, 설계 9-4 ⓓ). 프로필의 상대경로 규칙을 안 거친다.
+   override 는 템플릿이 박은 램프 파일(절대 경로, 설계 9-4 ⓓ). apply_template 에서 trusted_ramps 를 지난 것만 온다.
    """
    if override is not None:
       if override.is_file():
@@ -281,6 +298,23 @@ def load_template(path: str | Path) -> dict:
    return schema.read_rendered(path)
 
 
+def _int_cap_table_keys(layer: dict, where) -> None:
+   """템플릿(JSON)의 색 한도 표 열쇠는 늘 글자다("16"). 프로필 표(int 열쇠)와 겹치기 전에 int 로 맞춘다."""
+   node = layer
+   for part in ("check", "warn", "color_cap"):
+      node = node.get(part) if isinstance(node, dict) else None
+   table = node.get("table") if isinstance(node, dict) else None
+   if not isinstance(table, dict):
+      return
+   out = {}
+   for key, value in table.items():
+      try:
+         out[int(key)] = value
+      except (TypeError, ValueError):
+         raise UsageError(f"check.warn.color_cap.table 의 열쇠는 정수(크기)여야 한다 : {key!r} - {where}") from None
+   node["table"] = out
+
+
 def _get_path(node: dict, dotted: str):
    for part in dotted.split("."):
       node = node[part]
@@ -294,7 +328,7 @@ def _set_path(node: dict, dotted: str, value) -> None:
    node[parts[-1]] = copy.deepcopy(value)
 
 
-def apply_template(prof: Profile, tpl: dict) -> tuple[Profile, Path | None]:
+def apply_template(prof: Profile, tpl: dict, notes: list | None = None) -> tuple[Profile, Path | None]:
    """템플릿 check 칸을 프로필 위에 겹친다 (설계 9-4 끝 「겹치는 차례」).
 
    - `profile_applied` 면 이미 프로필이 이긴 값이라 그대로 겹친다.
@@ -314,24 +348,31 @@ def apply_template(prof: Profile, tpl: dict) -> tuple[Profile, Path | None]:
    ramps_override = None
    ramps_file = (layer.get("palette") or {}).get("ramps_file") if isinstance(layer.get("palette"), dict) else None
    if ramps_file and Path(str(ramps_file)).is_absolute():
-      ramps_override = Path(str(ramps_file))
+      # 못 믿는 자리면 None — 프로필 램프로 돌아가고 경고만 남긴다(종료 코드는 그대로).
+      ramps_override = trusted_ramps(str(ramps_file), prof.palette_roots(notes), notes)
       layer["palette"].pop("ramps_file")
 
    where = f"템플릿 {tpl['path']}"
+   _int_cap_table_keys(layer, where)
    try:
       reject_unknown(layer, where)
       merged = deep_merge(prof.data, layer)
+      cap_left = apply_table_mode(merged, layer, prof.data, prof.cap_left, where)
       validate(merged)
    except ProfileError as exc:
       raise UsageError(f"템플릿 check 칸이 프로필 꼴에 안 맞는다 : {exc}") from exc
-   return Profile(merged, prof.source), ramps_override
+   return Profile(merged, prof.source, cap_left), ramps_override
 
 
 # --- 진입점 ---
 
 
 def run(prof: Profile, build_dir: str | Path, no_ramps: bool = False, *, warn: bool = True, mode: str = "auto", template=None,
-        known=None, baseline=None, fail_on_new: bool = False) -> dict:
+        known=None, baseline=None, fail_on_new: bool = False, profile_map=None, _keep_paths: bool = False) -> dict:
+   """검수 한 판. `profile_map`(읽어 둔 `profile_map.ProfileMap`)을 주면 그림마다 프로필을 골라 맞춘다 — 이때 `prof` 는 안 쓴다.
+
+   `_keep_paths` 는 `run_many` 만 쓴다 — 합치기 전까지 `palette` 의 임시 칸 `_path` 를 남긴다.
+   """
    if mode not in MODES:
       raise UsageError(f"--mode 는 {' · '.join(MODES)} 중 하나다 : {mode}")
    use_known = bool(known or baseline or fail_on_new)
@@ -339,10 +380,15 @@ def run(prof: Profile, build_dir: str | Path, no_ramps: bool = False, *, warn: b
       raise UsageError("--known · --baseline · --fail-on-new 은 --no-warn 과 같이 못 쓴다 (경고를 안 세면 뺄 것이 없다)")
    # 목록은 검사 전에 읽는다 — 꼴이 틀리면 그림을 다 재기 전에 멈춘다.
    items = load_known(known or [], baseline or []) if use_known else None
-   report = _run(prof, build_dir, no_ramps, warn=warn, mode=mode, template=template)
+   if profile_map is not None:
+      report = _run_mapped(profile_map, build_dir, no_ramps, warn=warn, mode=mode, template=template)
+   else:
+      report = _run(prof, build_dir, no_ramps, warn=warn, mode=mode, template=template)
    shape_notes = _baseline_shape_notes(baseline or [])
    if shape_notes:
       report = {**report, "info": list(report.get("info", [])) + shape_notes}
+   if not _keep_paths:
+      report = drop_palette_paths(report)
    return apply_known(report, items, fail_on_new) if use_known else report
 
 
@@ -364,8 +410,10 @@ def run_many(prof: Profile, build_dirs, no_ramps: bool = False, **kw) -> dict:
    items = load_known(known or [], baseline or [], many=True) if use_known else None
    labels = input_labels(paths)
    modes = ["loose" if is_loose(check_source(p)) else "frames" for p in paths]
-   reports = [run(prof, p, no_ramps, **kw) for p in paths]
-   merged = merge(reports, labels, paths, modes)
+   reports = [run(prof, p, no_ramps, _keep_paths=True, **kw) for p in paths]
+   merged = drop_palette_paths(merge(reports, labels, paths, modes))
+   if kw.get("profile_map") is not None:
+      merged = _merge_map_block(merged, reports, labels, kw["profile_map"], kw.get("warn", True))
    return apply_known(merged, items, fail_on_new) if use_known else merged
 
 
@@ -441,6 +489,9 @@ def merge(reports: list[dict], labels: list[str], paths=None, modes=None) -> dic
    # 모든 입력의 모드가 같으면 싣는다 — 콘솔이 `checked.mode` 를 보고 「낱장 모드」 줄을 낸다.
    if modes and modes[0] and all(m == modes[0] for m in modes):
       out["checked"]["mode"] = modes[0]
+   pal = merge_palette(reports, labels)
+   if pal:
+      out["palette"] = pal
    if any(r.get("warnings_off") for r in reports):
       out["warnings_off"] = True
    info = [line for r, lab in zip(reports, labels) for line in _tag_lines(lab, r.get("info", []))]
@@ -598,6 +649,15 @@ def apply_known(report: dict, items: list[dict], fail_on_new: bool = False) -> d
       for hit, got in groups.values():
          known.append({**line, "items": got, "known_by": _known_label(hit)})
 
+   # report: once 면 ramp_shape 는 `palette` 칸에만 있다 — 그 판정과 맞는 항목은 낡은 것으로 세지 않는다 (옮기지는 않는다).
+   # 열쇠는 each 때 `cell_key` 가 ramp_shape 칸에서 쓰는 램프 이름 (입력 여럿이면 `<딱지>/<램프>` 도).
+   labels = [i.get("label") for i in report.get("inputs", []) if i.get("label")]
+   for entry in (report.get("palette") or {}).values():
+      for text in entry.get("ramp_shape", []):
+         ramp = str(text).split(": ", 1)[0]
+         for spot in [ramp] + [f"{lab}/{ramp}" for lab in labels]:
+            _known_hit(items, "ramp_shape", spot, used)
+
    out["warnings"] = remain
    out["new_warnings"] = sum(len(line.get("items") or []) or 1 for line in remain)
    out["known"] = known
@@ -628,9 +688,10 @@ def _known_item(entry: dict) -> dict:
 def _run(prof: Profile, build_dir: str | Path, no_ramps: bool = False, *, warn: bool = True, mode: str = "auto", template=None) -> dict:
    tpl = load_template(template) if template else None
    ramps_override = None
+   notes: list[dict] = []
    if tpl is not None:
-      prof, ramps_override = apply_template(prof, tpl)
-   ctx = {"warn": warn, "mode": mode, "template": tpl, "ramps_override": ramps_override}
+      prof, ramps_override = apply_template(prof, tpl, notes)
+   ctx = {"warn": warn, "mode": mode, "template": tpl, "ramps_override": ramps_override, "template_notes": notes}
 
    source = check_source(build_dir)
    if is_loose(source):
@@ -639,6 +700,123 @@ def _run(prof: Profile, build_dir: str | Path, no_ramps: bool = False, *, warn: 
          print(f"frames.json 이 없어 낱장 모드로 본다 — 건너뛴 검사 : {', '.join(LOOSE_SKIPPED)}", file=sys.stderr)
       return run_loose(prof, source, no_ramps, **ctx)
    return run_frames(prof, source, no_ramps, **ctx)
+
+
+# --- 그림마다 다른 프로필 (3판 설계 2-1 `--profile-map`) ---
+
+MAP_UNUSED = "profile_map.rule_unused"
+MAP_IDLE = "profile_map.rule_idle"
+
+
+def _run_mapped(pmap, build_dir: str | Path, no_ramps: bool = False, *, warn: bool = True, mode: str = "auto", template=None) -> dict:
+   """그림마다 지도로 프로필을 고르고, 같은 프로필끼리 묶어 한 묶음씩 판정한 뒤 합친다.
+
+   그림은 한 번만 읽는다. 프로필은 지도를 읽을 때 한 번씩 읽어 두었다 — 그래서 O(그림 수 + 프로필 수).
+   템플릿은 묶음마다 그 묶음 프로필 위에 겹친다 (기본 → 프로필 → 지도 set → 템플릿).
+   """
+   source = check_source(build_dir)
+   if not is_loose(source):
+      raise UsageError("--profile-map 은 낱장 검수(frames.json 이 없는 폴더 · PNG 한 장)에만 쓴다")
+   if source.is_dir():
+      print(f"frames.json 이 없어 낱장 모드로 본다 — 건너뛴 검사 : {', '.join(LOOSE_SKIPPED)}", file=sys.stderr)
+   tpl = load_template(template) if template else None
+   skipped_files: list[str] = []
+   frames = load_loose(source, skipped_files, recursive=True)   # 지도 무늬가 폴더도 보도록 하위 폴더까지
+
+   order = [str(i) for i in range(len(pmap.rules))] + ["default"]
+   groups: dict[str, tuple[Profile, str, list[dict]]] = {}
+   files: dict[str, str] = {}
+   for item in frames:
+      key, prof, label = pmap.pick(item["where"])
+      groups.setdefault(key, (prof, label, []))[2].append(item)
+      files[item["where"]] = label
+
+   parts = []
+   for key in (k for k in order if k in groups):
+      prof, label, group = groups[key]
+      notes: list[dict] = []
+      ramps_override = None
+      if tpl is not None:
+         prof, ramps_override = apply_template(prof, tpl, notes)
+      ctx = {"warn": warn, "mode": mode, "template": tpl, "ramps_override": ramps_override, "template_notes": notes}
+      parts.append((label, _loose_report(prof, group, [], no_ramps, ctx)))
+
+   hits = {key: len(groups[key][2]) for key in order if key in groups}
+   out = _merge_mapped(parts, pmap.default.name)
+   if skipped_files:
+      out["skipped_files"] = skipped_files
+   out["profile_map"] = {"file": str(pmap.path), "rules": len(pmap.rules), "hits": hits, "files": files}
+   _map_notes(out, pmap, hits, warn)
+   return out
+
+
+def _map_notes(out: dict, pmap, hits: dict, warn: bool) -> None:
+   """지도 줄이 안 쓰였다는 알림. 입력이 여럿이면 합친 뒤 입력 전체 `hits` 로 한 번만 부른다.
+
+   - 모든 그림이 default 면 경고 `rule_unused` (무늬 오타일 수 있다). status 는 안 바꾼다.
+   - 한 번도 안 맞은 줄마다 info `rule_idle` — 줄 하나만 오타 나도 보이게.
+   """
+   if pmap.rules and hits.get("default") and len(hits) == 1 and warn:
+      out["warnings"].append(warning(MAP_UNUSED, f"지도 {pmap.path.name} 의 rules {len(pmap.rules)}줄이 한 번도 안 맞았다 — 무늬 오타인지 본다",
+                                     [{"where": pmap.path.name}]))
+   idle = [{"rule": MAP_IDLE, "detail": f"지도 {pmap.path.name} rules[{i}] · match {rule['match']}"}
+           for i, rule in enumerate(pmap.rules) if not hits.get(str(i))]
+   if idle:
+      out["info"] = out.get("info", []) + idle
+
+
+def _merge_map_block(merged: dict, reports: list[dict], labels: list[str], pmap, warn: bool) -> dict:
+   """`--in` 여럿 + 지도 : 입력마다 낸 지도 알림을 걷어 내고, 입력 전체를 모은 `profile_map` 칸과 알림을 한 번 싣는다."""
+   merged["warnings"] = [w for w in merged.get("warnings", []) if w.get("rule") != MAP_UNUSED]
+   info = [i for i in merged.get("info", []) if i.get("rule") != MAP_IDLE]
+   if info:
+      merged["info"] = info
+   else:
+      merged.pop("info", None)
+   order = [str(i) for i in range(len(pmap.rules))] + ["default"]
+   hits: dict[str, int] = {}
+   files: dict[str, str] = {}
+   for rep, lab in zip(reports, labels):
+      block = rep.get("profile_map") or {}
+      for key, n in block.get("hits", {}).items():
+         hits[key] = hits.get(key, 0) + n
+      files.update({f"{lab}/{rel}": prof for rel, prof in block.get("files", {}).items()})
+   hits = {key: hits[key] for key in order if key in hits}
+   merged["profile_map"] = {"file": str(pmap.path), "rules": len(pmap.rules), "hits": hits, "files": files}
+   _map_notes(merged, pmap, hits, warn)
+   return merged
+
+
+def _with_profile(lines: list[dict], label: str) -> list[dict]:
+   return [{**line, "profile": label} for line in lines]
+
+
+def _merge_mapped(parts: list[tuple[str, dict]], default_name: str) -> dict:
+   """묶음 보고를 하나로 합친다. 줄마다 `profile` 딱지를 단다. `where` 는 안 바꾼다 — `--known` 무늬가 그대로 맞는다."""
+   reports = [rep for _, rep in parts]
+   first = reports[0]
+   out = {
+      "version": first["version"],
+      "profile": default_name,
+      "status": "fail" if any(r["status"] == "fail" for r in reports) else "ok",
+      "must_failed": _union(r.get("must_failed", []) for r in reports),
+      "checked": {"mode": "loose", "files": sum(int(r.get("checked", {}).get("files") or 0) for r in reports)},
+      "failed": _union(r.get("failed", []) for r in reports),
+      "skipped": _union(r.get("skipped", []) for r in reports),
+      "rules": [line for label, r in parts for line in _with_profile(r.get("rules", []), label)],
+      "warnings": [line for label, r in parts for line in _with_profile(r.get("warnings", []), label)],
+   }
+   pal = merge_palette(reports, [label for label, _ in parts])
+   if pal:
+      out["palette"] = pal
+   if any(r.get("warnings_off") for r in reports):
+      out["warnings_off"] = True
+   info = [line for label, r in parts for line in _with_profile(r.get("info", []), label)]
+   if info:
+      out["info"] = info
+   if "template" in first:
+      out["template"] = first["template"]
+   return out
 
 
 def run_frames(prof: Profile, build_dir: str | Path, no_ramps: bool = False, **ctx) -> dict:
@@ -666,6 +844,11 @@ def run_loose(prof: Profile, in_path: str | Path, no_ramps: bool = False, **ctx)
    """낱장 검수. 프레임 규격을 모르니 baseline · bbox 흔들림은 안 본다."""
    skipped_files: list[str] = []
    frames = load_loose(in_path, skipped_files)
+   return _loose_report(prof, frames, skipped_files, no_ramps, ctx)
+
+
+def _loose_report(prof: Profile, frames: list[dict], skipped_files: list[str], no_ramps: bool, ctx: dict) -> dict:
+   """읽어 둔 낱장 묶음 하나를 판정한다. `--profile-map` 은 프로필 묶음마다 이것을 부른다."""
    _mark_background(prof, frames, ctx.get("mode", "auto"))
    ramps, missing = _pick_ramps(prof, ctx.get("ramps_override"))
 
@@ -728,7 +911,7 @@ def _finish(report: dict, prof: Profile, frames: list[dict], groups: dict, ramps
    if ctx.get("warn", True):
       warnings = _warnings(prof, frames, groups, ramps, no_ramps, cache, info)
       if tpl:
-         warnings += _template_compare(frames, groups, tpl)
+         warnings += ctx.get("template_notes", []) + _template_compare(frames, groups, tpl)
 
    out = {key: report[key] for key in ("version", "profile", "status")}
    out["must_failed"] = [line["rule"].split(".", 1)[1] for line in must_lines]
@@ -736,6 +919,12 @@ def _finish(report: dict, prof: Profile, frames: list[dict], groups: dict, ramps
    out["warnings"] = must_lines + warnings
    if not ctx.get("warn", True):
       out["warnings_off"] = True
+   elif ramps is not None and not no_ramps and prof.warn("ramp_shape")["enabled"] and ramp_report(prof) == "once":
+      # report: once 일 때만 붙인다 — 새 칸을 안 쓰는 옛 프로필의 보고는 예전과 바이트까지 같아야 한다.
+      out["palette"] = palette_block(prof, ramps, len(frames))
+      # 합칠 때만 쓰는 임시 칸 — `run` · `run_many` 가 내보내기 전에 지운다(보고에 PC 경로가 새면 안 된다).
+      for entry in out["palette"].values():
+         entry[PALETTE_PATH] = getattr(ramps, "path", None)
    if info:
       out["info"] = info
    if tpl:
@@ -850,6 +1039,9 @@ def _warnings(prof: Profile, frames: list[dict], groups: dict, ramps, no_ramps: 
 
    if prof.warn("color_cap")["enabled"]:
       table = prof.color_cap_table()
+      left = cap_left_line(prof)
+      if left:
+         info.append({"rule": "color_cap.table_merged", "detail": left})
       bg_cap = int(prof.check["background"]["color_cap"])
       items = []
       for item in frames:
@@ -877,7 +1069,7 @@ def _warnings(prof: Profile, frames: list[dict], groups: dict, ramps, no_ramps: 
                       "detail": f"색이 {pixel_check.NEAR_MAX_COLORS}가지를 넘어 비슷한 색 쌍을 안 센 그림 {len(too_many)}장 (도트가 아닌 그림일 수 있다)",
                       "items": too_many})
 
-   if prof.warn("ramp_shape")["enabled"] and ramps is not None and not no_ramps:
+   if prof.warn("ramp_shape")["enabled"] and ramps is not None and not no_ramps and ramp_report(prof) == "each":
       out += _ramp_warnings(prof, ramps)
 
    if prof.warn("loop_seam")["enabled"]:
@@ -945,7 +1137,13 @@ def _outline_warnings(prof: Profile, frames: list[dict], info: list, cache: dict
    return _per_image("outline", items, "외곽선 방식이 다른")
 
 
-def _ramp_warnings(prof: Profile, ramps) -> list[dict]:
+def ramp_report(prof: Profile) -> str:
+   """ramp_shape 를 싣는 자리. 프로필에 안 적으면 each(옛 동작) — 옛 보고가 바이트까지 같게 남는다."""
+   return prof.warn("ramp_shape").get("report", "each")
+
+
+def ramp_items(prof: Profile, ramps) -> list[dict]:
+   """램프 파일의 모양이 걸린 램프 칸들. 칸 꼴 `{"ramp": …}` 은 `--known` 자리 열쇠라 바꾸지 않는다."""
    cfg = prof.warn("ramp_shape")
    materials = prof.style.get("materials") or {}
    items = []
@@ -954,6 +1152,55 @@ def _ramp_warnings(prof: Profile, ramps) -> list[dict]:
       why = ramp_check.judge_ramp(m, cfg, materials.get(name))
       if why:
          items.append({"ramp": name, "why": why, "steps": m["steps"], "padded": m["padded"], "hue_steps": m["hue_steps"], "luma": m["luma"]})
+   return items
+
+
+def palette_block(prof: Profile, ramps, used_by: int) -> dict:
+   """맨 위 `palette` 칸 한 덩이 (설계 2-4). 램프 파일 하나를 한 판에 한 번만 잰다.
+
+   열쇠는 램프 파일 이름, `used_by` 는 이 파일로 잰 그림 수. 걸린 것이 없어도 덩이는 붙는다(빈 목록).
+   """
+   lines = [f"{item['ramp']}: {item['why']}" for item in ramp_items(prof, ramps)]
+   return {getattr(ramps, "file", None) or ramps.name: {"ramp_shape": lines, "used_by": used_by}}
+
+
+PALETTE_PATH = "_path"   # `palette` 칸의 임시 칸 — 램프 파일의 전체 경로. 합칠 때만 쓰고 내보내기 전에 지운다.
+
+
+def merge_palette(reports, labels) -> dict | None:
+   """보고 여럿의 `palette` 칸을 합친다. 아무도 없으면 None.
+
+   전체 경로와 `ramp_shape` 판정이 같으면 한 열쇠로 합쳐 `used_by` 를 더한다. 이름은 같은데 둘 중 하나라도
+   다르면(프로필마다 `ramp_shape` 설정이 다름 · 폴더만 다른 같은 이름 파일) 열쇠를 `<이름> · <딱지>` 로 갈라 둘 다 남긴다.
+   임시 칸 `_path` 는 그대로 들고 간다 — 지도 묶음을 다시 `--in` 여럿으로 합칠 수 있어서다.
+   """
+   kinds: dict[str, list[tuple[str, dict]]] = {}   # 이름 → [(처음 본 판의 딱지, 합친 칸)]
+   for rep, label in zip(reports, labels):
+      for name, entry in (rep.get("palette") or {}).items():
+         same = kinds.setdefault(name, [])
+         for _, seen in same:
+            if seen.get(PALETTE_PATH) == entry.get(PALETTE_PATH) and seen["ramp_shape"] == entry["ramp_shape"]:
+               seen["used_by"] += entry["used_by"]
+               break
+         else:
+            same.append((label, dict(entry)))
+   out: dict = {}
+   for name, same in kinds.items():
+      for label, entry in same:
+         out[name if len(same) == 1 else f"{name} · {label}"] = entry
+   return out or None
+
+
+def drop_palette_paths(report: dict) -> dict:
+   """`palette` 칸에서 임시 칸 `_path` 를 지운 보고를 돌려준다. 칸이 없으면 그대로."""
+   if "palette" not in report:
+      return report
+   pal = {name: {k: v for k, v in entry.items() if k != PALETTE_PATH} for name, entry in report["palette"].items()}
+   return {**report, "palette": pal}
+
+
+def _ramp_warnings(prof: Profile, ramps) -> list[dict]:
+   items = ramp_items(prof, ramps)
    if not items:
       return []
    return [warning("ramp_shape", f"모양이 걸린 램프 {len(items)}줄", items)]

@@ -27,6 +27,7 @@
 | `shift` | `arttool.sprite.shift.run` (2026-10-06) |
 | `outline` · `fill` · `diff` | `arttool.sprite.outline` · `edit.fill` · `sprite.diff` 의 `run` (2026-10-06) |
 | `measure shape` · `mask` | `arttool.measure.shape` · `edit.mask` 의 `run` (2026-10-06 2판-나) |
+| `palette check` | `arttool.checks.palette_check.run` (2026-10-06 3판-가, 램프 파일만 잰다) |
 | `layers compose` | 여기서 `sprite.layers.compose_sheets` 를 바로 부른다 (옛 `layers`) |
 | `check --no-warn · --mode · --template` | `check.run(prof, in_dir, no_ramps, *, warn, mode, template)` — 그 세 칸을 받게 되면 넘긴다 |
 | `check --known · --baseline · --fail-on-new` | `check.run(..., *, known, baseline, fail_on_new)` — 셋 중 하나라도 줬을 때만 넘긴다 |
@@ -46,12 +47,13 @@ from pathlib import Path
 
 from . import bake as bake_mod
 from . import check as check_mod
+from . import profile_map as profile_map_mod
 from . import providers
 from .edit import dry_run_fields, is_dry_run
 from .errors import EXIT_CHECK_FAIL, EXIT_ERROR, EXIT_OK, ArtToolError, UsageError
 from .jsonio import read_json, write_json
 from .paths import guard_overwrite, jailed_output
-from .profile import load_profile_args
+from .profile import load_profile_args, show_lines as profile_show_lines
 from .extend import canvas as extend_canvas_mod
 from .sprite import anchors as anchors_mod
 from .sprite import layers as layers_mod
@@ -106,6 +108,7 @@ LATE: dict[tuple[str, str | None], tuple[str, str]] = {
    ("diff", None): ("arttool.sprite.diff", "run"),
    ("measure", "shape"): ("arttool.measure.shape", "run"),
    ("mask", None): ("arttool.edit.mask", "run"),
+   ("palette", "check"): ("arttool.checks.palette_check", "run"),
 }
 
 # check.run 이 이 세 칸을 키워드로 받게 되면(D 갈래) 새 인자를 넘긴다.
@@ -188,6 +191,7 @@ def build_parser() -> argparse.ArgumentParser:
    _add_diff(subs)
    _add_measure(subs)
    _add_mask(subs)
+   _add_palette(subs)
    return parser
 
 
@@ -223,6 +227,8 @@ def _add_check(subs) -> None:
    node.add_argument("--no-warn", dest="no_warn", action="store_true", help="이번 한 판만 경고 검사를 끈다 (status 는 그대로)")
    node.add_argument("--mode", dest="mode", default="auto", choices=list(CHECK_MODES), help="배경 판정을 덮어쓴다 (기본 auto)")
    node.add_argument("--template", dest="template", help="template render 가 낸 template.json. 그 값을 검사 문턱으로 겹친다")
+   node.add_argument("--profile-map", dest="profile_map",
+                     help="그림마다 프로필을 고르는 지도 yaml (낱장 검수만). --profile 과 같이 못 쓴다")
    node.add_argument("--known", dest="known", action="append",
                      help="알고 두는 경고 목록 JSON [{rule, where, note}]. 맞은 경고 칸은 known 으로 옮긴다 (여러 번 줄 수 있다)")
    node.add_argument("--baseline", dest="baseline", action="append",
@@ -354,6 +360,14 @@ def _add_measure(subs) -> None:
    shape.add_argument("--color", dest="color", help="#rrggbb. 이 색 칸 덩이 가운데 가장 큰 것을 잰다")
    shape.add_argument("--tol", dest="tol", type=int, default=0, help="색 폭. RGB 각 칸 차이의 최댓값 (기본 0)")
    shape.add_argument("--report", dest="report", help="보고 JSON (mask --from-shape 가 그대로 읽는다)")
+
+
+def _add_palette(subs) -> None:
+   node = subs.add_parser("palette", help="팔레트 묶음 명령 (check)")
+   inner = node.add_subparsers(dest="sub", required=True)
+   look = inner.add_parser("check", help="램프 파일 하나의 모양(ramp_shape)을 그림 없이 한 번 잰다 (파일 안 씀)", parents=[COMMON])
+   look.add_argument("--ramps", dest="ramps", help="잴 램프 JSON. 안 주면 --profile 의 palette.ramps_file")
+   look.add_argument("--report", dest="report", help="보고 JSON")
 
 
 def _add_mask(subs) -> None:
@@ -733,7 +747,7 @@ def _run_late(args, module_name: str, func_name: str) -> dict:
 REPORT_GUARDED = ("in_dir", "in_file", "base", "original", "template", "spec", "manifest", "layout", "tileset",
                   "rules", "map_file", "skeleton", "markers", "out_file", "out_dir", "sheet", "out",
                   "b64", "mark", "mask", "font", "text_file", "gif", "known", "baseline",
-                  "in_path", "from_shape", "like")
+                  "in_path", "from_shape", "like", "profile_map", "ramps")
 
 
 def _guard_report(args) -> None:
@@ -772,7 +786,7 @@ DRY_RUN_TAKES = {
 DRY_RUN_HARMLESS = {
    ("profile", "show"), ("check", None), ("layers", "check"), ("tile", "inspect"), ("ui", "check"), ("ui", "glyphs"),
    ("template", "list"), ("template", "show"), ("provider", "list"), ("diff", None),
-   ("measure", "shape"),
+   ("measure", "shape"), ("palette", "check"),
 }
 # 폴더째 여러 파일을 쓰는 명령. 쓸 목록이 셈 중간에 정해지거나 앞 단계 산출물을 읽어 S 로 안 된다 — 까닭은 진행상황.md
 DRY_RUN_REFUSED = {
@@ -828,7 +842,9 @@ def run(args) -> dict:
 
 
 def _run_profile(args) -> dict:
-   return _profile(args).as_dict()
+   prof = _profile(args)
+   # 겹친 값 그대로에 사람용 줄(한도 · 외곽선)만 덧붙인다. 다른 칸은 예전과 같다.
+   return {**prof.as_dict(), "show_lines": profile_show_lines(prof)}
 
 
 def _run_normalize(args) -> dict:
@@ -870,7 +886,15 @@ def _run_check(args) -> dict:
          extra.update(known=args.known, baseline=args.baseline, fail_on_new=args.fail_on_new)
    elif args.no_warn or args.mode != "auto" or args.template:
       raise UsageError("아직 구현 안 됨 : check --no-warn · --mode · --template")
-   report = check_mod.run_many(_profile(args), args.in_dir, args.no_ramps, **extra)
+   map_file = getattr(args, "profile_map", None)
+   if map_file:
+      # 그림마다 프로필 (3판 2-1). 안 주면 키워드를 안 넘겨 보고가 예전과 바이트까지 같다.
+      if getattr(args, "profile", None) or getattr(args, "directions", None):
+         raise UsageError("--profile-map 은 --profile · --directions 와 같이 못 쓴다 (프로필은 지도가 고른다)")
+      pmap = profile_map_mod.load(map_file)
+      report = check_mod.run_many(pmap.default, args.in_dir, args.no_ramps, profile_map=pmap, **extra)
+   else:
+      report = check_mod.run_many(_profile(args), args.in_dir, args.no_ramps, **extra)
    write_json(jailed_output(args.report), report)
    return report
 
@@ -1021,6 +1045,9 @@ def _print_human(data) -> None:
       print(f"꼭 지킬 것 어김 {len(data['must_failed'])}건 : {', '.join(map(str, data['must_failed']))}")
    if isinstance(data, dict) and isinstance(data.get("warnings"), list):
       print(f"경고 {len(data['warnings'])}건")
+   if isinstance(data, dict) and isinstance(data.get("show_lines"), list):
+      for line in data["show_lines"]:
+         print(line)
    print(json.dumps(data, ensure_ascii=False, indent=2))
 
 

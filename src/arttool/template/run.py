@@ -23,7 +23,7 @@ from ..checks import ramp as ramp_check
 from ..draw import shapes
 from ..errors import ArtToolError, UsageError
 from ..jsonio import read_json, write_json
-from ..palette import load_ramps, parse_hex, to_hex
+from ..palette import parse_hex, ramps_from_data, to_hex
 from ..paths import resolve_root, safe_join
 from ..profile import deep_merge, load_profile_args
 from . import TemplateError, guide, schema
@@ -135,8 +135,8 @@ def palette_info(prof, warnings: list) -> dict | None:
    if not path.is_file():
       warnings.append(_warn("template.palette_missing", f"프로필의 램프 파일이 없어 화풍 색을 건너뛴다 : {path}"))
       return None
-   ramps = load_ramps(path)
    raw = read_json(path)
+   ramps = ramps_from_data(raw, path)
    info = {
       "ramps_file": str(path.resolve()),
       "ramps": {name: [to_hex(c) for c in ramps.ramp(name)] for name in ramps.names()},

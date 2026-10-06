@@ -70,7 +70,7 @@ ArtTool/.venv/Scripts/python -m pytest ArtTool/tests -q
 
 **시안(게임에 안 넣는 그림 · 목업)을 눈으로 고를 땐 `sheet` 비교판을 쓴다.** 꼴끼리 경고 수를 견줄 땐 시안에 `check` 를 돌려도 된다.
 
-**`check` 는 준 폴더 바로 아래 `.png` 만 본다.** 하위 폴더는 안 들어가고, 확장자는 대소문자를 안 가린다.
+**`check` 는 준 폴더 바로 아래 `.png` 만 본다.** 하위 폴더는 안 들어가고, 확장자는 대소문자를 안 가린다. (`--profile-map` 을 주면 하위 폴더까지 내려간다 — 명령안내 15절.)
 (`ui icons` 의 낱장 폴더도 같다.)
 
 **아이콘에 `ui check` 가 실제로 보는 것은 셋뿐이다** — 반투명 · (켰다면) 램프 밖 색 · 가족 안에서 크기가 섞였는지(경고).
@@ -142,6 +142,10 @@ arttool provider make  --kind character --spec req.json --out gen/ --dry-run
 | `measure shape --in a.png (--at x,y \| --color #hex) [--tol N] [--report s.json]` | 한 색 덩이의 가운데 · 반지름(`r` · `r_max`) · 넓이 · 상자 · 원다움을 잰다. 파일을 안 쓴다. 경고 `measure.not_round` · `measure.none`(종료 4) (2026-10-06) |
 | `mask --from-shape s.json (--size w,h \| --like a.png) [--r round\|max\|수] [--invert] --out m.png` | `measure shape` 보고로 흰 원 가림판(바깥은 투명)을 만든다. 경고 `mask.clipped` (2026-10-06) |
 | `check --in A B … --report c.json` | 폴더 여럿을 한 보고로. 둘 이상일 때만 `inputs` · 줄마다 `input` · `where` 앞 `<딱지>/` 가 붙는다 (2026-10-06) |
+| `check --in 폴더 --profile-map 지도.yaml` | 그림마다 다른 프로필. 줄(`match` 글롭 → `profile` · `set`)을 위에서부터 처음 맞는 하나, 안 맞으면 `default`. 보고에 `profile_map` · 줄마다 `profile`. 낱장 검수만, `--profile` · `--directions` 와 같이 못 쓴다. 경고 `profile_map.rule_unused` (2026-10-06) |
+| `palette check (--profile P \| --ramps r.json) [--report p.json]` | 그림 없이 램프 파일만 보고 `ramp_shape` 판정. 걸려도 종료 0. 프로필 `check.warn.ramp_shape.report: once` 면 `check` 보고 맨 위 `palette` 칸에 한 번만 실린다 (2026-10-06) |
+| 환경변수 `ARTTOOL_PALETTES` | 팔레트 뿌리(절대경로 · 있는 폴더). 프로필 램프 경로를 `$palettes/…` 로 쓴다. 템플릿의 램프 절대경로는 프로필 폴더 · 툴 폴더 · 이 뿌리 아래만 믿고, 아니면 경고 `template.ramps_outside` (2026-10-06) |
+| `color_cap.table_mode: replace` | 프로필의 색 한도 표를 기본 표에 겹치지 않고 통째로 바꾼다(기본 `merge`). `--set` 으로는 안 먹는다. `profile show` 가 표를 읽기 쉬운 줄로 보인다 (2026-10-06) |
 | `sheet … --scale per` | 그림(줄)마다 배율을 따로 `auto`. 줄 딱지 끝 ` · ×N`, 보고 `items[].scale`. `--strip` 과 같이 못 쓴다 (2026-10-06) |
 | `style extract --in refs/ --out style/ [--by-folder] [--max-colors 64] [--force]` | 기준 그림 → 팔레트 · 견본 · 프로필 조각 · 보고. **종류별(`--by-folder`)이 권장 길** |
 | `template list` · `show <이름> [--size N\|WxH] [--preset P] [--base #hex] [--material M]` · `render … --out guide/ [--over a.png]` | 그리기 전 밑판(가이드 겹 · 마스크 · 프롬프트 · 순서). **템플릿 15개** |

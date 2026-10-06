@@ -25,5 +25,6 @@ def read_json(path: str | os.PathLike) -> dict:
       raise ArtToolError(f"JSON 파일이 없다 : {file}")
    try:
       return json.loads(file.read_text(encoding="utf-8-sig"))
-   except json.JSONDecodeError as exc:
+   except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+      # UTF-8 이 아닌 파일도 깨진 JSON 과 같은 오류로 알린다.
       raise ArtToolError(f"JSON 을 못 읽었다 : {file} - {exc}") from exc

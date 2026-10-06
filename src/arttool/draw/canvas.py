@@ -231,6 +231,7 @@ class Canvas:
    def __init__(self, size=None, *, template=None, layers=None, ramps=None, light: str | None = None,
                 preset: str | None = None, profile=None):
       lay_data = tpl_data = None
+      self.warnings: list[dict] = []   # 그리기를 막지 않는 알림(예: template.ramps_outside)
       self.guide: Guide | None = None
       self.template_name: str | None = None
       where = "(인자)"
@@ -258,8 +259,14 @@ class Canvas:
          self.ramps: Ramps | None = ramps
       elif ramps is not None:
          self.ramps = load_ramps(ramps)
-      elif self.guide is not None and self.guide.ramps_file and Path(self.guide.ramps_file).is_file():
-         self.ramps = load_ramps(self.guide.ramps_file)
+      elif self.guide is not None and self.guide.ramps_file:
+         # template.json 의 절대경로는 믿지 않는다. 뿌리(툴 폴더 · 프로필 폴더 · ARTTOOL_PALETTES) 밖이면 경고만 남긴다.
+         from ..profile import load_profile, tool_home
+         prof = load_profile(profile) if profile else None
+         roots = prof.palette_roots(self.warnings) if prof is not None else [paths.resolve_root(tool_home()), paths.gathered_palettes_root(self.warnings)]
+         trusted = paths.trusted_ramps(self.guide.ramps_file, roots, self.warnings)
+         back = prof.ramps_path() if trusted is None and prof is not None else None
+         self.ramps = load_ramps(trusted or back) if (trusted or (back is not None and back.is_file())) else None
       else:
          self.ramps = None
 

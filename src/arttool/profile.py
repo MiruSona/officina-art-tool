@@ -10,8 +10,8 @@ from pathlib import Path
 
 import yaml
 
-from .errors import ProfileError
-from .paths import check_relative, resolve_root, safe_join
+from .errors import ProfileError, UsageError
+from .paths import PALETTES_ENV, PALETTES_PREFIX, check_relative, gathered_palettes_root, is_plain_file, palettes_root, resolve_root, safe_join
 
 PROJECTIONS = ("front", "topdown", "quarter", "isometric")
 MOVEMENTS = ("plane", "gravity")
@@ -43,9 +43,18 @@ TOP_KEYS = ("name", "preset", "axes", "canvas", "palette", "anim", "rigs", "tile
 ANIM_KEYS = ("frames", "dirs")
 RIG_KEYS = ("method", "layer_order", "anchors", "marker_colors", "anchor_z")
 # 값이 사람이 정한 이름표라 안쪽을 안 들여다보는 칸. 열쇠가 크기 숫자인 표도 여기 둔다(값은 validate 가 본다).
-FREE_MAPS = ("rigs.*.marker_colors", "rigs.*.anchor_z", "check.warn.color_cap.table")
+# 열쇠를 사용자가 정하는 자리. 「*」 는 마디 하나와 맞는다. sprite · style.materials 는 기본값이 빈 사전이라
+# 예전에 우연히 자유였던 자리를 그대로 이어받았다(09-18 보류 1 정리).
+FREE_MAPS = ("rigs.*.marker_colors", "rigs.*.anchor_z", "check.warn.color_cap.table", "sprite", "style.materials")
+# 기본값에는 없지만 적어도 되는 칸(경로 → 이름들). 기본값에 넣으면 옛 프로필의 profile show · 템플릿 출력이 바뀌어 따로 둔다.
+OPTIONAL_KEYS: dict[str, tuple[str, ...]] = {"check.warn.color_cap": ("table_mode",), "check.warn.ramp_shape": ("report",)}
+# 색 한도 표를 겹치는 법. merge = 아래 표 위에 겹치기(옛 뜻), replace = 이 겹의 표만 쓰기.
+TABLE_MODES = ("merge", "replace")
 
 # 새 검사 일곱의 문턱값. isolated · color_cap · near_colors 는 실물 시험(2026-10-04, 기준 무리 146장)으로 맞췄다.
+# ramp_shape 경고를 어디에 싣나 (설계 2-4). each = 그림 보고 경고 줄(옛 동작, 기본) · once = 맨 위 `palette` 칸에만 한 번.
+RAMP_REPORTS = ("each", "once")
+
 WARN_DEFAULTS: dict = {
    "integer_scale": {"enabled": True, "block_ratio": 0.95, "smooth_ratio": 0.15},
    "outline": {"enabled": True, "black_ratio": 0.8, "accept": []},     # accept : style.outline 말고도 통과시킬 판정들
@@ -227,9 +236,11 @@ def apply_overrides(data: dict, overrides: dict[str, object]) -> dict:
 class Profile:
    """읽어들인 프로필 한 벌."""
 
-   def __init__(self, data: dict, source: Path | None = None):
+   def __init__(self, data: dict, source: Path | None = None, cap_left: tuple[int, ...] | None = None):
       self.data = data
       self.source = source
+      # 사용자 표 위에 겹쳐 남은 기본 표 칸(크기). None = 아직 아무 겹도 표를 안 적었다.
+      self.cap_left = cap_left
 
    @property
    def name(self) -> str:
@@ -325,12 +336,36 @@ class Profile:
       if not rel:
          return None
 
+      text = str(rel).replace("\\", "/")
+      if text.startswith(PALETTES_PREFIX):
+         # 접두가 있을 때만 환경변수 뿌리를 본다. 접두 없는 옛 프로필은 환경변수를 켜도 다른 파일을 안 집는다.
+         root = palettes_root()
+         if root is None:
+            raise UsageError(f"ramps_file 이 {PALETTES_PREFIX} 로 시작하는데 {PALETTES_ENV} 가 꺼져 있다 : {rel}")
+         target = safe_join(root, text[len(PALETTES_PREFIX):])
+         if target.suffix.casefold() != ".json" or (target.exists() and not is_plain_file(target)):
+            raise UsageError(f"{PALETTES_PREFIX} 램프는 링크 아닌 .json 파일이어야 한다 : {rel}")
+         return target
+
       check_relative(rel)
       if self.source is not None:
          near = safe_join(resolve_root(self.source.parent), rel)
          if near.is_file():
             return near
       return safe_join(resolve_root(tool_home()), rel)
+
+   def palette_roots(self, warnings: list | None = None) -> list[Path]:
+      """램프 파일을 믿는 뿌리 셋 : 프로필 폴더 · 툴 폴더 · ARTTOOL_PALETTES(켰고 값이 맞을 때만).
+
+      ARTTOOL_PALETTES 가 틀리면 그 뿌리만 빼고 warnings 에 경고를 남긴다 — $palettes/ 를 안 쓰는 일은 안 죽는다.
+      """
+      roots = [resolve_root(tool_home())]
+      if self.source is not None:
+         roots.insert(0, resolve_root(self.source.parent))
+      env = gathered_palettes_root(warnings)
+      if env is not None:
+         roots.append(env)
+      return roots
 
    def as_dict(self) -> dict:
       return copy.deepcopy(self.data)
@@ -345,15 +380,77 @@ def load_profile(name_or_path: str | None = None, overrides: dict[str, object] |
 
    _reject_unknown_top(raw, source)
    preset_name = raw.get("preset", DEFAULTS["preset"])
-   data = deep_merge(DEFAULTS, load_preset(str(preset_name)))
+   preset = load_preset(str(preset_name))
+   if "table_mode" in (((preset.get("check") or {}).get("warn") or {}).get("color_cap") or {}):
+      # 프리셋 겹에는 table_mode 를 적용하지 않는다. 말없이 무시하지 않고 거절한다.
+      raise ProfileError(f"프리셋은 check.warn.color_cap.table_mode 를 둘 수 없다 (프로필에 적는다) : {preset_name}")
+   data = deep_merge(DEFAULTS, preset)
+   base = data
    data = deep_merge(data, raw)
+   cap_left = apply_table_mode(data, raw, base, None, source or "(인자)")
+   if overrides and any(str(key).split(".")[-1] == "table_mode" for key in overrides):
+      # 인자 겹에는 table_mode 가 닿지 않는다. 말없이 무시하지 않고 거절한다.
+      raise UsageError("table_mode 는 인자로 바꿀 수 없다. 프로필 · 템플릿의 check.warn.color_cap 에 적는다")
    if overrides:
       data = apply_overrides(data, overrides)
    if name_or_path and "name" not in raw:
       data["name"] = Path(name_or_path).stem
 
    validate(data)
-   return Profile(data, source)
+   return Profile(data, source, cap_left)
+
+
+def cap_left_line(prof: Profile) -> str | None:
+   """사용자 표 위에 기본 표 칸이 겹쳐 남았으면 알릴 한 줄. 없으면 None (설계 2-3)."""
+   if not prof.cap_left:
+      return None
+   sizes = "·".join(str(k) for k in prof.cap_left)
+   return f"색 한도 표 : 기본 표 {sizes} 가 겹쳐 남았다 (통째로 쓰려면 table_mode: replace)"
+
+
+def show_lines(prof: Profile) -> list[str]:
+   """profile show 가 덧붙이는 사람용 줄 : 색 한도 표 · 외곽선 받는 값 (설계 2-2 · 2-3)."""
+   node = prof.warn("color_cap")
+   table = " · ".join(f"{k}→{v}" for k, v in prof.color_cap_table().items())
+   lines = [f"색 한도 표 : {table} ({node.get('table_mode', 'merge')})"]
+   left = cap_left_line(prof)
+   if left:
+      lines.append(left)
+   outline = prof.style.get("outline")
+   accept = [a for a in prof.warn("outline").get("accept", []) if a != outline]
+   tail = f" (+ 받기 {', '.join(accept)})" if accept else ""
+   lines.append(f"외곽선 : {outline if outline is not None else '없음'}{tail}")
+   return lines
+
+
+def _cap_node(data: dict):
+   node = ((data.get("check") or {}).get("warn") or {}).get("color_cap") if isinstance(data, dict) else None
+   return node if isinstance(node, dict) else None
+
+
+def apply_table_mode(merged: dict, layer: dict, below: dict, cap_left: tuple[int, ...] | None, where) -> tuple[int, ...] | None:
+   """겹 하나(layer)를 아래(below) 위에 겹친 merged 에 table_mode 를 적용하고, 남은 기본 칸을 돌려준다 (설계 2-3).
+
+   - replace : merged 의 표를 이 겹의 표로 통째 바꾼다. 남은 칸은 없다.
+   - merge(없음) : deep_merge 가 이미 겹쳤다. 아래 표에서 이 겹이 안 덮은 칸이 남는다.
+   - 이 겹에 표가 없으면 아무것도 안 바꾼다.
+   """
+   node = _cap_node(layer)
+   if node is None or "table" not in node:
+      if node is not None and node.get("table_mode") == "replace":
+         raise ProfileError(f"check.warn.color_cap.table_mode: replace 는 같은 자리에 table 이 있어야 한다 - {where}")
+      return cap_left
+   if node.get("table_mode", "merge") == "replace":
+      if isinstance(node["table"], dict):
+         merged["check"]["warn"]["color_cap"]["table"] = copy.deepcopy(node["table"])
+      return ()
+   if not isinstance(node["table"], dict):
+      return cap_left      # 꼴 틀림은 validate 가 막는다
+   if cap_left is None:
+      under = _cap_node(below) or {}
+      cap_left = tuple(sorted(int(k) for k in (under.get("table") or {})))
+   given = {int(k) for k in node["table"] if str(k).isdigit() or isinstance(k, int)}
+   return tuple(k for k in cap_left if k not in given)
 
 
 def load_profile_args(args) -> Profile:
@@ -370,20 +467,24 @@ def load_profile_args(args) -> Profile:
 
 def reject_unknown(raw: dict, where) -> None:
    """프로필 꼴 사전(일부만 있어도 된다)에서 DEFAULTS 에 없는 칸을 거절한다. 템플릿 · 검사가 같이 쓴다."""
-   _reject_unknown(raw, DEFAULTS, "", where)
+   _reject_unknown(raw, DEFAULTS, (), where)
 
 
 def _reject_unknown_top(raw: dict, source: Path | None) -> None:
    reject_unknown(raw, source or "(인자)")
 
 
-def _reject_unknown(raw: dict, allowed: dict, path: str, where) -> None:
-   """겹구조를 재귀로 훑어 DEFAULTS 에 없는 칸을 거절한다. 오타가 조용히 기본값으로 넘어가면 안 된다."""
-   if path in FREE_MAPS:
+def _reject_unknown(raw: dict, allowed: dict, parts: tuple, where) -> None:
+   """겹구조를 재귀로 훑어 DEFAULTS 에 없는 칸을 거절한다. 오타가 조용히 기본값으로 넘어가면 안 된다.
+
+   자리는 글이 아니라 마디 튜플(parts)로 넘긴다. rig 이름에 점이 들어도(rigs.a.b) 한 마디로 맞추기 위해서다.
+   """
+   if _is_free(parts):
       return
 
-   names = _allowed_names(allowed, path)
-   unknown = [] if names == () else sorted(str(k) for k in raw if str(k) not in names)
+   path = ".".join(parts)
+   names = _allowed_names(allowed, parts)
+   unknown = [] if path in ("anim", "rigs") else sorted(str(k) for k in raw if str(k) not in names)
    if unknown:
       spot = path or "맨 위"
       # YAML 1.1 은 on · off · yes · no 열쇠를 참거짓으로 읽는다. 오타보다 이쪽이 흔해 따로 알린다.
@@ -393,7 +494,28 @@ def _reject_unknown(raw: dict, allowed: dict, path: str, where) -> None:
    for key, value in raw.items():
       if not isinstance(value, dict):
          continue
-      _reject_unknown(value, _child_schema(allowed, path, str(key)), _join(path, str(key)), where)
+      default = allowed.get(str(key), {}) if path not in ("anim", "rigs") else {}
+      if _is_rig(parts) and str(key) in ("anchors", "layer_order"):
+         # 이름 목록 자리다. 예전엔 사전도 지나가 값은 버리고 열쇠만 읽혔다 — 조용한 오독이라 막는다.
+         raise ProfileError(f"{_join(path, str(key))} 는 이름 목록 자리다. 사전을 둘 수 없다 - {where}")
+      if str(key) in allowed and not isinstance(default, dict):
+         # 스칼라 자리에 사전이 오면 여기서 막는다. 그냥 두면 validate · 사용처에서 TypeError 로 터진다.
+         raise ProfileError(f"{_join(path, str(key))} 는 값 하나 자리다. 사전을 둘 수 없다 - {where}")
+      _reject_unknown(value, _child_schema(allowed, path, str(key)), parts + (str(key),), where)
+
+
+def _is_rig(parts: tuple) -> bool:
+   """rigs 아래 rig 하나의 자리인가 (rig 이름에 점이 들어도 한 마디다)."""
+   return len(parts) == 2 and parts[0] == "rigs"
+
+
+def _is_free(parts: tuple) -> bool:
+   """FREE_MAPS 무늬와 마디별로 맞춘다. 글자 그대로 비교하면 「*」 줄이 한 번도 안 맞는다."""
+   for pattern in FREE_MAPS:
+      pat = pattern.split(".")
+      if len(pat) == len(parts) and all(a == "*" or a == b for a, b in zip(pat, parts)):
+         return True
+   return False
 
 
 def _join(path: str, key: str) -> str:
@@ -402,14 +524,16 @@ def _join(path: str, key: str) -> str:
    return f"{path}.{key}"
 
 
-def _allowed_names(allowed: dict, path: str) -> tuple[str, ...]:
+def _allowed_names(allowed: dict, parts: tuple) -> tuple[str, ...]:
+   path = ".".join(parts)
    if path in ("anim", "rigs"):
       return ()
-   if path.startswith("rigs.") and path.count(".") == 1:
+   if _is_rig(parts):
       return RIG_KEYS
    if path == "":
       return TOP_KEYS
-   return tuple(allowed)
+   # 빈 사전 꼴이면 받을 칸이 없다는 뜻이다. 예전엔 () 가 「자유」 로 읽혀 무엇이든 지나갔다.
+   return tuple(allowed) + OPTIONAL_KEYS.get(path, ())
 
 
 def _child_schema(allowed: dict, path: str, key: str) -> dict:
@@ -527,6 +651,9 @@ def validate_warn(warn: dict) -> None:
       raise ProfileError(f"{where}.outline.accept 는 {' · '.join(allowed)} 중에서 고른 목록이다 : {accept}")
    _ratio(warn["isolated"], "max_ratio", f"{where}.isolated")
    _validate_color_cap(warn["color_cap"].get("table"), f"{where}.color_cap.table")
+   mode = warn["color_cap"].get("table_mode", "merge")
+   if mode not in TABLE_MODES:
+      raise ProfileError(f"{where}.color_cap.table_mode 는 {' · '.join(TABLE_MODES)} 중 하나다 : {mode}")
 
    delta = warn["near_colors"].get("max_delta")
    if not _is_int(delta) or not 0 <= delta <= 255:
@@ -562,6 +689,9 @@ def _validate_ramp_shape(node: dict, where: str) -> None:
    low, high = node.get("hue_min"), node.get("hue_max")
    if not _is_number(low) or not _is_number(high) or not 0 <= low <= high <= 180:
       raise ProfileError(f"{where}.hue_min · hue_max 는 0 ≤ 최소 ≤ 최대 ≤ 180 이다 : {low} · {high}")
+   report = node.get("report", "each")
+   if report not in RAMP_REPORTS:
+      raise ProfileError(f"{where}.report 는 {' · '.join(RAMP_REPORTS)} 중 하나다 : {report}")
 
 
 def validate_background(node: dict) -> None:

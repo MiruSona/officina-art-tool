@@ -120,6 +120,7 @@ CONTRACT = [
    (["measure", "shape", "--in", "f.png", "--at", "3,4"], {"sub": "shape", "in_path": "f.png", "at": "3,4", "color": None, "tol": 0, "report": None}),
    (["mask", "--from-shape", "s.json", "--size", "32,32", "--out", "m.png"],
     {"from_shape": "s.json", "size": "32,32", "like": None, "r": "round", "invert": False, "out_file": "m.png", "report": None}),
+   (["palette", "check", "--ramps", "r.json"], {"sub": "check", "ramps": "r.json", "report": None}),
 ]
 
 

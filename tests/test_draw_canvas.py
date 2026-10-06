@@ -48,7 +48,8 @@ def test_size_required_and_mismatch(tmp_path):
       Canvas(16, template=lay)
 
 
-def test_template_folder_reads_layers_guide_style_and_ramps(tmp_path):
+def test_template_folder_reads_layers_guide_style_and_ramps(tmp_path, monkeypatch):
+   monkeypatch.setenv("ARTTOOL_PALETTES", str(tmp_path))   # 3판 : 템플릿 램프 절대경로는 팔레트 뿌리 안이어야 믿는다
    pal = _ramps(tmp_path)
    guide_dir = tmp_path / "guide"
    guide_dir.mkdir()

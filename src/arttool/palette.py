@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import colorsys
-import json
 import os
 from pathlib import Path
 
@@ -11,7 +10,7 @@ import numpy as np
 
 from . import image
 from .errors import ArtToolError
-from .jsonio import write_json
+from .jsonio import read_json, write_json
 
 RGB = tuple[int, int, int]
 
@@ -60,7 +59,12 @@ def load_ramps(path: str | os.PathLike) -> Ramps:
    file = Path(path)
    if not file.is_file():
       raise ArtToolError(f"램프 파일이 없다 : {file}")
-   data = json.loads(file.read_text(encoding="utf-8-sig"))
+   # BOM · 깨진 JSON 처리는 jsonio 한 곳에 모은다.
+   return ramps_from_data(read_json(file), file)
+
+
+def ramps_from_data(data, file: Path) -> Ramps:
+   """이미 읽은 램프 JSON 을 Ramps 로. 같은 파일을 두 번 읽지 않으려고 load_ramps 에서 떼어 냈다."""
    if not isinstance(data, dict) or "ramps" not in data:
       raise ArtToolError(f"램프 파일에 ramps 가 없다 : {file}")
 
@@ -82,7 +86,12 @@ def load_ramps(path: str | os.PathLike) -> Ramps:
 
    outline_text = data.get("outline")
    outline = parse_hex(outline_text) if outline_text else None
-   return Ramps(str(data.get("name", file.stem)), ramps, outline, ramp_len or len(next(iter(ramps.values()))))
+   out = Ramps(str(data.get("name", file.stem)), ramps, outline, ramp_len or len(next(iter(ramps.values()))))
+   # 보고 `palette` 칸의 열쇠 — 램프 파일 이름(설계 2-4). 경로는 안 싣는다(다른 PC 에서도 같은 열쇠).
+   out.file = file.name
+   # 해석된 전체 경로 — 판 여럿을 합칠 때 「같은 파일인가」만 가린다. 보고에는 안 싣는다.
+   out.path = str(file.resolve())
+   return out
 
 
 def outside_colors(arr: image.RGBA, ramps: Ramps) -> list[RGB]:
