@@ -48,13 +48,45 @@ def parse_kinds(text: str) -> list[str]:
       name = part.strip()
       if not name:
          continue
-      if name not in KINDS:
-         raise UsageError(f"모르는 판 : {name} (쓸 수 있는 것 : {', '.join(KINDS)})")
+      if name.startswith("fit:"):
+         name = f"fit:{_fit_size(name)}"
+      elif name not in KINDS:
+         raise UsageError(f"모르는 판 : {name} (쓸 수 있는 것 : {', '.join(KINDS)}, fit:N)")
       if name not in kinds:
          kinds.append(name)
    if not kinds:
       raise UsageError("--kinds 가 비었다")
    return kinds
+
+
+def _fit_size(name: str) -> int:
+   """`fit:N` 의 N — 줄여 찍을 긴 변 px."""
+   try:
+      value = int(name[4:])
+   except ValueError as exc:
+      raise UsageError(f"fit:N 의 N 은 양의 정수다 : {name}") from exc
+   if value < 1:
+      raise UsageError(f"fit:N 의 N 은 1 이상이다 : {name}")
+   return value
+
+
+def kind_title(kind: str, tile: int = 2) -> str:
+   if kind.startswith("fit:"):
+      return f"맞춤 {kind[4:]}"
+   return KIND_TITLES[kind] + (f" {tile}×{tile}" if kind == "tile" else "")
+
+
+def fit_down(arr: np.ndarray, target: int) -> np.ndarray:
+   """비율을 지켜 긴 변을 target 으로 nearest 줄인다. target 이 긴 변 이상이면 원본 그대로."""
+   height, width = arr.shape[:2]
+   longest = max(width, height)
+   if target >= longest:
+      return arr
+   new_w = max(1, round(width * target / longest))
+   new_h = max(1, round(height * target / longest))
+   ys = ((np.arange(new_h) + 0.5) * height / new_h).astype(int)     # 칸 가운데를 뽑는다 (PIL NEAREST 와 같은 셈)
+   xs = ((np.arange(new_w) + 0.5) * width / new_w).astype(int)
+   return arr[ys][:, xs]
 
 
 def parse_bg(text: str) -> tuple[int, int, int, int] | None:
@@ -141,6 +173,8 @@ def kind_layer(arr: np.ndarray, kind: str, scale: int, tile: int = 2) -> np.ndar
       return image.scale_up(image.quantize_luma(arr, 4), scale)
    if kind == "tile":
       return image.scale_up(np.tile(arr, (tile, tile, 1)), scale)
+   if kind.startswith("fit:"):
+      return image.scale_up(fit_down(arr, int(kind[4:])), scale)    # 원래 크기로 되키우지 않는다
    raise UsageError(f"모르는 판 : {kind}")
 
 
@@ -191,7 +225,10 @@ def layout_size(sizes: list[list[tuple[int, int]]], row_labels: bool = False, co
 
 
 def kind_size(width: int, height: int, kind: str, scale: int, tile: int = 2) -> tuple[int, int]:
-   """`render_kind` 가 낼 칸 크기. tile 판만 tile 배 넓다."""
+   """`render_kind` 가 낼 칸 크기. tile 판만 tile 배 넓고, fit 판은 줄인 크기다."""
+   if kind.startswith("fit:"):
+      small = fit_down(np.zeros((height, width, 1), dtype=np.uint8), int(kind[4:]))
+      return small.shape[1] * scale, small.shape[0] * scale
    times = scale * (tile if kind == "tile" else 1)
    return width * times, height * times
 
@@ -333,8 +370,42 @@ def measure(arr: np.ndarray) -> dict:
 
 # ── 명령 ──
 
+def run_strip(args) -> dict:
+   """--strip : 여백 0 · 딱지 없음 · 배율 1 · 투명 바탕으로 --in 순서대로 가로로 붙인다."""
+   given = [name for name, value in (("--kinds", args.kinds not in (None, "zoom")),
+                                         ("--scale", args.scale not in (None, "auto")), ("--grid", getattr(args, "grid", 0)),
+                                         ("--grid-color", getattr(args, "grid_color", None)),
+                                         ("--tile", getattr(args, "tile", 2) not in (None, 2)),
+                                         ("--bg", getattr(args, "bg", "checker") not in (None, "checker")),
+                                         ("--label", getattr(args, "label", False)))
+            if value]       # 기본값(zoom · auto · 0 · 없음 · 2 · checker · 끔)과 다르면 준 것으로 본다 — strip 은 이것들을 안 쓴다
+   if given:
+      raise UsageError(f"--strip 은 {', '.join(given)} 와 같이 못 쓴다 (뜻이 섞인다)")
+   out_file = jailed_output(args.out_file)
+   files, warnings = collect_inputs(list(args.in_paths))
+   guard_overwrite([out_file], files)
+   items = [image.load(path) for path in files]
+   band = image.strip(items)
+   dry_run = is_dry_run(args)
+   if not dry_run:
+      image.save(out_file, band)
+   return {
+      "status": "ok",
+      **dry_run_fields(dry_run, [out_file]),
+      "out": None if dry_run else str(out_file),
+      "size": list(image.size(band)),
+      "strip": True,
+      "frame": list(image.size(items[0])),
+      "count": len(items),
+      "items": [{"no": i, "name": p.name, "path": str(p)} for i, p in enumerate(files, start=1)],
+      "warnings": warnings,
+   }
+
+
 def run(args) -> dict:
-   kinds = parse_kinds(args.kinds)
+   if getattr(args, "strip", False):
+      return run_strip(args)
+   kinds = parse_kinds(args.kinds if args.kinds is not None else "zoom")
    bg = parse_bg(args.bg)
    tile = int(args.tile)
    if tile not in (2, 4):
@@ -346,7 +417,12 @@ def run(args) -> dict:
    files, warnings = collect_inputs(list(args.in_paths))
    guard_overwrite([out_file], files)          # 비교판이 입력 PNG 를 덮지 않게 (R1-H1)
    items = [image.load(path) for path in files]
-   scale = pick_scale(args.scale, items)
+   scale = pick_scale(args.scale if args.scale is not None else "auto", items)
+   for kind in kinds:
+      if kind.startswith("fit:"):
+         bigger = [path.name for path, arr in zip(files, items) if int(kind[4:]) > max(arr.shape[:2])]
+         if bigger:
+            warnings.append(_warn("fit_upscale", f"{kind} 이 그림 긴 변보다 커서 원본 그대로 넣었다", bigger))
    margin = (0, 0)
    if grid:
       if scale < GRID_MIN_SCALE:
@@ -378,7 +454,7 @@ def run(args) -> dict:
       report_items.append({"no": index, "name": path.name, "path": str(path), "size": [w, h], **numbers})
       row_labels.append(f"{index}. {path.stem}  {w}x{h} · {numbers['colors']}색")
 
-   titles = [KIND_TITLES[k] + (f" {tile}×{tile}" if k == "tile" else "") for k in kinds]
+   titles = [kind_title(k, tile) for k in kinds]
    sheet = layout_rows(rows, row_labels if label else None, titles if label else None)
    dry_run = is_dry_run(args)
    if not dry_run:

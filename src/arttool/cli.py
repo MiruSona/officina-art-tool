@@ -25,8 +25,10 @@
 | `ui glyphs` · `reline` · `tint` | `arttool.ui.glyphs` · `sprite.reline` · `sprite.tint` 의 `run` |
 | `merge-colors` | `arttool.sprite.merge.run` (2026-10-05) |
 | `shift` | `arttool.sprite.shift.run` (2026-10-06) |
+| `outline` · `fill` · `diff` | `arttool.sprite.outline` · `edit.fill` · `sprite.diff` 의 `run` (2026-10-06) |
 | `layers compose` | 여기서 `sprite.layers.compose_sheets` 를 바로 부른다 (옛 `layers`) |
 | `check --no-warn · --mode · --template` | `check.run(prof, in_dir, no_ramps, *, warn, mode, template)` — 그 세 칸을 받게 되면 넘긴다 |
+| `check --known · --baseline · --fail-on-new` | `check.run(..., *, known, baseline, fail_on_new)` — 셋 중 하나라도 줬을 때만 넘긴다 |
 """
 
 from __future__ import annotations
@@ -97,6 +99,9 @@ LATE: dict[tuple[str, str | None], tuple[str, str]] = {
    ("tint", None): ("arttool.sprite.tint", "run"),
    ("merge-colors", None): ("arttool.sprite.merge", "run"),
    ("shift", None): ("arttool.sprite.shift", "run"),
+   ("outline", None): ("arttool.sprite.outline", "run"),
+   ("fill", None): ("arttool.edit.fill", "run"),
+   ("diff", None): ("arttool.sprite.diff", "run"),
 }
 
 # check.run 이 이 세 칸을 키워드로 받게 되면(D 갈래) 새 인자를 넘긴다.
@@ -174,6 +179,9 @@ def build_parser() -> argparse.ArgumentParser:
    _add_tint(subs)
    _add_merge(subs)
    _add_shift(subs)
+   _add_outline(subs)
+   _add_fill(subs)
+   _add_diff(subs)
    return parser
 
 
@@ -208,6 +216,11 @@ def _add_check(subs) -> None:
    node.add_argument("--no-warn", dest="no_warn", action="store_true", help="이번 한 판만 경고 검사를 끈다 (status 는 그대로)")
    node.add_argument("--mode", dest="mode", default="auto", choices=list(CHECK_MODES), help="배경 판정을 덮어쓴다 (기본 auto)")
    node.add_argument("--template", dest="template", help="template render 가 낸 template.json. 그 값을 검사 문턱으로 겹친다")
+   node.add_argument("--known", dest="known", action="append",
+                     help="알고 두는 경고 목록 JSON [{rule, where, note}]. 맞은 경고 칸은 known 으로 옮긴다 (여러 번 줄 수 있다)")
+   node.add_argument("--baseline", dest="baseline", action="append",
+                     help="옛 check 보고 JSON. 그 안 경고를 알고 두는 목록으로 더한다 (여러 번 줄 수 있다)")
+   node.add_argument("--fail-on-new", dest="fail_on_new", action="store_true", help="새 경고가 하나라도 남으면 fail (종료 4)")
 
 
 def _add_bake(subs) -> None:
@@ -294,6 +307,36 @@ def _add_trim(subs) -> None:
    node.add_argument("--report", dest="report", help="보고 JSON")
 
 
+def _add_outline(subs) -> None:
+   node = subs.add_parser("outline", help="외곽선 두르기 (바깥에 더하거나 맨 바깥 칸을 선으로)", parents=[COMMON])
+   node.add_argument("--in", dest="in_dir", required=True, help="PNG 한 장 또는 폴더(바로 아래 .png)")
+   node.add_argument("--out", dest="out_dir", required=True, help="결과 폴더 (한 장이면 .png 도 된다)")
+   node.add_argument("--mode", dest="mode", default="black", help="none · black · solid · selout · selout+light (기본 black). selout 계열은 --profile 의 ramps_file 램프를 쓴다")
+   node.add_argument("--where", dest="where", default="outside", help="outside = 칠한 칸 바깥에 더함(기본) · inside = 맨 바깥 칠한 칸을 선으로")
+   node.add_argument("--width", dest="width", type=int, default=1, help="두께 1 ~ 4 (기본 1)")
+   node.add_argument("--color", dest="color", help="--mode solid 의 색 #RRGGBB (다른 mode 에 주면 종료 2)")
+   node.add_argument("--light", dest="light", default="top_left", help="selout+light 의 빛 방향 (기본 top_left)")
+   node.add_argument("--grow", dest="grow", action="store_true", help="그리기 전에 캔버스를 사방 --width 만큼 늘린다")
+   node.add_argument("--report", dest="report", help="보고 JSON")
+
+
+def _add_fill(subs) -> None:
+   node = subs.add_parser("fill", help="틀에 갇힌 투명 칸 채우기 (--enclosed)", parents=[COMMON])
+   node.add_argument("--in", dest="in_dir", required=True, help="PNG 한 장 또는 폴더(바로 아래 .png)")
+   node.add_argument("--out", dest="out_dir", required=True, help="결과 폴더 (한 장이면 .png 도 된다)")
+   node.add_argument("--enclosed", dest="enclosed", action="store_true", help="테두리에서 투명 칸으로 못 닿는 투명 칸을 채운다 (지금은 이 방식뿐, 꼭 준다)")
+   node.add_argument("--color", dest="color", required=True, help="채울 색 #rrggbb 또는 #rrggbbaa")
+   node.add_argument("--max-area", dest="max_area", type=int, help="이 칸 수보다 큰 갇힌 덩이는 안 채운다 (일부러 뚫은 창 지키기)")
+   node.add_argument("--report", dest="report", help="보고 JSON")
+
+
+def _add_diff(subs) -> None:
+   node = subs.add_parser("diff", help="두 그림의 알파가 같은지 검사 (--alpha-only, 다르면 종료 4)", parents=[COMMON])
+   node.add_argument("--a", dest="a", required=True, help="PNG 한 장 또는 폴더")
+   node.add_argument("--b", dest="b", required=True, help="PNG 한 장 또는 폴더 (폴더면 같은 이름끼리 짝)")
+   node.add_argument("--alpha-only", dest="alpha_only", action="store_true", help="알파만 견준다 (지금은 이 방식뿐, 꼭 준다)")
+   node.add_argument("--report", dest="report", help="보고 JSON")
+
 def _add_shift(subs) -> None:
    node = subs.add_parser("shift", help="색을 HSV 로 옮기기 (색상 · 채도 · 명도)", parents=[COMMON])
    node.add_argument("--in", dest="in_dir", required=True, help="PNG 한 장 또는 폴더(바로 아래 .png)")
@@ -310,8 +353,10 @@ def _add_sheet(subs) -> None:
    node = subs.add_parser("sheet", help="비교판 (확대 · 실루엣 · 4색 · 흐림 · 타일)", parents=[COMMON])
    node.add_argument("--in", dest="in_paths", required=True, nargs="+", help="PNG 또는 폴더 여럿. 그림 하나 = 한 줄")
    node.add_argument("--out", dest="out_file", required=True, help="비교판 PNG")
-   node.add_argument("--kinds", dest="kinds", default="zoom", help="zoom,silhouette,colors4,blur,tile 중 쉼표로 (기본 zoom)")
+   node.add_argument("--kinds", dest="kinds", default="zoom", help="zoom,silhouette,colors4,blur,tile,fit:N 중 쉼표로 (기본 zoom)")
    node.add_argument("--scale", dest="scale", default="auto", help="auto 또는 정수 배 (기본 auto)")
+   node.add_argument("--strip", dest="strip", action="store_true",
+                     help="여백 0 · 딱지 없음 · 배율 1 · 투명 바탕으로 --in 순서대로 가로로 붙인다 (--kinds · --scale · --grid 와 같이 못 쓴다)")
    node.add_argument("--tile", dest="tile", type=int, default=2, choices=[2, 4], help="tile 판의 반복 수 (기본 2)")
    node.add_argument("--bg", dest="bg", default="checker", help="checker 또는 #RRGGBB (기본 checker)")
    node.add_argument("--label", dest="label", action="store_true", help="이름 · 크기 · 색 수 딱지")
@@ -462,6 +507,8 @@ def _add_tint(subs) -> None:
    node.add_argument("--out", dest="out_dir", required=True, help="결과 폴더. 이름은 <원래이름>_<RRGGBB>.png")
    node.add_argument("--sheet", dest="sheet", help="원본 + 색마다 늘어놓은 비교판 PNG")
    node.add_argument("--scale", dest="scale", type=int, default=4, help="비교판 배율 (기본 4)")
+   node.add_argument("--gif", dest="gif", help="색마다 낸 그림을 순서대로 프레임으로 한 GIF")
+   node.add_argument("--duration", dest="duration", type=int, help="GIF 프레임 한 장 ms (기본 110, --gif 와 같이)")
    node.add_argument("--report", dest="report", help="보고 JSON")
 
 
@@ -655,7 +702,7 @@ def _run_late(args, module_name: str, func_name: str) -> dict:
 # --report 와 견줄 인자들 — 읽는 파일 · 쓰는 그림. 보고 JSON 이 이 중 하나를 덮으면 안 된다 (리뷰 R1-M5)
 REPORT_GUARDED = ("in_dir", "in_file", "base", "original", "template", "spec", "manifest", "layout", "tileset",
                   "rules", "map_file", "skeleton", "markers", "out_file", "out_dir", "sheet", "out",
-                  "b64", "mark", "mask", "font", "text_file")
+                  "b64", "mark", "mask", "font", "text_file", "gif", "known", "baseline")
 
 
 def _guard_report(args) -> None:
@@ -681,6 +728,7 @@ def _guard_report(args) -> None:
 # dry-run 은 세 무리로 나눈다. 새 명령은 셋 중 한 곳에 꼭 넣는다 — 빠뜨리면 test_dry_run 이 깨진다.
 DRY_RUN_TAKES = {
    ("cutout", None), ("trim", None), ("reline", None), ("tint", None), ("merge-colors", None), ("shift", None),   # 안 쓰고 보고만
+   ("outline", None), ("fill", None),
    ("intake", None),                                                                             # 검수용 임시 폴더만 쓰고 지운다
    # 정해진 파일 한두 개를 쓰는 명령 (2026-10-06) — 안 쓰고 보고만
    ("stitch", None), ("sheet", None), ("bands", None), ("anchors", None),
@@ -692,7 +740,7 @@ DRY_RUN_TAKES = {
 # 파일을 안 쓰는 명령 — 쓸 것이 없어 dry-run 을 그대로 받는다 (--report 는 cli 가 쓴다). 실제로 돌려 확인함 (test_dry_run_wide)
 DRY_RUN_HARMLESS = {
    ("profile", "show"), ("check", None), ("layers", "check"), ("tile", "inspect"), ("ui", "check"), ("ui", "glyphs"),
-   ("template", "list"), ("template", "show"), ("provider", "list"),
+   ("template", "list"), ("template", "show"), ("provider", "list"), ("diff", None),
 }
 # 폴더째 여러 파일을 쓰는 명령. 쓸 목록이 셈 중간에 정해지거나 앞 단계 산출물을 읽어 S 로 안 된다 — 까닭은 진행상황.md
 DRY_RUN_REFUSED = {
@@ -785,6 +833,9 @@ def _run_check(args) -> dict:
    extra = {}
    if _check_takes_new_args():
       extra = {"warn": not args.no_warn, "mode": args.mode, "template": args.template}
+      # 알고 두는 경고 (2판 D). 셋 다 안 주면 키워드를 안 넘겨 보고가 지금과 같다.
+      if args.known or args.baseline or args.fail_on_new:
+         extra.update(known=args.known, baseline=args.baseline, fail_on_new=args.fail_on_new)
    elif args.no_warn or args.mode != "auto" or args.template:
       raise UsageError("아직 구현 안 됨 : check --no-warn · --mode · --template")
    report = check_mod.run(_profile(args), args.in_dir, args.no_ramps, **extra)

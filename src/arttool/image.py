@@ -55,6 +55,97 @@ def save(path: str | os.PathLike, arr: RGBA) -> None:
       raise
 
 
+GIF_ALPHA_CUT = 128        # 이 알파 밑은 투명, 위는 불투명 (GIF 는 반투명이 없다)
+
+
+def strip(frames: list[RGBA]) -> RGBA:
+   """같은 크기 그림들을 여백 없이 가로로 붙인 띠 (엔진이 칸 크기로 자르는 시트)."""
+   if not frames:
+      raise ArtToolError("띠에 붙일 그림이 없다")
+   height, width = frames[0].shape[:2]
+   for arr in frames[1:]:
+      if arr.shape[:2] != (height, width):
+         raise ArtToolError(f"띠는 프레임 크기가 같아야 한다 : {width}x{height} 와 {arr.shape[1]}x{arr.shape[0]}")
+   check_pixels(width * len(frames), height, "띠")
+   return np.concatenate(frames, axis=1)
+
+
+def save_gif(frames: list[RGBA], path: str | os.PathLike, duration: int, *, loop: int = 0, scale: int = 1,
+             write: bool = True) -> int:
+   """프레임들을 공용 팔레트 하나로 GIF 에 쓴다. 0번 = 투명. 반투명 칸 수를 돌려준다.
+
+   write=False 면 거절 검사(색 수 · 크기)만 하고 쓰지 않는다 — dry-run 이 진짜 판과 같은 종료를 내게.
+
+   PIL 기본 변환은 프레임마다 팔레트를 새로 만들고 투명을 잃어서 직접 만든다.
+   크기가 다른 프레임은 가장 큰 크기로 왼쪽 위에 맞춰 투명으로 채운다.
+   """
+   if not frames:
+      raise ArtToolError("GIF 에 넣을 프레임이 없다")
+   width = max(arr.shape[1] for arr in frames)
+   height = max(arr.shape[0] for arr in frames)
+   check_pixels(width * scale, height * scale, "GIF 프레임")
+   soft = 0
+   padded = []
+   for arr in frames:
+      alpha = arr[:, :, 3]
+      soft += int(((alpha > 0) & (alpha < 255)).sum())
+      canvas = new(width, height)
+      canvas[: arr.shape[0], : arr.shape[1]] = arr
+      padded.append(scale_up(canvas, scale) if scale > 1 else canvas)
+   keys = [(arr[:, :, 0].astype(np.int32) << 16) | (arr[:, :, 1].astype(np.int32) << 8) | arr[:, :, 2] for arr in padded]
+   solid = [arr[:, :, 3] >= GIF_ALPHA_CUT for arr in padded]
+   colors = np.unique(np.concatenate([k[m] for k, m in zip(keys, solid)]))
+   if len(colors) > 255:
+      raise ArtToolError(f"GIF 공용 팔레트는 255 색까지다 : {len(colors)} 색 (줄이면 색이 몰래 바뀌어 거절한다)")
+   palette = [0, 0, 0]
+   for key in colors.tolist():
+      palette += [(key >> 16) & 255, (key >> 8) & 255, key & 255]
+   palette += [0] * (768 - len(palette))
+   if not write:
+      return soft
+   images = []
+   for key, mask in zip(keys, solid):
+      index = np.zeros(key.shape, dtype=np.uint8)
+      index[mask] = (np.searchsorted(colors, key[mask]) + 1).astype(np.uint8)
+      frame = Image.fromarray(index, mode="P")
+      frame.putpalette(palette)
+      images.append(frame)
+   file = Path(path)
+   ensure_parent(file)
+   tmp = file.with_name(f"{file.name}.{os.getpid()}.tmp")
+   try:
+      images[0].save(tmp, format="GIF", save_all=True, append_images=images[1:], duration=int(duration), loop=loop,
+                     transparency=0, disposal=2, optimize=False)
+      os.replace(tmp, file)
+   except BaseException:
+      tmp.unlink(missing_ok=True)
+      raise
+   return soft
+
+
+def gif_frame_count(frames: list[RGBA]) -> int:
+   """`save_gif` 로 쓴 GIF 에 실제로 남는 장 수.
+
+   Pillow 는 바로 앞과 똑같은 프레임을 한 장으로 합치고 duration 을 더한다 (끄는 저장 옵션이 없다 — Pillow 12.3 확인).
+   그래서 GIF 에 들어가는 모양(투명 컷 뒤의 색)으로 앞 장과 같은지 세어 실제 장 수를 낸다.
+   """
+   if not frames:
+      return 0
+   width = max(arr.shape[1] for arr in frames)
+   height = max(arr.shape[0] for arr in frames)
+   count, prev = 0, None
+   for arr in frames:
+      canvas = new(width, height)
+      canvas[: arr.shape[0], : arr.shape[1]] = arr
+      solid = canvas[:, :, 3] >= GIF_ALPHA_CUT
+      look = np.where(solid[:, :, None], canvas[:, :, :3], 0)
+      look = np.dstack([look, solid])
+      if prev is None or not np.array_equal(look, prev):
+         count += 1
+      prev = look
+   return count
+
+
 def size(arr: RGBA) -> tuple[int, int]:
    return int(arr.shape[1]), int(arr.shape[0])
 

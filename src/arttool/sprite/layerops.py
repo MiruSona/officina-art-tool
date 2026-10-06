@@ -63,9 +63,17 @@ def _opaque(arr: image.RGBA) -> np.ndarray:
 
 def _changed(base: image.RGBA, other: image.RGBA) -> np.ndarray:
    """알파가 다르거나, 둘 다 불투명한데 색이 다른 칸. `split.roundtrip_diff` 와 같은 뜻."""
-   alpha = base[:, :, 3] != other[:, :, 3]
-   rgb = np.any(base[:, :, :3] != other[:, :, :3], axis=2) & _opaque(base) & _opaque(other)
-   return alpha | rgb
+   return _alpha_changed(base, other) | _rgb_changed(base, other)
+
+
+def _alpha_changed(base: image.RGBA, other: image.RGBA) -> np.ndarray:
+   """알파가 다른 칸 (`diff --alpha-only` 도 쓴다)."""
+   return base[:, :, 3] != other[:, :, 3]
+
+
+def _rgb_changed(base: image.RGBA, other: image.RGBA) -> np.ndarray:
+   """둘 다 불투명한데 색이 다른 칸."""
+   return np.any(base[:, :, :3] != other[:, :, :3], axis=2) & _opaque(base) & _opaque(other)
 
 
 def _grow(mask: np.ndarray, steps: int) -> np.ndarray:

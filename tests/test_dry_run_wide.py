@@ -92,6 +92,7 @@ def _harmless_cases(work):
       ("template", "list"): ["template", "list"],
       ("template", "show"): ["template", "show", "char_small", "--size", "32x32"],
       ("provider", "list"): ["provider", "list"],
+      ("diff", None): ["diff", "--a", str(src), "--b", str(src), "--alpha-only", "--report", _rep(work, "d.json")],
    }
 
 
@@ -482,3 +483,16 @@ def test_reline_depth_exit_matches_dry_run(work):
    assert ok[0] == ok[1]
    assert _same_exit(["reline", "--in", str(src), "--out", "o", "--depth", "0"]) == (errors.EXIT_USAGE, errors.EXIT_USAGE)
    assert not (work / "o" / "w.png").exists() or ok[0] == 0
+
+
+def test_tint_gif_dry_run_writes_nothing(work):
+   """tint --gif 는 dry-run 에서 gif 를 안 쓰고, gif 가 원본을 덮으면 두 판 다 종료 2 (2판 C5)."""
+   src = work / "in"
+   src.mkdir()
+   _png(src / "w.png", _flat(4, (230, 230, 230)))
+   before = _snap(work)
+   argv = ["tint", "--in", str(src), "--out", "o", "--colors", "#E85D5D,#5DA0E8", "--gif", "a.gif", "--duration", "90"]
+   assert cli.main([*argv, "--dry-run"]) == errors.EXIT_OK
+   assert _snap(work) == before
+   bad = ["tint", "--in", str(src), "--out", "o", "--colors", "#E85D5D", "--gif", str(src / "w.png")]
+   assert _same_exit(bad) == (errors.EXIT_USAGE, errors.EXIT_USAGE)

@@ -135,7 +135,10 @@ arttool provider make  --kind character --spec req.json --out gen/ --dry-run
 | `trim … --canvas WxH [--anchor bottom] [--margin N]` | 자른 그림을 W×H 투명 판에 다시 깐다. `--pad` · `--square` 와 같이 못 쓴다 (2026-10-06) |
 | `intake --in raw/ --out clean/ [--sheet s.png] [--template t.json] [--no-trim]` | cutout → trim → check → sheet 한 번에. 배경 그림은 cutout 을 건너뛴다. 이번에 쓴 파일만 검수 |
 | `sheet --in a.png b/ --out s.png [--kinds zoom,silhouette,colors4,blur,tile] [--label]` | 사람이 보는 비교판. `--scale` 은 64 까지 |
-| `check … [--no-warn] [--mode auto\|sprite\|background] [--template t.json]` | 실패 규칙 다섯 + **경고 일곱**(`integer_scale` · `outline` · `isolated` · `color_cap` · `near_colors` · `ramp_shape` · `loop_seam`). 홀수 크기 경고 `odd_size` 도 난다 — 피벗이 반 픽셀에 놓일 때, `trim --canvas` 로 짝수로 맞춘다 (2026-10-06) |
+| `sheet --in f1.png f2.png --out s.png --strip` | 여백 0 · 딱지 없음 · 배율 1 · 투명 바탕으로 `--in` 순서대로 가로로 붙인다. `--kinds` · `--scale` · `--grid` 와 같이 못 쓴다 (2026-10-06) |
+| `sheet … --kinds zoom,fit:24,fit:16` | `fit:N` = 긴 변을 N 으로 nearest 줄인 모습(딱지 「맞춤 N」). N 이 더 크면 원본 그대로 + 경고 `fit_upscale` (2026-10-06) |
+| `check … [--no-warn] [--mode auto\|sprite\|background] [--template t.json] [--known k.json] [--baseline base.json] [--fail-on-new]` | 실패 규칙 다섯 + **경고 여덟**(`integer_scale` · `outline` · `isolated` · `color_cap` · `near_colors` · `ramp_shape` · `loop_seam` · `odd_size`). `odd_size` 는 피벗이 반 픽셀에 놓일 때 — `trim --canvas` 로 짝수로 맞춘다 (2026-10-06) |
+| `check … --known k.json --baseline base.json --fail-on-new` | 알고 두는 경고를 `known` 으로 옮기고 새 경고(`new_warnings`)만 남긴다. `--fail-on-new` 로 새 경고가 있으면 종료 4. `--no-warn` 과 같이 주면 종료 2. 낡은 항목은 info `check.known_stale` (2026-10-06) |
 | `style extract --in refs/ --out style/ [--by-folder] [--max-colors 64] [--force]` | 기준 그림 → 팔레트 · 견본 · 프로필 조각 · 보고. **종류별(`--by-folder`)이 권장 길** |
 | `template list` · `show <이름> [--size N\|WxH] [--preset P] [--base #hex] [--material M]` · `render … --out guide/ [--over a.png]` | 그리기 전 밑판(가이드 겹 · 마스크 · 프롬프트 · 순서). **템플릿 15개** |
 | `layers compose\|diff\|mask\|view\|check\|export` | 겹 묶음 명령. `diff --carve report\|common\|apply`. 옛 `layers --profile …` 줄은 `layers compose` 로 |
@@ -159,7 +162,10 @@ arttool provider make  --kind character --spec req.json --out gen/ --dry-run
 | `reline … [--depth N] [--color-dark #hex [--dark-gap N]]` | `--depth` 는 2px 선의 안쪽 줄까지(1~8, `--scope colors` 와 못 씀), `--color-dark` 는 면과 밝기가 비슷해 묻힌 선 칸만 둘째 색 (2026-10-06) |
 | `reline … --from #hex[,#hex…]` | 바꿀 선 색을 직접 준다 — 고리 칸 중 그 색만(`--scope colors` 면 그림 전체의 그 색). `--pick` · `--tol` 과 같이 못 쓴다 (2026-10-05) |
 | `shift --in raw/ --out o/ [--hue D] [--sat S] [--light L] [--pick #hex,…] [--dry-run]` | 색상 · 채도 · 밝기를 옮긴다 (알파 그대로). 셋 다 기본값이면 종료 2 (2026-10-06) |
-| `tint --in white/ --colors #E85D5D,#5DA0E8 --out t/ [--sheet s.png]` | 흰 겹 × 색 곱하기 → 색마다 한 장 |
+| `tint --in white/ --colors #E85D5D,#5DA0E8 --out t/ [--sheet s.png] [--gif t.gif --duration 110]` | 흰 겹 × 색 곱하기 → 색마다 한 장 |
+| `outline --in raw/ --out o/ [--mode black\|solid\|selout\|selout+light] [--where outside\|inside] [--width N] [--grow]` | 외곽선을 두른다. selout 계열은 램프가 없으면 종료 2. `--grow` 없이 캔버스 밖으로 나가면 경고 `outline.clipped` (2026-10-06) |
+| `fill --in raw/ --out o/ --enclosed --color #hex [--max-area N]` | 틀에 갇힌 투명 칸을 채운다(대각선으로만 이어진 선도 틀). 경고 `fill.none` · `fill.large` · `fill.skipped` (2026-10-06) |
+| `diff --a a/ --b b/ --alpha-only` | 두 그림(폴더)의 알파가 같은지. 다르면 종료 4. 파일을 안 쓴다 (2026-10-06) |
 | `merge-colors --in raw/ --out o/ [--tol N \| --max-colors N \| --palette] [--keep #hex,…] [--per-image] [--clean] [--sheet s.png] [--dry-run]` | 가까운 색을 많이 쓰인 쪽으로 합친다 — `check` 가 `max_colors` · `near_colors` 로 걸릴 때. 평균색은 안 만든다 (2026-10-05). `--clean` 은 합친 뒤 둘레에 묻힌 잡티 점(외톨이 · 2칸)만 메운다 (2026-10-06) |
 | `ui glyphs --font f.ttf (--text "…" \| --text-file t.txt)` | 글꼴에 없는 글자 찾기. 있으면 `fail`(종료 4) |
 | `layers diff … --drop 겹:#hex[,#hex] [--drop-tol 24]` | 겹 떼기에서 그 겹의 이 색 칸을 뺀다 (뺨 · 옷 점이 머리 겹에 묻을 때) |
@@ -184,7 +190,7 @@ style:                  # 이 게임은 이렇게 그린다. 템플릿 · 경고
   scale: 1
   materials: {}
 check:
-  warn:                 # 경고 일곱. 켜고 끄는 칸 이름은 enabled (on 은 YAML 이 참거짓으로 읽어 못 쓴다)
+  warn:                 # 경고 여덟. 켜고 끄는 칸 이름은 enabled (on 은 YAML 이 참거짓으로 읽어 못 쓴다)
     isolated: { enabled: true, max_ratio: 0.15 }
     near_colors: { enabled: true, max_delta: 4, min_pairs: 20 }
     outline: { enabled: true, black_ratio: 0.8, accept: [] }   # accept : style.outline 말고도 통과시킬 판정 (예 [solid, selout+light])
@@ -387,7 +393,7 @@ border 순서는 **[왼, 아래, 오른, 위]** 다. Unity `spriteBorder` 의 Ve
 | `src/arttool/ui/unity/` | 내보낼 C# 원본. 템플릿 문자열이 아니라 진짜 `.cs` 파일이다 |
 | `src/arttool/providers/` | 제공자. 밖에서는 제공자 이름을 모른다 |
 | `src/arttool/edit/` · `intake.py` · `sheet.py` | 손질(`cutout` · `trim`) · 한 번에 손질 · 비교판 |
-| `src/arttool/checks/` | 경고 일곱의 「재기」 와 「판정」. `sheet` · `style` 도 재기를 같이 쓴다 |
+| `src/arttool/checks/` | 경고 여덟의 「재기」 와 「판정」. `sheet` · `style` 도 재기를 같이 쓴다 |
 | `src/arttool/style/` · `template/` · `draw/` | 화풍 뽑기 · 템플릿 엔진 · PIL 그리기 공개 모듈 `arttool.draw` |
 | `src/arttool/layerset.py` · `sprite/layerops.py` | 겹 묶음 꼴(`layers.json`) · `layers` 묶음 명령 |
 | `src/arttool/assets/fonts/` | Pretendard Medium + 라이선스 글 |

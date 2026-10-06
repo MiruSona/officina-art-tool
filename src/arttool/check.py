@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import copy
+import json
 import sys
 import time
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 from . import image, palette
@@ -328,9 +330,176 @@ def apply_template(prof: Profile, tpl: dict) -> tuple[Profile, Path | None]:
 # --- 진입점 ---
 
 
-def run(prof: Profile, build_dir: str | Path, no_ramps: bool = False, *, warn: bool = True, mode: str = "auto", template=None) -> dict:
+def run(prof: Profile, build_dir: str | Path, no_ramps: bool = False, *, warn: bool = True, mode: str = "auto", template=None,
+        known=None, baseline=None, fail_on_new: bool = False) -> dict:
    if mode not in MODES:
       raise UsageError(f"--mode 는 {' · '.join(MODES)} 중 하나다 : {mode}")
+   use_known = bool(known or baseline or fail_on_new)
+   if use_known and not warn:
+      raise UsageError("--known · --baseline · --fail-on-new 은 --no-warn 과 같이 못 쓴다 (경고를 안 세면 뺄 것이 없다)")
+   # 목록은 검사 전에 읽는다 — 꼴이 틀리면 그림을 다 재기 전에 멈춘다.
+   items = load_known(known or [], baseline or []) if use_known else None
+   report = _run(prof, build_dir, no_ramps, warn=warn, mode=mode, template=template)
+   return apply_known(report, items, fail_on_new) if use_known else report
+
+
+KNOWN_KEYS = ("rule", "where", "note")
+
+
+def _as_list(value) -> list:
+   if value is None:
+      return []
+   return list(value) if isinstance(value, (list, tuple)) else [value]
+
+
+def load_known(known, baseline) -> list[dict]:
+   """`--known` 목록과 `--baseline` 옛 보고를 항목 `{rule, where, note}` 하나의 꼴로 모은다 (설계 D)."""
+   items: list[dict] = []
+   for path in _as_list(known):
+      data = read_json(path)
+      if not isinstance(data, list):
+         raise UsageError(f"--known 은 항목 목록(JSON 배열)이어야 한다 : {path}")
+      for n, entry in enumerate(data):
+         spot = f"--known {path} 의 {n}번 항목"
+         if not isinstance(entry, dict):
+            raise UsageError(f"{spot} 이 객체가 아니다")
+         extra = sorted(set(entry) - set(KNOWN_KEYS))
+         if extra:
+            raise UsageError(f"{spot} 에 모르는 칸 : {', '.join(extra)} (받는 칸 : {', '.join(KNOWN_KEYS)})")
+         if not isinstance(entry.get("rule"), str) or not entry["rule"]:
+            raise UsageError(f"{spot} 에 rule(글) 이 없다")
+         for key in ("where", "note"):
+            if key in entry and not isinstance(entry[key], str):
+               raise UsageError(f"{spot} 의 {key} 는 글이어야 한다")
+         items.append({"rule": entry["rule"], "where": entry.get("where", "*"), "note": entry.get("note", "")})
+   for path in _as_list(baseline):
+      items += _baseline_items(path)
+   return items
+
+
+def _glob_escape(text: str) -> str:
+   """이름에 든 `[` `*` `?` 를 글자 그대로 맞게 감싼다 (`[` → `[[]`)."""
+   return "".join(f"[{ch}]" if ch in "[*?" else ch for ch in text)
+
+
+def _baseline_items(path) -> list[dict]:
+   data = read_json(path)
+   lines = data.get("warnings") if isinstance(data, dict) else None
+   if not isinstance(lines, list):
+      raise UsageError(f"--baseline 은 check 보고(JSON 객체에 warnings 배열)여야 한다 : {path}")
+   note = f"baseline:{Path(path).name}"
+   out: list[dict] = []
+   seen = set()
+   # 그 보고가 이미 --known 으로 뺀 것도 옛 경고다 — 같이 넣어야 왕복이 맞는다.
+   for line in lines + list(data.get("known") or []):
+      rule = str(line.get("rule", "")) if isinstance(line, dict) else ""
+      if not rule or rule.startswith("must."):
+         continue
+      wheres = [cell_key(it) for it in line.get("items") or []] or [None]
+      for spot in wheres:
+         key = (rule, spot)
+         if key in seen:
+            continue
+         seen.add(key)
+         out.append({"rule": _glob_escape(rule), "where": "*" if spot is None else _glob_escape(spot), "note": note})
+   return out
+
+
+# 자리 열쇠로 쓰는 이름 칸. `where` 가 없을 때 차례대로 본다 (ramp_shape 는 ramp, 색 목록은 color).
+KEY_FIELDS = ("where", "ramp", "color")
+
+
+def cell_key(cell) -> str:
+   """경고 `items` 한 칸의 자리 열쇠. `--known` · `--baseline` 이 이 글로 칸을 맞춘다.
+
+   글이면 그 글, dict 면 `where` → 이름 칸(`ramp` · `color`) 순서로 처음 있는 것,
+   그것도 없으면 칸 전체를 정렬한 JSON 글이다. 빈 열쇠로 뭉쳐 다른 칸을 삼키지 않게 한다.
+   """
+   if not isinstance(cell, dict):
+      return str(cell)
+   for name in KEY_FIELDS:
+      if name in cell:
+         return str(cell[name])
+   return json.dumps(cell, sort_keys=True, ensure_ascii=False)
+
+
+def _known_hit(entries: list[dict], rule: str, spot: str, seen: set[int]) -> dict | None:
+   """맞는 첫 항목을 돌려준다. 맞은 항목은 모두 `seen` 에 적는다 — 겹치는 항목이 낡은 것으로 잘못 뜨지 않게."""
+   first = None
+   for entry in entries:
+      if fnmatchcase(rule, entry["rule"]) and fnmatchcase(spot, entry["where"]):
+         seen.add(id(entry))
+         first = first or entry
+   return first
+
+
+def apply_known(report: dict, items: list[dict], fail_on_new: bool = False) -> dict:
+   """알고 두는 경고를 `warnings` 에서 `known` 으로 옮긴다. 맞추는 단위는 `items` 한 칸 (설계 D).
+
+   `must.*` 줄은 못 뺀다. `status` 는 `fail_on_new` 이고 새 경고가 남을 때만 `fail` 로 바꾼다 —
+   그 밖에는 status · must_failed · failed 를 안 건드린다.
+   """
+   out = dict(report)
+   used: set[int] = set()
+   must_hits: set[int] = set()
+   remain: list[dict] = []
+   known: list[dict] = []
+   for line in report.get("warnings", []):
+      rule = str(line.get("rule", ""))
+      cells = line.get("items") or []
+      if rule.startswith("must."):
+         for spot in [cell_key(c) for c in cells] or [""]:
+            _known_hit(items, rule, spot, must_hits)
+         remain.append(line)
+         continue
+      if not cells:
+         hit = _known_hit(items, rule, "", used)
+         if hit is None:
+            remain.append(line)
+         else:
+            known.append({**line, "known_by": _known_label(hit)})
+         continue
+      left: list = []
+      groups: dict[int, tuple[dict, list]] = {}
+      for cell in cells:
+         hit = _known_hit(items, rule, cell_key(cell), used)
+         if hit is None:
+            left.append(cell)
+         else:
+            groups.setdefault(id(hit), (hit, []))[1].append(cell)
+      if left:
+         remain.append({**line, "items": left})
+      for hit, got in groups.values():
+         known.append({**line, "items": got, "known_by": _known_label(hit)})
+
+   out["warnings"] = remain
+   out["new_warnings"] = sum(len(line.get("items") or []) or 1 for line in remain)
+   out["known"] = known
+   info = list(report.get("info", []))
+   musts = [e for e in items if id(e) in must_hits and id(e) not in used]
+   stale = [e for e in items if id(e) not in used and id(e) not in must_hits]
+   if musts:
+      info.append({"rule": "check.known_must", "detail": f"must.* 는 known 으로 못 뺀다 — 무시한 목록 항목 {len(musts)}",
+                   "items": [_known_item(e) for e in musts]})
+   if stale:
+      info.append({"rule": "check.known_stale", "detail": f"아무 경고와도 안 맞은 목록 항목 {len(stale)}",
+                   "items": [_known_item(e) for e in stale]})
+   if info:
+      out["info"] = info
+   if fail_on_new and out["new_warnings"] > 0:
+      out["status"] = "fail"
+   return out
+
+
+def _known_label(entry: dict) -> str:
+   return f"{entry['rule']} @ {entry['where']}"
+
+
+def _known_item(entry: dict) -> dict:
+   return {key: entry[key] for key in KNOWN_KEYS if entry.get(key)}
+
+
+def _run(prof: Profile, build_dir: str | Path, no_ramps: bool = False, *, warn: bool = True, mode: str = "auto", template=None) -> dict:
    tpl = load_template(template) if template else None
    ramps_override = None
    if tpl is not None:

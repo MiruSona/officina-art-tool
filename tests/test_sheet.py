@@ -273,3 +273,60 @@ def test_layout_size_matches_layout_rows(labels):
    sizes = [[image.size(c) for c in row] for row in rows]
    assert sheet.layout_size(sizes, labels, labels) == image.size(board)
    assert sheet.kind_size(3, 2, "tile", 4, 2) == (24, 16) and sheet.kind_size(3, 2, "zoom", 4) == (12, 8)
+
+
+# ── --strip · fit:N (2판 C4 · C6) ──
+
+def _ns2(ins, out, **over):
+   import argparse as _ap
+   values = {"in_paths": [str(p) for p in ins], "out_file": str(out), "kinds": None, "scale": None, "tile": 2, "bg": "checker",
+             "label": False, "grid": 0, "grid_color": None, "strip": False, "report": None, "dry_run": False}
+   values.update(over)
+   return _ap.Namespace(**values)
+
+
+def _two_png(tmp_path, h2=8):
+   from arttool import image as _im
+   a = _im.new(6, 8, (255, 0, 0, 255))
+   b = _im.new(6, h2)
+   _im.save(tmp_path / "a.png", a)
+   _im.save(tmp_path / "b.png", b)
+   return [tmp_path / "a.png", tmp_path / "b.png"]
+
+
+def test_sheet_strip_width_sum_transparent(tmp_path):
+   from arttool import image as _im, sheet as _sh
+   result = _sh.run(_ns2(_two_png(tmp_path), tmp_path / "s.png", strip=True))
+   out = _im.load(tmp_path / "s.png")
+   assert out.shape[:2] == (8, 12) and result["frame"] == [6, 8] and result["count"] == 2
+   assert out[0, 6, 3] == 0 and tuple(out[0, 0]) == (255, 0, 0, 255)
+
+
+def test_sheet_strip_size_mismatch_and_mixed_args(tmp_path):
+   import pytest as _pt
+   from arttool import sheet as _sh
+   from arttool.errors import ArtToolError, UsageError
+   with _pt.raises(ArtToolError):
+      _sh.run(_ns2(_two_png(tmp_path, h2=7), tmp_path / "s.png", strip=True))
+   with _pt.raises(UsageError):
+      _sh.run(_ns2(_two_png(tmp_path), tmp_path / "s.png", strip=True, kinds="zoom,fit:24"))
+
+
+def test_sheet_fit_cell_size_and_upscale_warn(tmp_path):
+   from arttool import image as _im, sheet as _sh
+   big = _im.new(32, 16, (0, 255, 0, 255))
+   _im.save(tmp_path / "big.png", big)
+   assert _sh.kind_size(32, 16, "fit:24", 2) == (48, 24)
+   assert _sh.fit_down(big, 24).shape[:2] == (12, 24)
+   result = _sh.run(_ns2([tmp_path / "big.png"], tmp_path / "s.png", kinds="zoom,fit:24,fit:40", scale="1"))
+   assert result["kinds"] == ["zoom", "fit:24", "fit:40"]
+   assert [w["rule"] for w in result["warnings"]] == ["fit_upscale"]
+
+
+@pytest.mark.parametrize("over", [{"bg": "#000000"}, {"label": True}, {"tile": 4}, {"grid_color": "#00FF00"}])
+def test_sheet_strip_rejects_unused_args(tmp_path, over):
+   from arttool import sheet as _sh
+   from arttool.errors import UsageError
+   with pytest.raises(UsageError):
+      _sh.run(_ns2(_two_png(tmp_path), tmp_path / "s.png", strip=True, **over))
+   assert not (tmp_path / "s.png").exists()

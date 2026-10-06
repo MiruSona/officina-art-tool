@@ -114,6 +114,9 @@ CONTRACT = [
    (["sheet", "--in", "a.png", "--out", "s.png"], {"grid": 0, "grid_color": None}),
    (["sheet", "--in", "a.png", "--out", "s.png", "--grid", "8", "--grid-color", "#00FF00"], {"grid": 8, "grid_color": "#00FF00"}),
    (["shift", "--in", "a.png", "--out", "o", "--hue", "-10"], {"in_dir": "a.png", "out_dir": "o", "hue": -10, "sat": 1.0, "light": 0, "pick": None}),
+   (["outline", "--in", "a.png", "--out", "o"], {"in_dir": "a.png", "out_dir": "o", "mode": "black", "where": "outside", "width": 1, "color": None, "grow": False}),
+   (["fill", "--in", "a.png", "--out", "o", "--enclosed", "--color", "#ff0000"], {"in_dir": "a.png", "out_dir": "o", "enclosed": True, "color": "#ff0000", "max_area": None}),
+   (["diff", "--a", "a.png", "--b", "b.png", "--alpha-only"], {"a": "a.png", "b": "b.png", "alpha_only": True}),
 ]
 
 

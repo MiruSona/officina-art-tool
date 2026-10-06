@@ -20,6 +20,7 @@ from ..paths import guard_not_folder, guard_outside, guard_overwrite, jailed_out
 
 VERSION = 1
 SHEET_SCALE = 4
+GIF_DURATION = 110         # --gif 프레임 한 장 ms
 # 원본 불투명 칸의 평균 밝기가 이보다 낮으면 곱한 결과가 탁하다.
 DARK_SOURCE = 170
 
@@ -84,33 +85,60 @@ def run(args) -> dict:
    sheet_path = jailed_output(args.sheet) if getattr(args, "sheet", None) else None
    if sheet_path is not None:
       guard_overwrite([sheet_path], writes, "--sheet")
+   if getattr(args, "gif", None) and not str(args.gif).lower().endswith(".gif"):
+      raise UsageError(f"--gif 는 .gif 로 끝나야 한다 : {args.gif}")
+   gif_path = guard_not_folder(jailed_output(args.gif)) if getattr(args, "gif", None) else None
+   duration = getattr(args, "duration", None)
+   if gif_path is None and duration is not None:
+      raise UsageError("--duration 은 --gif 와 같이 쓴다")
+   duration = GIF_DURATION if duration is None else int(duration)
+   if duration < 1:
+      raise UsageError(f"--duration 은 1 이상이다 : {duration}")
+   if gif_path is not None:
+      guard_overwrite([gif_path], [*writes, sheet_path], "--gif")
    # 아무것도 쓰기 전에 : 원본을 덮지 않고, 입력 폴더 안에도 안 쓴다(다음 판에 결과를 또 읽는다)
-   guard_overwrite([*writes, sheet_path], inputs)
+   guard_overwrite([*writes, sheet_path, gif_path], inputs)
    if Path(args.in_dir).is_dir():
-      guard_outside([*writes, sheet_path], [args.in_dir])
+      guard_outside([*writes, sheet_path, gif_path], [args.in_dir])
 
    dry_run = is_dry_run(args)
    rows, warnings, board = [], [], []
    for source, targets in zip(inputs, plan):
       arr = image.load(source)
       made = [tint(arr, rgb) for rgb in colors]
-      if not dry_run:
-         for path, result in zip(targets, made):
-            image.save(path, result)
       luma = mean_luma(arr)
       if luma is not None and luma < DARK_SOURCE:
          warnings.append(warning("tint.dark_source", f"{source.name} : 평균 밝기 {luma:.0f} < {DARK_SOURCE} — 곱하면 탁해진다. 흰 · 밝은 회색으로 뽑는다", [source.name]))
       rows.append({"file": source.name, "outputs": [p.name for p in targets], "mean_luma": None if luma is None else round(luma, 1)})
       board.append([arr, *made])
 
+   # 거절 검사(판 크기 · GIF 색 수)를 다 마친 뒤에 쓴다 — 거절이면 파일이 하나도 안 남게.
+   cells = [cell for row in board for cell in row]
    if sheet_path is not None:
-      cells = [cell for row in board for cell in row]
       image.contact_sheet_size([image.size(c) for c in cells], scale, cols=len(colors) + 1)   # dry-run 도 상한을 본다
-      if not dry_run:
+   frames = [cell for row in board for cell in row[1:]]          # 원본은 빼고 색마다 낸 그림만, 순서대로
+   soft = image.save_gif(frames, gif_path, duration, write=False) if gif_path is not None else 0
+
+   if not dry_run:
+      for targets, row in zip(plan, board):
+         for path, result in zip(targets, row[1:]):
+            image.save(path, result)
+      if sheet_path is not None:
          image.save(sheet_path, image.contact_sheet(cells, scale, cols=len(colors) + 1))
 
-   return {
-      **dry_run_fields(dry_run, [*writes, sheet_path]),
+   gif = None
+   if gif_path is not None:
+      if not dry_run:
+         image.save_gif(frames, gif_path, duration)
+      if soft:
+         warnings.append(warning("tint.gif_alpha", f"반투명 칸 {soft} 개 — GIF 는 알파 {image.GIF_ALPHA_CUT} 밑을 투명, 위를 불투명으로 바꿨다", [soft]))
+      shown = image.gif_frame_count(frames)
+      if shown != len(frames):
+         warnings.append(warning("tint.gif_merged", f"GIF 에서 바로 앞과 같은 장이 합쳐져 {len(frames)}장 → {shown}장 — 합친 장은 duration 이 더해진다 (같은 색을 연달아 주지 않는다)", [shown]))
+      gif = {"path": None if dry_run else str(gif_path), "frames": shown, "duration": duration}
+
+   result = {
+      **dry_run_fields(dry_run, [*writes, sheet_path, gif_path]),
       "version": VERSION,
       "status": "warn" if warnings else "ok",
       "colors": [to_hex(c) for c in colors],
@@ -119,3 +147,6 @@ def run(args) -> dict:
       "warnings": warnings,
       "out": str(resolve_root(args.out_dir)),
    }
+   if gif is not None:
+      result["gif"] = gif
+   return result

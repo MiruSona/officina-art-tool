@@ -98,3 +98,92 @@ def test_tint_refuses_in_place(tmp_path):
    with pytest.raises(UsageError):
       tint.run(_args(src, tmp_path / "t", sheet=str(src / "s.png")))
    assert sorted(p.name for p in src.iterdir()) == ["hair.png"]
+
+
+# ── --gif (2판 C5) ──
+
+def test_tint_gif_frames_duration_transparency(tmp_path):
+   from PIL import Image
+   folder = _save(tmp_path, _layer())
+   gif = tmp_path / "anim.gif"
+   result = tint.run(_args(folder, tmp_path / "out", gif=str(gif), duration=90))
+   assert result["gif"]["frames"] == 2 and result["gif"]["duration"] == 90 and result["gif"]["path"]
+   with Image.open(gif) as im:
+      assert im.n_frames == 2
+      assert im.size == (6, 6)
+      assert im.info["duration"] == 90
+      assert im.info["transparency"] == 0
+      assert im.getpixel((5, 5)) == 0                  # 투명 칸 = 0번
+      im.seek(1)
+      rgba = np.array(im.convert("RGBA"))
+   assert rgba[5, 5, 3] == 0
+   assert tuple(rgba[2, 1]) == (0x5D, 0xA0, 0xE8, 255)   # 둘째 프레임 = 둘째 색 × 흰
+   assert any(w["rule"] == "tint.gif_alpha" for w in result["warnings"])   # (0,0) 알파 128
+
+
+def test_tint_gif_default_duration(tmp_path):
+   from PIL import Image
+   arr = _layer()
+   arr[0, 0] = (0, 0, 0, 0)
+   folder = _save(tmp_path, arr)
+   gif = tmp_path / "anim.gif"
+   result = tint.run(_args(folder, tmp_path / "out", gif=str(gif)))
+   assert result["gif"]["duration"] == 110
+   assert not any(w["rule"] == "tint.gif_alpha" for w in result["warnings"])
+   with Image.open(gif) as im:
+      assert im.info["duration"] == 110
+
+
+def test_tint_duration_without_gif_exit2(tmp_path):
+   folder = _save(tmp_path, _layer())
+   with pytest.raises(UsageError):
+      tint.run(_args(folder, tmp_path / "out", duration=90))
+
+
+def test_tint_no_gif_report_unchanged(tmp_path):
+   folder = _save(tmp_path, _layer())
+   result = tint.run(_args(folder, tmp_path / "out"))
+   assert "gif" not in result
+
+
+def test_save_gif_over_255_colors_refused(tmp_path):
+   from arttool.errors import ArtToolError
+   arr = image.new(16, 17)
+   for i in range(256):
+      arr[i // 16, i % 16] = (i, 0, 0, 255)
+   with pytest.raises(ArtToolError):
+      image.save_gif([arr], tmp_path / "x.gif", 100)
+   with pytest.raises(ArtToolError):
+      image.save_gif([arr], tmp_path / "x.gif", 100, write=False)
+   assert not (tmp_path / "x.gif").exists()
+
+
+def test_tint_gif_refused_leaves_no_files(tmp_path):
+   from arttool.errors import ArtToolError
+   arr = image.new(16, 17)
+   for i in range(256):
+      arr[i // 16, i % 16] = (255, 255, i, 255)                 # 흰 쪽 256색 — 곱해도 255색을 넘는다
+   folder = _save(tmp_path, arr)
+   out = tmp_path / "out"
+   with pytest.raises(ArtToolError):
+      tint.run(_args(folder, out, colors="#FFFFFF", sheet=str(tmp_path / "s.png"), gif=str(tmp_path / "a.gif")))
+   assert not out.exists() or not any(out.iterdir())
+   assert not (tmp_path / "s.png").exists() and not (tmp_path / "a.gif").exists()
+
+
+def test_tint_gif_needs_gif_suffix(tmp_path):
+   folder = _save(tmp_path, _layer())
+   with pytest.raises(UsageError):
+      tint.run(_args(folder, tmp_path / "out", gif=str(tmp_path / "anim.png")))
+   tint.run(_args(folder, tmp_path / "out", gif=str(tmp_path / "anim.GIF")))
+
+
+def test_tint_gif_merged_frames_reported(tmp_path):
+   from PIL import Image
+   _save(tmp_path, _layer(), "a.png")
+   folder = _save(tmp_path, _layer(), "b.png")                  # 같은 그림 둘 · 색 하나 → 같은 장이 연달아
+   gif = tmp_path / "anim.gif"
+   result = tint.run(_args(folder, tmp_path / "out", colors="#E85D5D", gif=str(gif)))
+   with Image.open(gif) as im:
+      assert im.n_frames == result["gif"]["frames"] == 1
+   assert any(w["rule"] == "tint.gif_merged" for w in result["warnings"])

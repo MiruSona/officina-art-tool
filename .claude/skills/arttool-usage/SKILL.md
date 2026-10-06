@@ -10,7 +10,7 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 
 | 더 볼 것 | 언제 |
 | --- | --- |
-| `기준.md` | 「좋은 도트」 기준 · 검사 일곱이 무엇을 보나 · 색 수 · 외곽선 · 램프 · 프레임 |
+| `기준.md` | 「좋은 도트」 기준 · 검사 여덟이 무엇을 보나 · 색 수 · 외곽선 · 램프 · 프레임 |
 | `뽑기-pixellab.md` | PixelLab 으로 뽑을 때 — 도구 고르기 · 흔한 사고 · 겹 떼기 · 크기 한도 · 그림 넘기기(id · 주소 · base64) · 통한 글귀 |
 | `그리기-pil.md` | PIL 로 그릴 때 — `arttool.draw` 표 · 겹별로 그리는 순서 · 예시 스크립트 셋 |
 | `<ArtTool>/README.md` | 명령 전체 · 프로필 칸 · 보고 꼴 |
@@ -60,7 +60,9 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 | 받은 그림 한 번에 손질 | `arttool intake --in raw/ --out clean/ [--key edge\|corner\|#hex] [--tol N] [--shave N] [--pad N] [--template t.json] --sheet s.png --report i.json` (배경 그림은 바탕 지우기를 건너뛴다) |
 | 배경만 지우기 / 여백만 걷기 | `arttool cutout --in raw --out cut --key corner --tol 10 --shave 2` · `arttool trim --in raw --out t --pad 1 [--common]` (`--canvas 32x32 [--anchor bottom] [--margin 1]` 을 더하면 W×H 투명 판에 다시 깐다) |
 | 검사 | `arttool check --in clean --template work/guide/template.json --report c.json [--no-warn]` (`odd_size` 경고 : 홀수 크기라 피벗이 반 픽셀에 놓이면 `trim --canvas` 로 짝수로) |
+| 알고 두는 경고 빼고 새 경고만 보기 | `arttool check --in clean --report base.json` 으로 한 번 뜨고, 다음부터 `arttool check --in clean --report c.json --baseline base.json --fail-on-new` (손으로 쓴 `--known k.json` 도 된다. 맞은 경고는 보고 `known` 으로 가고 `new_warnings` 만 남는다. 새 경고가 있으면 종료 4. `--no-warn` 과 같이 주면 종료 2) |
 | 비교판 | `arttool sheet --in a.png clean/ --kinds zoom,silhouette,colors4,blur --label --out s.png` |
+| 한 줄 애니 시트 · 작게 찍힌 모습 | `arttool sheet --in f1.png f2.png --out strip.png --strip` (여백 0 · 배율 1 · 프레임 크기가 같아야 함) · `arttool sheet --in a.png --kinds zoom,fit:24,fit:16 --out s.png` (긴 변을 N 으로 줄인 모습. N 이 더 크면 원본 그대로 + `fit_upscale`) |
 | 기본체 + inpaint → 겹 | `arttool layers diff --base base.png --in inpainted/ --out set/ --template t.json --carve report` |
 | 「이 색 칸만」 마스크 | `arttool layers mask --in base.png --colors #2B2233 --grow 1 --out m.png` |
 | 겹 켜고 끄며 보기 | `arttool layers view --in set --each --scale 8 --out v.png` |
@@ -71,7 +73,8 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 | 무늬 이어 넓히기 (판자 · 울타리) | `arttool stitch --in a.png:0-40 a.png:20-40 a.png:20-40 --axis x --out wide.png` (되풀이 구간을 여러 번 준다) |
 | 바탕 타일 이음매 지우기 | `arttool tile offset --in g.png --out s.png --mask cross.png` → 둘을 inpaint → `tile seam` |
 | 되풀이 단위 · 한 바퀴 그림 · 배경 늘리기 | `arttool extend period --in fence.png --tile 32` · `extend ring … --snap` · `extend canvas --in bg.png --size 360x1000 --out o.png` |
-| 외곽선 한 색 · 흰 겹에 색 곱하기 | `arttool reline --in raw --out o [--color #hex] [--from #hex,#hex] [--depth 2] [--color-dark #hex]` (`--depth 2` 는 2px 선 안쪽 줄까지, `--color-dark` 는 면에 묻힌 선 칸만 둘째 색. `--from` 은 바꿀 선 색을 직접 고른다 — 밝기가 같은 다른 선은 그대로. `--scope colors` 를 더하면 그림 전체의 그 색) · `arttool shift --in raw --out o --hue 30 [--sat 0.8] [--light 0.1] [--pick #hex]` 색 돌리기 · `arttool tint --in white --colors #E85D5D,#5DA0E8 --out t --sheet s.png` |
+| 외곽선 한 색 · 흰 겹에 색 곱하기 | `arttool reline --in raw --out o [--color #hex] [--from #hex,#hex] [--depth 2] [--color-dark #hex]` (`--depth 2` 는 2px 선 안쪽 줄까지, `--color-dark` 는 면에 묻힌 선 칸만 둘째 색. `--from` 은 바꿀 선 색을 직접 고른다 — 밝기가 같은 다른 선은 그대로. `--scope colors` 를 더하면 그림 전체의 그 색) · `arttool shift --in raw --out o --hue 30 [--sat 0.8] [--light 0.1] [--pick #hex]` 색 돌리기 · `arttool tint --in white --colors #E85D5D,#5DA0E8 --out t --sheet s.png [--gif t.gif --duration 110]` |
+| 외곽선 두르기 · 갇힌 틈 메우기 · 알파 같은지 | `arttool outline --in raw --out o [--mode black\|solid\|selout\|selout+light] [--where outside\|inside] [--width 1~4] [--grow]` (selout 은 램프 필요, 없으면 종료 2 · `--grow` 없이 잘리면 `outline.clipped`) · `arttool fill --in raw --out o --enclosed --color #hex [--max-area N]` (대각선 틈도 틀로 본다) · `arttool diff --a a/ --b b/ --alpha-only` (다르면 종료 4, 파일 안 씀) |
 | 겹 떼기에서 뺨 · 옷 점 빼기 | `layers diff … --drop hair:#F2C9A0` |
 | 가까운 색 합치기 (`check` 가 `max_colors` · `near_colors` 로 걸리면) | `arttool merge-colors --in raw --out o [--max-colors 24] [--keep #hex] --sheet s.png` (아무것도 안 주면 `near_colors` 문턱으로. 평균색은 안 만든다. `--dry-run` 으로 `merge_table` 먼저 보기). 합친 뒤에도 `isolated` 가 걸리면 `--clean` — 둘레 6/8 이 한 색이고 가까운 잡티 점만 메운다 |
 | 좌표 읽는 눈금 판 · 글꼴에 없는 글자 | `arttool sheet --in a.png --grid 8 --out g.png` · `arttool ui glyphs --font f.ttf --text-file chars.txt` |
