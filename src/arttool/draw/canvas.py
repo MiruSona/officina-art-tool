@@ -25,11 +25,16 @@ from .. import image, layerset, paths
 from ..errors import ArtToolError
 from ..jsonio import read_json
 from ..palette import Ramps, load_ramps, parse_hex, to_hex
-from . import shapes
+from . import grid, shapes
 from .guide import GUIDE_COLORS, Guide, guide as open_guide
+from .lint import LintResult, lint as run_lint, pick_rules
 from .outline import MODES, check_light, check_mode, plan
 
 DEFAULT_ITEM = "idle"
+# 합친 그림으로 한 번만 재는 린트 규칙 — 겹 경계가 실루엣 가장자리가 아니고, 듬성한 겹의 빈 칸은 구멍이 아니며,
+# 빛 추정은 그림 전체 수치라서.
+WHOLE_RULES = ("lint.hole", "lint.outline_gap", "lint.light_mismatch")
+CHANGED_COLOR = (255, 0, 255, 255)   # preview_changed 의 바뀐 칸 테 (#FF00FF)
 
 
 def _rgba(color) -> tuple[int, int, int, int]:
@@ -65,25 +70,82 @@ class Layer:
       self.kind = kind
       self.size = size
       self.arr = image.new(size[0], size[1])
+      self.symmetry: str | None = None          # "x" 면 찍는 것마다 좌우 거울
+      self.clip: np.ndarray | None = None       # 켜 두면 paint 가 이 칸 안에만 찍힌다
+      self.last = {"written": 0, "clipped": 0}  # 마지막 paint · erase 가 바꾼 칸 · clip 에 걸린 칸
+      self.dirty = np.zeros((size[1], size[0]), dtype=bool)   # 실제로 값이 바뀐 칸 (G6 의 mark 가 비운다)
 
    def __repr__(self) -> str:
       return f"Layer({self.name!r}, kind={self.kind!r}, 칠한 칸 {int(self.mask().sum())})"
 
+   # ---- 대칭 · 자르기 ----
+
+   def set_symmetry(self, axis: str | None) -> "Layer":
+      """"x" 면 앞으로 paint · erase 하는 칸마다 좌우 거울 칸도 같이. None 이면 끈다. 이미 그린 것은 안 바뀐다(그건 mirror())."""
+      if axis not in ("x", None):
+         raise ArtToolError(f"대칭 축은 \"x\" 또는 None 이다 : {axis!r}")
+      self.symmetry = axis
+      return self
+
+   def set_clip(self, mask: np.ndarray | None) -> "Layer":
+      """불리언 마스크를 주면 앞으로 paint 는 그 칸 안에만 찍힌다. erase 는 안 막는다. None 이면 끈다."""
+      if mask is None:
+         self.clip = None
+         return self
+      clip = np.asarray(mask)
+      if clip.dtype != bool:
+         raise ArtToolError(f"clip 은 불리언 마스크다 (받은 꼴 {clip.dtype})")
+      self._check_shape(clip)
+      self.clip = clip.copy()
+      return self
+
+   def clear_dirty(self) -> "Layer":
+      """바뀐 칸 기록을 비운다. Canvas.mark() 가 바퀴를 시작할 때 부른다."""
+      self.dirty[:] = False
+      return self
+
+   def _check_shape(self, mask: np.ndarray) -> None:
+      if mask.shape != self.arr.shape[:2]:
+         raise ArtToolError(f"마스크 크기 {mask.shape[::-1]} 가 겹 {self.size} 와 다르다")
+
+   def _widen(self, mask: np.ndarray) -> np.ndarray:
+      """symmetry 를 켰으면 거울 칸을 합친다. 홀수 너비 가운데 줄은 자기 자신과 겹쳐 그대로다."""
+      mask = np.asarray(mask, dtype=bool)
+      self._check_shape(mask)
+      return mask | mask[:, ::-1] if self.symmetry == "x" else mask
+
+   def _touch(self, before: np.ndarray) -> int:
+      """before 와 지금 arr 을 견줘 바뀐 칸을 dirty 에 켜고 그 수를 돌려준다(arr 을 직접 쓰는 곳용)."""
+      changed = (self.arr != before).any(axis=2)
+      self.dirty |= changed
+      return int(changed.sum())
+
    # ---- 칠하기 바탕 ----
 
    def paint(self, mask: np.ndarray, color) -> "Layer":
-      """마스크 칸을 한 색으로 덮는다. 다른 도형 함수가 모두 이것을 부른다."""
-      shapes.paint(self.arr, mask, _rgba(color))
+      """마스크 칸을 한 색으로 덮는다. 다른 도형 함수가 모두 이것을 부른다.
+
+      symmetry 로 먼저 넓히고, 그 다음 clip 으로 자른다. 결과는 `last` · `dirty` 에 남는다.
+      """
+      rgba = _rgba(color)
+      wide = self._widen(mask)
+      clipped = 0
+      if self.clip is not None:
+         clipped = int((wide & ~self.clip).sum())
+         wide = wide & self.clip
+      changed = wide & ~(self.arr == rgba).all(axis=2)
+      shapes.paint(self.arr, wide, rgba)
+      self.dirty |= changed
+      self.last = {"written": int(changed.sum()), "clipped": clipped}
       return self
 
    def erase(self, mask: np.ndarray | None = None) -> "Layer":
-      """마스크 칸을 투명으로. 마스크를 안 주면 겹 전체."""
-      if mask is None:
-         self.arr[:, :] = 0
-      else:
-         if mask.shape != self.arr.shape[:2]:
-            raise ArtToolError(f"마스크 크기 {mask.shape[::-1]} 가 겹 {self.size} 와 다르다")
-         self.arr[mask] = 0
+      """마스크 칸을 투명으로. 마스크를 안 주면 겹 전체. symmetry 는 타고 clip 은 안 탄다."""
+      wide = np.ones(self.arr.shape[:2], dtype=bool) if mask is None else self._widen(mask)
+      changed = wide & (self.arr != 0).any(axis=2)
+      self.arr[wide] = 0
+      self.dirty |= changed
+      self.last = {"written": int(changed.sum()), "clipped": 0}
       return self
 
    def mask(self) -> np.ndarray:
@@ -137,13 +199,79 @@ class Layer:
       """왼쪽 반을 오른쪽 반에 거울로 옮긴다(좌우 대칭 그림). 홀수 너비면 가운데 줄은 그대로."""
       width = self.size[0]
       half = width // 2
+      before = self.arr.copy()
       self.arr[:, width - half :] = self.arr[:, :half][:, ::-1]
+      self._touch(before)
       return self
 
    def recolor(self, old, new) -> "Layer":
-      """이 겹의 old 색 칸을 모두 new 색으로."""
-      o = _rgba(old)
-      return self.paint((self.arr == o).all(axis=2), new)
+      """이 겹의 old 색 칸을 모두 new 색으로. symmetry · clip 을 안 탄다 — old 색 칸만 바꾼다(거울 칸은 그대로)."""
+      o, n = _rgba(old), _rgba(new)
+      before = self.arr.copy()
+      shapes.paint(self.arr, (self.arr == o).all(axis=2), n)
+      self.last = {"written": self._touch(before), "clipped": 0}
+      return self
+
+   # ---- 문자 격자 ----
+
+   def to_grid(self, box=None, rulers: bool = False, legend: grid.Legend | None = None) -> str:
+      """이 겹을 격자 글로. 투명은 `.`. 창 없이 64 칸을 넘으면 거절한다."""
+      return grid.to_text(self.arr, legend, box, rulers)
+
+   def paste_grid(self, text: str, at: tuple[int, int] | None = None, mode: str = "over",
+                  legend: grid.Legend | None = None) -> "Layer":
+      """격자 글을 (x, y) 에 덧그린다. 글 안 범례를 먼저, 모자란 글자는 `legend` 에서 채운다.
+
+      at 을 안 주면 글의 `# 원점 x,y` 줄(눈금 찍은 글)을 쓰고, 그것도 없으면 (0, 0).
+      at 을 줬는데 원점과 다르면 거절한다(눈금 글을 엉뚱한 자리에 찍지 않게).
+      글 안 범례의 새 색은 `legend` 에 그 글자로 등록한다(글자 · 색이 안 겹칠 때).
+      over : `.` 칸은 건드리지 않는다 · replace : `.` 칸은 지운다. 색마다 paint, 지우기는 erase 를 불러
+      symmetry · clip · dirty 가 같이 든다. 캔버스 밖 칸은 잘라 `last["clipped"]` 에 센다.
+      """
+      if mode not in ("over", "replace"):
+         raise ArtToolError(f"mode 는 over · replace 다 : {mode!r}")
+      table, rows, (w, h), origin = grid.parse(text, legend)
+      ax, ay = _paste_at(at, origin)
+      chars = np.array([list(row) for row in rows])
+      wanted = chars != grid.TRANSPARENT if mode == "over" else np.ones_like(chars, dtype=bool)
+      x0, y0 = max(ax, 0), max(ay, 0)
+      x1, y1 = min(ax + w, self.size[0]), min(ay + h, self.size[1])
+      sub = chars[y0 - ay : y1 - ay, x0 - ax : x1 - ax] if x0 < x1 and y0 < y1 else chars[:0, :0]
+      inside = wanted[y0 - ay : y1 - ay, x0 - ax : x1 - ax] if sub.size else wanted[:0, :0]
+      clipped = int(wanted.sum() - inside.sum())
+      before = self.arr.copy()
+      for char in sorted(set(sub.ravel().tolist())):
+         mask = np.zeros(self.arr.shape[:2], dtype=bool)
+         mask[y0:y1, x0:x1] = sub == char
+         if char == grid.TRANSPARENT:
+            if mode == "replace":
+               self.erase(mask)
+            continue
+         self.paint(mask, table.color(char))
+         clipped += self.last["clipped"]
+      changed = (self.arr != before).any(axis=2)
+      if legend is not None and table is not legend:
+         for letter, rgb in table.letters().items():
+            legend.adopt(letter, rgb)
+      self.last = {"written": int(changed.sum()), "clipped": clipped, "bbox": grid.bbox_of(changed), "at": [ax, ay]}
+      return self
+
+
+def _paste_at(at, origin) -> tuple[int, int]:
+   """paste_grid 의 찍을 자리. at 이 먼저지만 글의 원점과 어긋나면 거절한다."""
+   if at is None:
+      if origin is None:
+         return 0, 0
+      if origin[0] is None:
+         raise ArtToolError(f"줄머리 y({origin[1]})는 있는데 `# 원점 x,y` 줄이 없어 x 를 모른다. at 을 주거나 원점 줄을 붙인다")
+      return origin
+   if len(tuple(at)) != 2:
+      raise ArtToolError(f"at 은 (x, y) 두 값이다 : {at}")
+   ax, ay = (int(v) for v in at)
+   if origin is not None and (ay != origin[1] or (origin[0] is not None and ax != origin[0])):
+      where = f"({origin[0]}, {origin[1]})" if origin[0] is not None else f"y {origin[1]}"
+      raise ArtToolError(f"at ({ax}, {ay}) 이 글의 눈금 원점 {where} 과 다르다. at 을 빼거나 눈금을 뗀다")
+   return ax, ay
 
 
 def _layers_from(rows, where) -> list[layerset.Layer]:
@@ -283,6 +411,16 @@ class Canvas:
       self._outlined: list[dict] = []     # outline() 부른 기록 — 두 번 두르면 report 가 알린다
       self._notes: list[dict] = []        # 외곽선이 남긴 알릴 일 (램프 맨 아래 등)
       self._folders: list[Path] = []      # 이 캔버스가 읽고 쓴 겹 묶음 폴더 — preview 가 그 안에 쓰지 않게
+      # 격자 글자표. 팔레트가 있으면 램프 순서대로 미리 글자를 줘 세션 동안 같은 색 → 같은 글자.
+      self.legend = grid.Legend()
+      if self.ramps is not None:
+         try:
+            for color in [c for ramp in self.ramps.ramps.values() for c in ramp] + [self.ramps.outline]:
+               if color is not None:
+                  self.legend.assign(color)
+         except ArtToolError:
+            pass   # 62 색을 넘는 팔레트 — 넘친 색은 그릴 때 배정한다(그때도 넘치면 to_grid 가 알린다)
+      self._before = self.merged()        # mark() 전엔 처음 상태가 diff_grid 의 기준
 
    @staticmethod
    def _pick_size(size, lay_data, tpl_data, where) -> tuple[int, int]:
@@ -322,6 +460,21 @@ class Canvas:
 
    __getitem__ = layer
 
+   def _pick_layers(self, layers: list[str] | None) -> list[Layer]:
+      return [self.layer(name) for name in (self.names if layers is None else layers)]
+
+   def set_symmetry(self, axis: str | None, layers: list[str] | None = None) -> "Canvas":
+      """여러 겹에 한 번에 `Layer.set_symmetry`. layers 를 안 주면 모든 겹."""
+      for lay in self._pick_layers(layers):
+         lay.set_symmetry(axis)
+      return self
+
+   def set_clip(self, mask: np.ndarray | None, layers: list[str] | None = None) -> "Canvas":
+      """여러 겹에 한 번에 `Layer.set_clip`. layers 를 안 주면 모든 겹."""
+      for lay in self._pick_layers(layers):
+         lay.set_clip(mask)
+      return self
+
    # ---- 색 ----
 
    def pick(self, ramp: str, index: int) -> str:
@@ -356,11 +509,15 @@ class Canvas:
          if name not in picked:
             others |= self._layers[name].mask()
       self._outlined.append({"layers": list(picked), "where": where, "mode": mode})
+      # arr 에 직접 쓰므로 symmetry · clip 을 안 탄다. 바뀐 칸만 전후 비교로 dirty 에 켠다.
+      before = {name: self._layers[name].arr.copy() for name in picked}
       for x, y, rgb, (ax, ay) in plan(merged, mode, ramps=self.ramps, light=self.light, where=where,
                                       color=color, width=width, notes=self._notes):
          if where == "outside" and others[y, x]:
             continue
          self._layers[owner[ay][ax]].arr[y, x] = (*rgb, 255)
+      for name, old in before.items():
+         self._layers[name]._touch(old)
       return self
 
    def _owner_map(self, picked: list[str]) -> list[list[str | None]]:
@@ -396,6 +553,110 @@ class Canvas:
       paths.guard_outside([file], self._folders, what="preview 경로")
       image.save(file, image.scale_up(self.merged(only), scale))
       return file
+
+   def to_grid(self, layer: str | None = None, box=None, rulers: bool = False) -> str:
+      """겹 하나(없으면 합친 그림)를 격자 글로. 글자표는 `self.legend` 를 같이 쓴다."""
+      arr = self.layer(layer).arr if layer is not None else self.merged()
+      try:
+         return grid.to_text(arr, self.legend, box, rulers)
+      except ArtToolError as exc:
+         boxes = self.guide.names()["boxes"] if self.guide is not None else []
+         if box is None and max(self.size) > grid.MAX_SIDE and boxes:
+            raise ArtToolError(f"{exc}. 가이드 상자 : {' · '.join(boxes)} (c.guide.box(이름))") from exc
+         raise
+
+   def paste_grid(self, layer: str, text: str, at: tuple[int, int] | None = None, mode: str = "over") -> dict:
+      """`self[layer].paste_grid(..., legend=self.legend)` + 보고 {pixels_written, pixels_clipped, bbox}.
+
+      at 을 안 주면 글의 `# 원점` 줄 자리(없으면 (0, 0)). 찍은 자리는 `self[layer].last["at"]`.
+      """
+      lay = self.layer(layer).paste_grid(text, at, mode, legend=self.legend)
+      return {"pixels_written": lay.last["written"], "pixels_clipped": lay.last["clipped"], "bbox": lay.last["bbox"]}
+
+   # ---- 린트 ----
+
+   def lint(self, *, rules=None, waive=(), ramps=None, light: str | None = None, outline_mode: str | None = None,
+            axis_x: float | None = None, outline_color=None) -> LintResult:
+      """겹마다 `draw.lint.lint` 를 돌려 이슈의 layer 를 채우고 한 결과로 합친다 (설계 3절).
+
+      hole · outline_gap · light_mismatch · metrics 는 합친 그림으로 한 번만 잰다(layer 는 None).
+      rules 를 안 주면 기본 규칙 + symmetry 켠 겹에만 asym. 주면 모든 겹에 그대로. ramps · light · 외곽선 방식은 캔버스 값이 기본.
+      """
+      picked = pick_rules(rules)
+      common = {"ramps": self.ramps if ramps is None else ramps, "light": light or self.light,
+                "outline_mode": outline_mode or self.outline_mode, "waive": waive, "axis_x": axis_x,
+                "outline_color": outline_color}
+      per_layer = [r for r in picked if r not in WHOLE_RULES]
+      whole = run_lint(self.merged(), rules=[r for r in picked if r in WHOLE_RULES], **common)
+      out = LintResult(metrics=whole.metrics)
+      for name in self.names:
+         lay = self._layers[name]
+         names = per_layer + ["lint.asym"] if rules is None and lay.symmetry == "x" else per_layer
+         found = run_lint(lay.arr, rules=names, **common)
+         for issue in found.issues:
+            issue["layer"] = name
+         out.issues += found.issues
+         for rule, n in found.counts.items():
+            out.counts[rule] = out.counts.get(rule, 0) + n
+      out.issues += whole.issues
+      out.counts.update(whole.counts)
+      out.status = "warn" if out.issues else "ok"
+      return out
+
+   # ---- 바뀐 칸 (설계 5절) ----
+
+   def mark(self) -> "Canvas":
+      """바퀴 시작 — 모든 겹의 dirty 를 비우고 지금 합친 그림을 기준(diff_grid 의 before)으로 잡는다."""
+      for lay in self._layers.values():
+         lay.clear_dirty()
+      self._before = self.merged()
+      return self
+
+   def _dirty_all(self) -> np.ndarray:
+      union = np.zeros((self.size[1], self.size[0]), dtype=bool)
+      for lay in self._layers.values():
+         union |= lay.dirty
+      return union
+
+   def changed(self) -> dict:
+      """마지막 mark() 이후 바뀐 칸 {count, bbox [x0, y0, x1, y1] 끝 뺌 · 없으면 None, layers {겹: 칸 수}}. dirty 기준."""
+      union = self._dirty_all()
+      return {"count": int(union.sum()), "bbox": grid.bbox_of(union),
+              "layers": {name: int(self._layers[name].dirty.sum()) for name in self.names}}
+
+   def preview_changed(self, path: str | os.PathLike, scale: int = 8, pad: int = 2) -> Path:
+      """바뀐 칸 bbox 를 pad 칸 넓혀 잘라 scale 배 PNG 로. 바뀐 칸마다 확대한 칸 둘레 1px 를 자홍으로 두른다.
+
+      scale 은 3 이상 — 2 이하면 둘레 1px 테가 칸을 다 덮어 바뀐 색이 안 보인다.
+      """
+      if not isinstance(scale, int) or scale < 3:
+         raise ArtToolError(f"배율은 3 이상 정수다 (2 이하면 테가 칸을 다 덮는다) : {scale}")
+      if not isinstance(pad, int) or pad < 0:
+         raise ArtToolError(f"pad 는 0 이상 정수다 : {pad}")
+      file = Path(path)
+      paths.guard_outside([file], self._folders, what="preview 경로")
+      box = self.changed()["bbox"]
+      if box is None:
+         raise ArtToolError("바뀐 칸이 없다 — mark() 뒤에 그린 것이 없다")
+      x0, y0 = max(box[0] - pad, 0), max(box[1] - pad, 0)
+      x1, y1 = min(box[2] + pad, self.size[0]), min(box[3] + pad, self.size[1])
+      big = image.scale_up(self.merged()[y0:y1, x0:x1], scale)
+      ring = np.zeros((scale, scale), dtype=bool)
+      ring[0, :] = ring[-1, :] = ring[:, 0] = ring[:, -1] = True
+      big[np.kron(self._dirty_all()[y0:y1, x0:x1], ring).astype(bool)] = CHANGED_COLOR
+      image.save(file, big)
+      return file
+
+   def diff_grid(self) -> str:
+      """바뀐 칸 bbox 창의 격자 글. 안 바뀐 칸은 `·`, 바뀐 칸만 글자(`grid.diff_text`). 창이 64 칸을 넘으면 거절."""
+      box = self.changed()["bbox"]
+      if box is None:
+         raise ArtToolError("바뀐 칸이 없다 — mark() 뒤에 그린 것이 없다")
+      if box[2] - box[0] > grid.MAX_SIDE or box[3] - box[1] > grid.MAX_SIDE:
+         raise ArtToolError(
+            f"바뀐 칸 상자가 {box[2] - box[0]}x{box[3] - box[1]} 라 {grid.MAX_SIDE} 칸을 넘는다. "
+            f"preview_changed(경로) 로 그림을 보거나, 바퀴를 작게 나눠 mark() 를 자주 부른다")
+      return grid.diff_text(self._before, self.merged(), self.legend, tuple(box))
 
    # ---- 보고 ----
 
@@ -476,6 +737,24 @@ class Canvas:
       돌려주는 값은 layers.json 경로.
       """
       root = Path(folder)
+      lay, cut = self._plan_save(root, item)
+      self._folders.append(root)
+      for name in self.names:
+         path = layerset.image_path(root, lay, name, item)
+         if path is not None:
+            path.parent.mkdir(parents=True, exist_ok=True)   # files 무늬는 겹 폴더가 아닐 수 있다
+            image.save(path, cut[name])
+      return layerset.save(root, lay)
+
+   def check_save(self, folder: str | os.PathLike, item: str = DEFAULT_ITEM) -> None:
+      """`save(folder, item)` 이 거절할 일이면 지금 같은 오류를 낸다. 아무것도 안 쓴다.
+
+      작은 겹 상자 밖 칸 · pick 에 없는 겹의 그림 · 겹 목록이 다른 layers.json 을 미리 잡는다(dry-run · 복사 전 검사용).
+      """
+      self._plan_save(Path(folder), item)
+
+   def _plan_save(self, root: Path, item: str):
+      """save 가 쓸 (LayerSet, 겹마다 자른 그림). 거절할 일이 있으면 여기서 오류 — 아직 아무것도 안 썼다."""
       items = [item]
       old = None
       existing = root / layerset.FILE_NAME
@@ -495,13 +774,7 @@ class Canvas:
       # 작은 겹은 상자로 잘라 쓴다. 상자 밖에 칸이 있으면 crop_to_box 가 거절한다 —
       # 한 장이라도 쓰기 전에 다 잘라 봐서, 거절될 때 반쯤 쓴 묶음을 남기지 않는다.
       cut = {name: layerset.crop_to_box(lay.layer(name), self._layers[name].arr, root) for name in self.names}
-      self._folders.append(root)
-      for name in self.names:
-         path = layerset.image_path(root, lay, name, item)
-         if path is not None:
-            path.parent.mkdir(parents=True, exist_ok=True)   # files 무늬는 겹 폴더가 아닐 수 있다
-            image.save(path, cut[name])
-      return layerset.save(root, lay)
+      return lay, cut
 
    @classmethod
    def open(cls, folder: str | os.PathLike, item: str = DEFAULT_ITEM, *, ramps=None, light: str | None = None) -> "Canvas":
@@ -518,4 +791,4 @@ class Canvas:
          canvas._picks[item] = dict(lay.picks[item])
       for name, arr in layerset.read_item(root, lay, item).items():
          canvas._layers[name].arr = arr.copy()
-      return canvas
+      return canvas.mark()                # 읽어 들인 그림을 기준으로

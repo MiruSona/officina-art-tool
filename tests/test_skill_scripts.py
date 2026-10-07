@@ -58,7 +58,18 @@ def test_draw_fx(tmp_path):
    assert read_json(out / "check.json")["warnings"] == []
 
 
-@pytest.mark.parametrize("name", ["draw_char_small.py", "draw_tile.py", "draw_fx.py"])
+def test_draw_char_loop(tmp_path):
+   out = tmp_path / "loop"
+   done = _run("draw_char_loop.py", out)
+   for name in ("loop_1.png", "loop_2.png", "preview_x8.png", "set/layers.json"):
+      assert (out / name).is_file(), name
+   last = done.stdout.strip().splitlines()[-1]          # 끝 줄 `린트 N 건`
+   assert last.startswith("린트 ") and last.endswith(" 건"), last
+   assert int(last.split()[1]) >= 0
+   assert "얼굴 고친 칸 6 (생각 6)" in done.stdout
+
+
+@pytest.mark.parametrize("name", ["draw_char_small.py", "draw_tile.py", "draw_fx.py", "draw_char_loop.py"])
 def test_script_needs_out(name):
    done = subprocess.run([sys.executable, str(SCRIPTS / name)], capture_output=True, text=True, encoding="utf-8", errors="replace")
    assert done.returncode == 2

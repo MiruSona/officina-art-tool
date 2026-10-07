@@ -30,6 +30,8 @@
 | `outline` · `fill` · `diff` | `arttool.sprite.outline` · `edit.fill` · `sprite.diff` 의 `run` (2026-10-06) |
 | `measure shape` · `mask` | `arttool.measure.shape` · `edit.mask` 의 `run` (2026-10-06 2판-나) |
 | `palette check` | `arttool.checks.palette_check.run` (2026-10-06 3판-가, 램프 파일만 잰다) |
+| `grid show` · `apply` | `arttool.draw.gridcmd.run` (2026-10-07 draw 고리, `args.sub` 로 가른다) |
+| `lint` | `arttool.draw.lintcmd.run` (2026-10-07 draw 고리, 파일 안 씀 · 걸려도 종료 0) |
 | `layers compose` | 여기서 `sprite.layers.compose_sheets` 를 바로 부른다 (옛 `layers`) |
 | `check --no-warn · --mode · --template` | `check.run(prof, in_dir, no_ramps, *, warn, mode, template)` — 그 세 칸을 받게 되면 넘긴다 |
 | `check --known · --baseline · --fail-on-new` | `check.run(..., *, known, baseline, fail_on_new)` — 셋 중 하나라도 줬을 때만 넘긴다 |
@@ -114,6 +116,9 @@ LATE: dict[tuple[str, str | None], tuple[str, str]] = {
    ("measure", "shape"): ("arttool.measure.shape", "run"),
    ("mask", None): ("arttool.edit.mask", "run"),
    ("palette", "check"): ("arttool.checks.palette_check", "run"),
+   ("grid", "show"): ("arttool.draw.gridcmd", "run"),
+   ("grid", "apply"): ("arttool.draw.gridcmd", "run"),
+   ("lint", None): ("arttool.draw.lintcmd", "run"),
 }
 
 # check.run 이 이 세 칸을 키워드로 받게 되면(D 갈래) 새 인자를 넘긴다.
@@ -198,7 +203,39 @@ def build_parser() -> argparse.ArgumentParser:
    _add_measure(subs)
    _add_mask(subs)
    _add_palette(subs)
+   _add_grid(subs)
+   _add_lint(subs)
    return parser
+
+
+def _add_grid(subs) -> None:
+   node = subs.add_parser("grid", help="문자 격자 (show · apply) — 그림을 글자 한 칸 = 칸 하나로")
+   inner = node.add_subparsers(dest="sub", required=True)
+   show = inner.add_parser("show", help="격자 글을 찍는다 (파일 안 씀). 64 칸 넘으면 --box", parents=[COMMON])
+   apply = inner.add_parser("apply", help="격자 패치를 덧그려 --out 새 자리에 쓴다", parents=[COMMON])
+   for one in (show, apply):
+      one.add_argument("--in", dest="in_path", required=True, help="겹 묶음 폴더 또는 PNG")
+      one.add_argument("--item", default="idle", help="겹 묶음의 그림 이름 (기본 idle)")
+      one.add_argument("--legend", dest="legend_file", help='글자표 JSON {"k": "#2A2238", ...}')
+   show.add_argument("--layer", help="겹 하나만. 안 주면 합친 그림")
+   show.add_argument("--box", help="창 x,y,w,h")
+   show.add_argument("--rulers", action="store_true", help="x 눈금 줄 · y 줄머리를 붙인다")
+   apply.add_argument("--grid", dest="grid_file", required=True, help="격자 글 파일 (.px)")
+   apply.add_argument("--layer", help="덧그릴 겹. 겹이 하나면 안 줘도 된다")
+   apply.add_argument("--at", default=None, help="패치 왼쪽 위 x,y (음수는 --at=-2,3). 안 주면 글의 `# 원점` 줄, 그것도 없으면 0,0")
+   apply.add_argument("--mode", default="over", choices=["over", "replace"], help="over : '.' 은 그대로 · replace : '.' 은 지움")
+   apply.add_argument("--out", dest="out", required=True, help="새 겹 묶음 폴더 또는 PNG (--in 과 달라야 한다)")
+   apply.add_argument("--report", dest="report")
+
+
+def _add_lint(subs) -> None:
+   node = subs.add_parser("lint", help="좌표 박힌 린트 — 결함을 칸 (x, y) 마다 짚는다 (파일 안 씀, 걸려도 종료 0)", parents=[COMMON])
+   node.add_argument("--in", dest="in_path", required=True, help="겹 묶음 폴더 또는 PNG")
+   node.add_argument("--item", default="idle", help="겹 묶음의 그림 이름 (기본 idle)")
+   node.add_argument("--template", help="팔레트 · 빛 · 외곽선 방식을 읽을 템플릿 (이름 · template.json · 폴더)")
+   node.add_argument("--rules", help="쉼표로 고른 규칙 (예 orphan,hole,asym). 안 주면 기본 규칙")
+   node.add_argument("--report", dest="report", help="보고 JSON")
+   node.set_defaults(legend_file=None)   # gridcmd.open_input 을 같이 쓴다
 
 
 def _add_profile(subs) -> None:
@@ -795,7 +832,8 @@ def _run_late(args, module_name: str, func_name: str) -> dict:
 REPORT_GUARDED = ("in_dir", "in_file", "base", "original", "template", "spec", "manifest", "layout", "tileset",
                   "rules", "map_file", "skeleton", "markers", "out_file", "out_dir", "sheet", "out", "scene",
                   "b64", "mark", "mask", "font", "text_file", "gif", "known", "baseline",
-                  "in_path", "from_shape", "like", "profile_map", "ramps", "cover", "bg", "on_scene", "find_old")
+                  "in_path", "from_shape", "like", "profile_map", "ramps", "cover", "bg", "on_scene", "find_old",
+                  "grid_file", "legend_file")
 
 
 def _guard_report(args) -> None:
@@ -832,12 +870,13 @@ DRY_RUN_TAKES = {
    ("ui", "mockup"),                                                                            # 장면을 다 검증 · 그리고 쓸 PNG 만 보고
    ("tile", "offset"), ("tile", "preview"), ("tile", "ldtk"), ("tile", "seam"),
    ("tile", "place"), ("provider", "make"),                                                      # 바깥을 안 부르고 요청 JSON 만
+   ("grid", "apply"),                                                                           # 새 자리 — 쓸 목록을 보고만
 }
 # 파일을 안 쓰는 명령 — 쓸 것이 없어 dry-run 을 그대로 받는다 (--report 는 cli 가 쓴다). 실제로 돌려 확인함 (test_dry_run_wide)
 DRY_RUN_HARMLESS = {
    ("profile", "show"), ("check", None), ("layers", "check"), ("tile", "inspect"), ("ui", "check"), ("ui", "glyphs"),
    ("template", "list"), ("template", "show"), ("provider", "list"), ("diff", None),
-   ("measure", "shape"), ("palette", "check"),
+   ("measure", "shape"), ("palette", "check"), ("grid", "show"), ("lint", None),
 }
 # 폴더째 여러 파일을 쓰는 명령. 쓸 목록이 셈 중간에 정해지거나 앞 단계 산출물을 읽어 S 로 안 된다 — 까닭은 진행상황.md
 DRY_RUN_REFUSED = {
@@ -1085,7 +1124,26 @@ def _run_provider(args) -> dict:
    return providers.get(name).make(req).to_json()
 
 
+LINT_KEYS = {"status", "issues", "counts", "metrics"}   # lint 보고 꼴 (LintResult.to_dict)
+
+
+def _print_lint(data: dict) -> None:
+   """lint : 이슈 한 줄씩 + 수치 한 줄."""
+   from .draw.lint import LintResult
+   for line in LintResult(**data).lines():
+      print(line)
+   m = data["metrics"]
+   print(f"{data['status']} · 이슈 {len(data['issues'])}건 · symmetry {m.get('symmetry')} · center {m.get('center')}"
+         f" · center_offset {m.get('center_offset')} · bbox {m.get('bbox')} · light_guess {m.get('light_guess')}")
+
+
 def _print_human(data) -> None:
+   if isinstance(data, dict) and isinstance(data.get("grid_text"), str):
+      print(data["grid_text"], end="")   # grid show : 격자 글만 찍는다 (JSON 은 --json)
+      return
+   if isinstance(data, dict) and set(data) == LINT_KEYS:
+      _print_lint(data)
+      return
    if isinstance(data, dict) and isinstance(data.get("providers"), list):
       for row in data["providers"]:
          mark = "켜짐" if row["available"] else "꺼짐"

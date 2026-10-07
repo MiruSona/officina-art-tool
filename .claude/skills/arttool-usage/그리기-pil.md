@@ -62,18 +62,44 @@ c.save("work/set")
 | `c.names` · `c.size` · `c.guide` · `c.ramps` · `c.light` | 속성 | 겹 이름(아래 → 위) · (너비, 높이) · `Guide` · 팔레트 · 빛 방향 |
 | `c.pick(램프, 칸)` | → `#RRGGBB` | 팔레트 램프의 칸 색. 0 = 가장 어둡게, -1 = 가장 밝게. 팔레트가 없으면 오류 |
 | `c.outline(mode=None, *, layers=None, where="outside", color=None, width=1)` | | 합친 실루엣 둘레에 외곽선. `mode` = `none` · `black` · `solid` · `selout` · `selout+light` (안 주면 템플릿 화풍). `solid` 는 `color="#3A2A30"` 처럼 한 색을 준다. `width` 는 선 두께 1 ~ 4(큰 그림은 2). `where` = `outside`(바깥 — 모양이 커진다) · `inside`(가장자리 칸을 덧칠 — 크기 그대로). 칠한 색이 램프 맨 아래 칸이라 더 어두운 칸이 없으면 팔레트 `outline` 색을 쓴다. **같은 겹에 두 번 두르지 않는다** — 선이 두 겹이 된다 |
-| `c.merged(only=None)` · `c.preview(path, scale=8, only=None)` | | 합친 한 장 · 키운 PNG 쓰기. `preview` 경로가 `save` 한 겹 묶음 폴더 안이면 거절한다 |
+| `c.merged(only=None)` · `c.preview(path, scale=8, only=None)` | | 합친 한 장 · 키운 PNG 쓰기. `preview` 경로가 `save` 한 겹 묶음 폴더 안이면 거절한다. 1배 평면 PNG 는 `from arttool import image` → `image.save("work/flat.png", c.merged())` |
 | `c.report()` | → dict | `status` · `layers`(겹별 칸 수) · `warnings`(`palette` · `guide_color` · `alpha` · `exclusive` · `outline_twice` · `outline_ramp_bottom` · `empty`) |
 | `c.save(folder, item="idle")` | → layers.json 경로 | 겹 묶음 꼴 `folder/layers.json` + `folder/<겹>/<item>.png`. 같은 폴더에 다른 `item` 을 더 쓸 수 있다(프레임 · 변종) |
 | `Canvas.open(folder, item="idle")` | → `Canvas` | 저장한 묶음을 다시 열어 이어 그리기. 묶음에 없는 `item` 이름이면 오류(빈 그림으로 열지 않는다) |
 | `Layer` 그리기 | `dot(x, y, color, side=1)` · `line(x0, y0, x1, y1, color)` · `box(x0, y0, x1, y1, color, filled=True)` · `round_box(…, color, r=1)` · `ellipse(…, color)` · `disc(cx, cy, r, color)` · `ring(cx, cy, r, color, width=1, dash=0)` · `drop(…, color)` · `fill(x, y, color)` · `paint(mask, color)` | 모두 자기 겹을 돌려줘 이어 부른다. 상자는 끝을 뺀 `[x0, x1) × [y0, y1)`. 캔버스 밖은 잘린다. `line` 은 계단 길이가 고르다, `round_box` 는 정사각 → 모서리 깎기 |
 | `Layer` 손질 | `erase(mask=None)` · `mirror()` · `recolor(old, new)` · `mask()` · `px(x, y)` | 지우기(안 주면 전부) · 왼쪽 반을 오른쪽에 거울로 · 색 바꾸기 · 칠한 칸 · 칸 색(투명이거나 캔버스 밖이면 `None`) |
+| `Layer` 격자 | `to_grid(box=None, rulers=False, legend=None)` · `paste_grid(text, at=None, mode="over", legend=None)` | 격자 글로 읽기 · 덧그리기. 투명은 `.`. 한 변이 64 를 넘으면(창도) 거절. `at` 을 안 주면 눈금 글의 `# 원점` 줄 자리(없으면 0,0). `over` 는 `.` 을 안 건드리고 `replace` 는 지운다. `paint` · `erase` 를 거쳐 symmetry · clip · dirty 가 같이 든다. 캔버스 밖 칸은 잘려 `last["clipped"]` 로 센다 |
+| `Layer` 대칭 · 자르기 | `set_symmetry("x" \| None)` · `set_clip(mask \| None)` · `last` · `dirty` · `clear_dirty()` | 켜 두면 앞으로 찍는 칸마다 거울 · 실루엣 밖은 안 찍힌다(`erase` 는 안 막는다). 이미 그린 것은 안 바뀐다 — 그건 `mirror()`. `last` = 마지막 칠하기 `{written, clipped}`, `dirty` = `mark()` 뒤 바뀐 칸 마스크 |
+| `c.to_grid(layer=None, box=None, rulers=False)` · `c.paste_grid(겹, text, at, mode)` · `c.legend` | → 격자 글 · `{pixels_written, pixels_clipped, bbox}` | 겹을 안 주면 합친 그림. `c.legend` 가 세션 동안 같은 색 = 같은 글자를 지킨다. 64 넘는 그림은 가이드 상자 이름(`g.box(…)`)을 안내하며 거절 |
+| `c.set_symmetry(axis, layers=None)` · `c.set_clip(mask, layers=None)` | → `Canvas` | 여러 겹에 한 번에 |
+| `c.lint(rules=None, waive=(), ramps=None, light=None, outline_mode=None, axis_x=None, outline_color=None)` | → `LintResult` | 칸 좌표 박힌 결함. `.lines()` 한 줄 글 · `.to_dict()` `{status, issues, counts, metrics}`. 기본 5규칙 + symmetry 켠 겹에만 `asym`. `outline_gap` · `light_mismatch` · 수치는 합친 그림으로 한 번(`layer` 없음). `waive=[(x, y)]` 로 일부러 둔 칸을 뺀다. 규칙 이름은 `lint.` 머리 — `report()` · `check` 와 안 겹친다 |
+| `c.mark()` · `c.changed()` · `c.preview_changed(path, scale=8, pad=2)` · `c.diff_grid()` | → `Canvas` · `{count, bbox, layers}` · 경로 · 격자 글 | 바퀴 시작 표시 → 바뀐 칸(dirty 기준 — 되돌린 칸도 센다) → 바뀐 곳만 확대 PNG(자홍 테) → 안 바뀐 칸은 `·` 인 격자. 바뀐 칸이 없으면 `preview_changed` · `diff_grid` 는 거절. 경로가 겹 묶음 폴더 안이면 거절 |
 | `shade` | `shade(base, steps=6, hue_step=None, metal=False, base_index=None)` → RGB 목록 | **그늘 계산** — 밑색 하나 → 어두운 쪽부터 밝은 쪽 램프. 어두울수록 차갑게, `metal=True` 면 반대. `hue_step` 을 안 주면 칸 수에 맞춘 값(칸마다 10° 이하 · 처음 ~ 끝 36° 이하 — 4칸 10° · 6칸 7.2°) |
 | `pick` | `pick(ramps, name, index)` | `c.pick` 과 같은 것(팔레트를 따로 들고 있을 때) |
-| `guide` · `Guide` | `guide(폴더 \| template.json \| 사전)` | `g.y("eye")` · `g.y("baseline")` 줄, `g.box("head")` 상자, `g.point(…)`, `g.names()` 로 있는 이름 보기, `g.rows` · `g.cols` · `g.dots` · `g.keep` 가이드 PNG 의 선 · 점 · 지키는 자리 |
+| `guide` · `Guide` | `guide(폴더 \| template.json \| 사전)` | `g.y("eye")` · `g.y("baseline")` 줄, `g.box("head")` 상자, `g.point(…)`, `g.names()` 로 있는 이름 보기(이름 목록이 아니라 `{"lines": […], "points": […], "boxes": […]}` 사전), `g.rows` · `g.cols` · `g.dots` · `g.keep` 가이드 PNG 의 선 · 점 · 지키는 자리 |
 | `load_ramps` · `Ramps` | `load_ramps("palettes/x.json")` | 팔레트 읽기. `r.names()` · `r.ramp(이름)` · `r.colors()` |
+| `Ramps(…)` 코드로 | `Ramps("mine", {"skin": shade("#F6D0B0"), "cloth": shade("#E8705A")}, parse_hex("#2A2238"), 6)` | 파일 없이 팔레트 만들기 — (이름, 램프 사전, 외곽선 색, 램프 칸 수). `parse_hex` · `to_hex` 는 `arttool.palette` 에 있다. `Canvas(ramps=r)` 에 주면 `c.pick` · `lint.stray_color` 가 돈다 |
 | `outline` | `outline(arr, mode, *, ramps=None, light="top_left", where="outside", color=None, width=1)` | 그림 한 장(배열)에 외곽선. 겹이 없을 때 |
 | `shapes` | `shapes.box` · `dot` · `line` · `disc` · `ring` · `round_box` · `ellipse` · `drop` · `flood` · `paint` · `to_image` | 불리언 마스크를 돌려주는 도형 함수. `Layer` 메서드가 이것을 부른다 |
+
+## 세부는 격자 글로
+
+눈 · 손 · 장식처럼 작고 모양이 있는 곳은 좌표 대신 글로 적어 덧그린다. 한 글자 = 한 칸, `.` 은 안 건드림.
+
+```python
+eye = """K #2A2238
+W #FFFFFF
+
+KK
+KW
+KK
+"""   # 글자는 대문자 — 소문자는 c.legend 가 먼저 쓴다
+c.paste_grid("face", eye, at=g.box("eye_box_l")[:2])   # 같은 글을 오른쪽 눈에도 : at=g.box("eye_box_r")[:2]
+print(c.to_grid(box=g.box("head"), rulers=True))        # 되읽기 — 읽을 때 글자는 c.legend 가 정한다
+```
+
+명령으로는 `arttool grid show` · `grid apply` · `lint` (`Docs/Guide/명령안내.md` 23절).
+**그리고 → 보고 → 고치는 바퀴 절차는 `고리-그리기.md`** 를 본다. 여기서는 부품 이름만 적는다.
 
 ## 지킬 것
 

@@ -97,7 +97,7 @@ def test_computed_darker_cuts_luma_by_exact_share():
    """셈으로 어둡게 할 때 밝기 몫이 색마다 같다 — 빛 쪽 · 그늘 쪽 바탕색이 달라도 selout 이 selout 으로 읽힌다."""
    for rgb in [(192, 128, 96), (48, 96, 192), (230, 220, 120), (60, 40, 30)]:
       got = OM.darker(rgb, 2)
-      assert abs(OM._luma(got) / OM._luma(rgb) - 0.6) < 0.03
+      assert abs(OM.luma(got) / OM.luma(rgb) - 0.6) < 0.03
 
 
 # ── Canvas (L2 ~ L8) ─────────

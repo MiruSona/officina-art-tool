@@ -95,6 +95,8 @@ def _harmless_cases(work):
       ("diff", None): ["diff", "--a", str(src), "--b", str(src), "--alpha-only", "--report", _rep(work, "d.json")],
       ("measure", "shape"): ["measure", "shape", "--in", str(tiles / "t.png"), "--at", "0,0", "--report", _rep(work, "m.json")],
       ("palette", "check"): ["palette", "check", "--profile", "topdown_action", "--report", _rep(work, "p.json")],
+      ("grid", "show"): ["grid", "show", "--in", str(work / "set"), "--layer", "face"],
+      ("lint", None): ["lint", "--in", str(work / "set"), "--report", _rep(work, "l.json")],
    }
 
 
@@ -233,6 +235,13 @@ def _case_layers_fill(work):
    return ["layers", "fill", "--in", str(work / "set"), "--mask", str(work / "m.png"), "--nearest", "body", "--out", "fo"], ["fo/body/idle.png", "fo/face/idle.png", "fo/hair/idle.png", "fo/layers.json"]
 
 
+def _case_grid_apply(work):
+   test_layers_ops.write_set(work / "set", test_layers_ops.three_layers())
+   (work / "p.px").write_text("r #FF0000\n\nrr\n", encoding="utf-8")
+   argv = ["grid", "apply", "--in", str(work / "set"), "--grid", str(work / "p.px"), "--layer", "face", "--out", "go"]
+   return argv, ["go/body/idle.png", "go/face/idle.png", "go/hair/idle.png", "go/layers.json"]
+
+
 TAKES_CASES = {
    ("stitch", None): _case_stitch,
    ("sheet", None): _case_sheet,
@@ -246,6 +255,7 @@ TAKES_CASES = {
    ("layers", "mask"): _case_mask,
    ("layers", "view"): _case_view,
    ("layers", "fill"): _case_layers_fill,
+   ("grid", "apply"): _case_grid_apply,
    ("frames", "bake"): _case_frames_bake,
    ("ui", "mockup"): _case_ui_mockup,
    ("tile", "preview"): _case_tile_preview,

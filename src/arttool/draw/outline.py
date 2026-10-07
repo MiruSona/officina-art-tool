@@ -118,17 +118,19 @@ def _computed(rgb, steps: int) -> tuple[int, int, int]:
    r, g, b = (c * 255.0 for c in colorsys.hsv_to_rgb(hue / 360.0, sat, val))
    # 밝기(luma)를 정확히 단마다 같은 몫으로 덜어 낸다 — 색조를 돌리면 색마다 밝기가 다르게 변해서,
    # 빛 쪽 · 그늘 쪽 바탕색이 다르면 같은 단 수라도 check 가 「빛 쪽이 밝다」로 잘못 읽는다.
-   want = _luma(rgb) * max(0.0, 1.0 - DARK_STEP * steps)
-   now = _luma((r, g, b))
+   want = luma(rgb) * max(0.0, 1.0 - DARK_STEP * steps)
+   now = luma((r, g, b))
    k = want / now if now > 0 else 0.0
    return tuple(int(min(255, max(0, round(c * k)))) for c in (r, g, b))
 
 
-def _luma(rgb) -> float:
+def luma(rgb) -> float:
+   """밝기 (BT.601 무게). lint 도 같이 쓴다."""
    return 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
 
 
-def _solid_color(color) -> tuple[int, int, int]:
+def solid_color(color) -> tuple[int, int, int]:
+   """solid 선 색 #RRGGBB · (R, G, B) → (R, G, B). lint 도 같이 쓴다."""
    if isinstance(color, str):
       return parse_hex(color)
    if isinstance(color, (tuple, list)) and len(color) == 3 and all(isinstance(c, int) and 0 <= c <= 255 for c in color):
@@ -151,7 +153,7 @@ def plan(arr: image.RGBA, mode: str, *, ramps: Ramps | None = None, light: str =
    lx, ly = check_light(light)
    if mode == "none":
       return []
-   one = _solid_color(color) if mode == "solid" else None
+   one = solid_color(color) if mode == "solid" else None
    first = _one_round(arr, mode, ramps, (lx, ly), where, one, notes)
    out = list(first)
    done = {(x, y): (c, a) for x, y, c, a in first}
@@ -197,7 +199,7 @@ def _one_round(arr, mode, ramps, light_xy, where, one, notes):
          counts: dict[tuple[int, int, int], list[tuple[int, int]]] = {}
          for nx, ny in near:
             counts.setdefault(tuple(int(c) for c in arr[ny, nx, :3]), []).append((nx, ny))
-         base = min(counts, key=lambda c: (-len(counts[c]), _luma(c)))
+         base = min(counts, key=lambda c: (-len(counts[c]), luma(c)))
          anchor = counts[base][0]
       else:
          outward = [(dx, dy) for dx, dy in _DIRS if not (0 <= x + dx < w and 0 <= y + dy < h) or not solid[y + dy, x + dx]]

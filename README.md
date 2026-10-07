@@ -183,6 +183,37 @@ arttool provider make  --kind character --spec req.json --out gen/ --dry-run
 
 **`arttool.draw`** 는 PIL 로 겹별로 그리는 파이썬 공개 모듈이다(`Canvas` · `shade` · 도형 · `outline`). 쓰는 법은 스킬의 `그리기-pil.md`.
 
+### draw 고리 — 문자 격자 · 린트 (2026-10-07)
+
+그림을 **글(글자 한 칸 = 칸 하나)** 로 읽고 쓰고, 결함을 **좌표 박힌 글**로 받는다. 자세한 인자 · 보고 칸은 `Docs/Guide/명령안내.md` 23절, 설계는 `Docs/Design/2026-10-07-draw고리설계.md`.
+
+| 명령 | 하는 일 |
+| --- | --- |
+| `grid show --in <폴더 \| PNG> [--item idle] [--layer 겹] [--box x,y,w,h] [--rulers] [--legend l.json]` | 격자 글을 찍는다(파일 안 씀). 겹을 안 주면 합친 그림. 한 변이 64 를 넘으면 `--box` 가 필요하다(종료 2) |
+| `grid apply --in <폴더 \| PNG> --grid patch.px --out <새 자리> [--layer 겹] [--at x,y] [--mode over\|replace] [--report r.json]` | 패치를 덧그려 **새 자리**에 쓴다. `--in` 과 같으면 종료 2. 보고에 `pixels_written` · `pixels_clipped` · `bbox` |
+| `lint --in <폴더 \| PNG> [--item idle] [--template t] [--rules a,b] [--report r.json]` | 칸마다 결함을 짚는다. **파일 안 쓰고, 걸려도 종료 0.** `asym` 은 CLI 에서 자동으로 안 켜지니 `--rules orphan,asym` 처럼 준다 |
+
+`arttool.draw` 의 「고리」 부품 (파이썬) :
+
+| 부품 | 이름 | 하는 일 |
+| --- | --- | --- |
+| 격자 | `c.to_grid(layer=None, box=None, rulers=False)` · `c["겹"].paste_grid(text, at, mode)` · `c.paste_grid(겹, text, at, mode)` · `c.legend` | 읽기 · 덧그리기. 글자표(`c.legend`)는 세션 동안 같은 색 = 같은 글자 |
+| 린트 | `c.lint(rules=None, waive=())` → `.lines()` · `.to_dict()` | 규칙 8개(기본 5 : `orphan` · `hole` · `stray_color` · `alpha_px` · `outline_gap`, 끔 3 : `double` · `asym` · `light_mismatch`) + 수치 `symmetry` · `center` · `center_offset` · `bbox` · `light_guess` |
+| 대칭 · 자르기 | `set_symmetry("x")` · `set_clip(mask)` (`Layer` · `Canvas` 둘 다) · `c["겹"].last` | 반쪽만 그려도 거울 · 실루엣 밖엔 안 찍힘. `last` = 마지막 칠하기의 `written` · `clipped` |
+| 변경 미리보기 | `c.mark()` · `c.changed()` · `c.preview_changed(path, scale=8, pad=2)` · `c.diff_grid()` | 바퀴 시작 표시 → 바뀐 칸 수 · bbox → 바뀐 곳만 확대 PNG(자홍 테) · 바뀐 칸만 글자인 격자 |
+
+```python
+from arttool.draw import Canvas
+
+c = Canvas(template="char_small", size=(48, 64))
+c.set_symmetry("x")                              # 이제 반쪽만 그려도 거울
+c.mark()                                         # 바퀴 시작
+c.paste_grid("face", open("eye.px", encoding="utf-8").read(), at=(14, 20))   # 글자표는 c.legend
+print("\n".join(c.lint().lines()))               # lint.orphan face (14,21) #2A2238 8이웃에 같은 색 없음
+print(c.changed()["count"], c.to_grid(box=c.guide.box("head"), rulers=True))
+c.preview_changed("work/changed.png")            # 바뀐 곳만 확대 — 그림으로 읽는다
+```
+
 **원본 보호** : 새 명령은 모두 **쓸 자리가 읽은 그림과 겹치면 아무것도 안 쓰고 종료 2** 다. `--report` 는 `.json` 만 받는다.
 **`template render` 로 만든 폴더는 커밋하지 않는다** — `template.json` 에 이 PC 의 절대 경로가 박힌다.
 

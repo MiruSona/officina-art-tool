@@ -139,6 +139,10 @@ CONTRACT = [
    (["mask", "--from-shape", "s.json", "--size", "32,32", "--out", "m.png"],
     {"from_shape": "s.json", "size": "32,32", "like": None, "r": "round", "invert": False, "out_file": "m.png", "report": None}),
    (["palette", "check", "--ramps", "r.json"], {"sub": "check", "ramps": "r.json", "report": None}),
+   (["grid", "show", "--in", "s"], {"sub": "show", "in_path": "s", "item": "idle", "layer": None, "box": None, "rulers": False, "legend_file": None}),
+   (["grid", "apply", "--in", "s", "--grid", "p.px", "--out", "o"],
+    {"sub": "apply", "in_path": "s", "grid_file": "p.px", "layer": None, "at": None, "mode": "over", "out": "o", "report": None}),
+   (["lint", "--in", "s"], {"in_path": "s", "item": "idle", "template": None, "rules": None, "report": None}),
 ]
 
 

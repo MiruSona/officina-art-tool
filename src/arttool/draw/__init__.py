@@ -13,7 +13,9 @@
 from ..palette import Ramps, load_ramps, shade
 from . import shapes
 from .canvas import Canvas, Layer, pick
+from .grid import Legend
 from .guide import Guide, guide
+from .lint import lint   # 이름 `lint` 가 하위 모듈 대신 함수를 가리킨다. 모듈은 `from arttool.draw.lint import …` 로
 from .outline import outline
 
-__all__ = ["Canvas", "Layer", "Guide", "Ramps", "guide", "load_ramps", "outline", "pick", "shade", "shapes"]
+__all__ = ["Canvas", "Layer", "Guide", "Legend", "Ramps", "guide", "lint", "load_ramps", "outline", "pick", "shade", "shapes"]
