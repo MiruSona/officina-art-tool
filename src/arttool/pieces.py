@@ -109,3 +109,51 @@ def touches(owner: np.ndarray, x: int, y: int, who: int) -> bool:
          if (nx, ny) != (x, y) and owner[ny, nx] == who:
             return True
    return False
+
+
+def labels(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+   """8방향 이어짐 덩이 번호(큰 덩이부터 0, 1, …, 덩이 밖 -1)와 덩이별 칸 수.
+
+   `components` 와 같은 묶음을 파이썬 루프 없이 낸다 — 2048 그림에서 34초 → 0.6초 (6판 리뷰). `style.light` 에서 옮겨 왔다.
+
+   numpy 로만 짠다 — 줄마다 이어진 칸(run)을 뽑고, 윗줄 · 아랫줄 run 이 닿으면(대각선 포함) 잇는다.
+   잇기는 「작은 번호로 맞추기 + 번호 건너뛰기」 를 안 바뀔 때까지 되풀이한다.
+   """
+   h, w = mask.shape
+   edge = np.diff(np.pad(mask.astype(np.int8), ((0, 0), (1, 1))), axis=1)
+   rows, starts = np.nonzero(edge == 1)
+   _, ends = np.nonzero(edge == -1)            # 끝 칸 + 1. 같은 줄 순서라 starts 와 짝이 맞는다
+   n = len(rows)
+   if n == 0:
+      return np.full(mask.shape, -1, dtype=np.int64), np.zeros(0, dtype=np.int64)
+   # 아랫줄에서 닿는 run 은 이어진 구간 [lo, hi) — 줄 · 칸을 한 열쇠로 묶어 searchsorted 로 찾는다
+   span = w + 4
+   lo = np.searchsorted(rows * span + ends, (rows + 1) * span + starts, side="left")       # 끝 >= 내 시작 - 1
+   hi = np.searchsorted(rows * span + starts + 1, (rows + 1) * span + ends + 1, side="right")  # 시작 <= 내 끝 + 1
+   count = np.maximum(hi - lo, 0)
+   a = np.repeat(np.arange(n), count)
+   b = np.repeat(lo, count) + (np.arange(int(count.sum())) - np.repeat(np.cumsum(count) - count, count))
+   comp = np.arange(n)
+   while True:
+      low = np.minimum(comp[a], comp[b])
+      new = comp.copy()
+      np.minimum.at(new, a, low)
+      np.minimum.at(new, b, low)
+      new = new[new]
+      if np.array_equal(new, comp):
+         break
+      comp = new
+   lengths = ends - starts
+   _, comp = np.unique(comp, return_inverse=True)
+   comp = comp.reshape(-1)
+   sizes = np.bincount(comp, lengths)
+   order = np.argsort(-sizes, kind="stable")    # 큰 덩이부터
+   rank = np.empty_like(order)
+   rank[order] = np.arange(len(order))
+   comp = rank[comp]
+   # run 번호를 칸에 칠한다 — 시작에 +번호, 끝 다음 칸에 -번호를 놓고 줄 따라 누적
+   paint = np.zeros(h * w + 1, dtype=np.int64)
+   np.add.at(paint, rows * w + starts, comp + 1)
+   np.add.at(paint, rows * w + ends, -(comp + 1))
+   label = np.cumsum(paint[:-1]).reshape(h, w) - 1
+   return label, sizes[order].astype(np.int64)

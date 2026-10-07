@@ -74,6 +74,8 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 | 「이 색 칸만」 마스크 | `arttool layers mask --in base.png --colors #2B2233 --grow 1 --out m.png` |
 | 겹 켜고 끄며 보기 | `arttool layers view --in set --each --scale 8 --out v.png` |
 | 겹 검사 · 내보내기 | `arttool layers check --in set --template t.json` · `arttool layers export --in set --out unity --flat` |
+| 겹 검사 넓히기 (장 수 · 구멍 · 같은 색 · 전 판 새 색 · 층 마스크) | `arttool layers check --in set --counts --holes [--hole-max 32] --shared-colors --before set_v1 [--mask-of content]` (기준점은 `layers.json` 맨 위 `anchor` 칸 + `--anchor-tol` — `[x, y]` 는 변 좌표, 이름 꼴은 칸 좌표, 튀어나온 겹이 있으면 `anchor_layer` 로 잴 겹 하나를 고른다. 층 마스크는 겹 `kind: mask`. 모든 겹이 같이 쓰는 외곽선 색은 `--known`/`--baseline` 으로 접는다) · 구멍 메우기 `arttool layers fill --in set --holes content --out set2` (기본 32칸 넘는 구멍은 안 메움) · 물들인 판 `arttool layers view --in set --tint "content=#cc8844" --out v.png` |
+| `layers.json` 없는 겹 폴더 | `check` · `view` · `fill` 에 `--order body,hair [--masks tier1]` (아래 → 위 순서, 짐작 안 함. `<겹>/<그림>.png` 또는 `<겹>_<그림>.png`) |
 | 타일 이음매 | `arttool tile seam --in tiles --pairs --report seam.json` (변종끼리 바탕색이 다른 것도 `--pairs` 가 잡는다) |
 | 화풍 그림 준비 (자르기 · 색 줄이기 · base64 파일) | `arttool style ref --in a.png --canvas 128x128 --out ref.png --b64 ref.txt` |
 | 흰 띠 · 이을 줄 찾기 → 조각 잇기 | `arttool bands --in raw.png --mark m.png` → `arttool stitch --in top.png:0-180 mid.png:20-400 --out wall.png` |
@@ -85,7 +87,7 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 | 겹 떼기에서 뺨 · 옷 점 빼기 | `layers diff … --drop hair:#F2C9A0` |
 | 가림판 안 빈 칸 찾기 · 채우기 | `arttool layers check --in set --cover m.png` (빈 칸 `cover_empty` 는 종료 4) · `arttool layers fill --in set --mask m.png --nearest ring,core [--color #hex] --out set2` (작은 겹 상자 밖은 비운 채 `fill_outside_box`) |
 | 색상으로 겹 나누기 · 회색 단계 | `split` 표 규칙 `{"hue":[340,20],"to":"hair","min_sat":0.2}` (시작이 크면 0도를 감는다 · 무채색은 안 잡는다) · `arttool split --in a.png --spec s.json --out parts --gray-levels 255,180,60` |
-| 변형 낱장을 겹 묶음으로 | `layers.json` 겹마다 `"files":"parts/body_{v}.png"` · `"items":["idle",{"name":"x","pick":{"body":"hop"}}]` (version 2). `layers check` 가 `unused_variant` · `variant_size` · `variant_alpha` 경고. `split` 으로 그림 더하기는 거절 |
+| 변형 낱장을 겹 묶음으로 | `layers.json` 겹마다 `"files":"parts/body_{v}.png"` · `"items":["idle",{"name":"x","pick":{"body":"hop"}}]` (version 2). `layers check` 가 `unused_variant` · `variant_size` · `variant_alpha` 경고. `split` 으로 그림 더하기는 거절 (작은 겹 `size` · `offset` 묶음에는 `split` · `layers diff` 가 상자로 잘라 쓴다 — 상자 밖 칸은 종료 2) |
 | 프레임 폴더 한 번에 굽기 | `arttool frames bake --in frames --out baked --foot auto [--cover m.png] [--crop union] [--strip s.png] [--gif w.gif --duration 110] [--scale 4]` (발 줄 → 덮기 → 자르기 → 띠 → gif 고정 순서. `foot_clipped` · `gif_alpha_cut` 경고) |
 | 가까운 색 합치기 (`check` 가 `max_colors` · `near_colors` 로 걸리면) | `arttool merge-colors --in raw --out o [--max-colors 24] [--keep #hex] --sheet s.png` (아무것도 안 주면 `near_colors` 문턱으로. 평균색은 안 만든다. `--dry-run` 으로 `merge_table` 먼저 보기). 합친 뒤에도 `isolated` 가 걸리면 `--clean` — 둘레 6/8 이 한 색이고 가까운 잡티 점만 메운다 |
 | 그림을 화면 캡처 위에 얹어 보기 | `arttool sheet --in new.png --out s.png --on shot.png (--at x,y \| --find old.png) [--crop x,y,w,h]` (`--bg` 에 타일 PNG 도 된다) |

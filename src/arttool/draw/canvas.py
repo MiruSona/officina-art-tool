@@ -453,6 +453,11 @@ class Canvas:
       """겹 이름, 쌓는 순서(아래 → 위)."""
       return [row.name for row in self.spec]
 
+   @property
+   def painted(self) -> list[str]:
+      """쌓는 겹 이름(마스크 겹을 뺀 것). 합친 그림 · 외곽선은 이것만 본다 — 마스크는 「여기」 표시라 그림이 아니다."""
+      return [row.name for row in self.spec if not row.is_mask]
+
    def layer(self, name: str) -> Layer:
       if name not in self._layers:
          raise ArtToolError(f"없는 겹 : {name}. 있는 겹 : {', '.join(self.names)}")
@@ -499,13 +504,13 @@ class Canvas:
       if mode is None:
          raise ArtToolError(f"외곽선 방식을 준다 : {' · '.join(MODES)} (템플릿 화풍이 unset 이다)")
       check_mode(mode)
-      picked = layers or self.names
+      picked = layers or self.painted
       for name in picked:
          self.layer(name)
       merged = self.merged(only=picked)
       owner = self._owner_map(picked)
       others = np.zeros((self.size[1], self.size[0]), dtype=bool)
-      for name in self.names:
+      for name in self.painted:
          if name not in picked:
             others |= self._layers[name].mask()
       self._outlined.append({"layers": list(picked), "where": where, "mode": mode})
@@ -534,9 +539,9 @@ class Canvas:
    # ---- 보기 ----
 
    def merged(self, only: list[str] | None = None) -> image.RGBA:
-      """겹을 아래부터 쌓은 한 장. 알파가 0 · 255 뿐이라 위 겹의 칠한 칸이 그대로 덮는다."""
+      """겹을 아래부터 쌓은 한 장(마스크 겹은 뺀다). 알파가 0 · 255 뿐이라 위 겹의 칠한 칸이 그대로 덮는다."""
       out = image.new(self.size[0], self.size[1])
-      for name in self.names:
+      for name in self.painted:
          if only is not None and name not in only:
             continue
          arr = self._layers[name].arr
@@ -589,7 +594,7 @@ class Canvas:
       per_layer = [r for r in picked if r not in WHOLE_RULES]
       whole = run_lint(self.merged(), rules=[r for r in picked if r in WHOLE_RULES], **common)
       out = LintResult(metrics=whole.metrics)
-      for name in self.names:
+      for name in self.painted:   # 마스크 겹은 그림이 아니라 겹마다 린트에서 빠진다 (리뷰 7-2)
          lay = self._layers[name]
          names = per_layer + ["lint.asym"] if rules is None and lay.symmetry == "x" else per_layer
          found = run_lint(lay.arr, rules=names, **common)
@@ -669,7 +674,7 @@ class Canvas:
       warnings = []
       allowed = self.ramps.colors() if self.ramps is not None else None
       strays, guides = [], []
-      for name in self.names:
+      for name in self.painted:   # 마스크 겹은 「여기」 표시라 그림 색 · 가이드 색 검사에서 빠진다 (리뷰 7-2)
          arr = self._layers[name].arr
          solid = arr[:, :, 3] > 0
          colors, counts = np.unique(arr[solid][:, :3], axis=0, return_counts=True) if solid.any() else ([], [])
@@ -686,7 +691,7 @@ class Canvas:
          warnings.append({"rule": "guide_color", "ok": False, "detail": "가이드 색이 그림에 섞였다", "items": guides})
       # 그리기 함수는 반투명을 안 만든다. 반투명은 open() 으로 연 남의 그림 · arr 을 직접 고친 경우에만 생긴다.
       soft = []
-      for name in self.names:
+      for name in self.painted:
          alpha = self._layers[name].arr[:, :, 3]
          count = int(((alpha > 0) & (alpha < 255)).sum())
          if count:
@@ -696,7 +701,10 @@ class Canvas:
 
       lay = layerset.LayerSet(self.size, list(self.spec))
       overlaps = []
+      painted = set(self.painted)
       for a, b in lay.exclusive_pairs():
+         if a not in painted or b not in painted:
+            continue
          both = self._layers[a].mask() & self._layers[b].mask()
          if both.any():
             ys, xs = np.nonzero(both)

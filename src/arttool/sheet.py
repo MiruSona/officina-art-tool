@@ -8,11 +8,13 @@
 - tile       2×2 또는 4×4 로 이어 붙인 판
 
 판정은 없다 — status 는 늘 ok. 보고에 장마다 크기 · 색 수 · 외톨이 칸 수 · 외곽선 몫을 적는다.
+`--compare <폴더>` 를 주면 같은 이름 짝과 그 숫자를 [전, 후, 차] 로 견준다(7판-다-3) — 판 그림은 그대로.
 줄 그리기(`layout_rows`)는 순수 함수라 `layers view --each` 도 같이 쓴다.
 """
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
@@ -24,7 +26,7 @@ from .checks import pixels as pixel_check
 from .edit import dry_run_fields, is_dry_run
 from .errors import ArtToolError, UsageError
 from .palette import parse_hex
-from .paths import guard_overwrite, is_plain_file, jailed_output
+from .paths import guard_overwrite, is_plain_file, jailed_output, same_key
 
 KINDS = ("zoom", "silhouette", "colors4", "blur", "tile")
 KIND_TITLES = {"zoom": "확대", "silhouette": "실루엣", "colors4": "4색", "blur": "흐림", "tile": "타일"}
@@ -544,6 +546,51 @@ def measure(arr: np.ndarray) -> dict:
    }
 
 
+def compare_pairs(folder: str | None, files: list[Path]) -> tuple[dict[int, Path], list[str], list[dict]]:
+   """--compare 폴더에서 입력마다 같은 파일 이름 짝을 찾는다. (입력 번호 → 짝 경로, 짝 없는 이름 목록, 경고).
+
+   경고 : 입력 둘이 같은 파일 이름이면 `compare_duplicate`(둘 다 한 짝과 견준다), 짝이 입력 자신이면 `compare_self`
+   (차가 늘 0 이다). 둘 다 견주기는 그대로 한다 — 막지 않고 알린다 (리뷰 7-12).
+   """
+   if folder is None:
+      return {}, [], []
+   root = Path(folder)
+   if not root.is_dir():
+      raise ArtToolError(f"--compare 폴더가 없다 : {folder}")
+   pairs: dict[int, Path] = {}
+   missing: list[str] = []
+   seen: dict[str, int] = {}
+   dupes: list[str] = []
+   selves: list[str] = []
+   for index, path in enumerate(files):
+      key = os.path.normcase(path.name)
+      if key in seen and path.name not in dupes:
+         dupes.append(path.name)
+      seen.setdefault(key, index)
+      pair = root / path.name
+      if is_plain_file(pair):
+         pairs[index] = pair
+         if same_key(pair) == same_key(path):
+            selves.append(str(path))
+      else:
+         missing.append(path.name)
+   warnings = []
+   if dupes:
+      warnings.append(_warn("compare_duplicate", f"--compare : 같은 파일 이름 입력이 둘 이상이라 한 짝과 견준다 : {folder}", dupes))
+   if selves:
+      warnings.append(_warn("compare_self", f"--compare 짝이 입력 자신이다 (차가 늘 0) : {folder}", selves))
+   return pairs, missing, warnings
+
+
+def compare_row(name: str, old: dict, new: dict) -> dict:
+   """숫자 셋을 [전, 후, 차] 로. 차 = 후 − 전 (외곽선 몫은 재기 함수처럼 소수 넷째 자리)."""
+   row: dict = {"name": name}
+   for key in ("colors", "isolated"):
+      row[key] = [old[key], new[key], new[key] - old[key]]
+   row["outline_ratio"] = [old["outline_ratio"], new["outline_ratio"], round(new["outline_ratio"] - old["outline_ratio"], 4)]
+   return row
+
+
 # ── 명령 ──
 
 def run_strip(args) -> dict:
@@ -558,7 +605,8 @@ def run_strip(args) -> dict:
                                          ("--at", getattr(args, "at", None)),
                                          ("--crop", getattr(args, "crop", None)),
                                          ("--find", getattr(args, "find_old", None)),
-                                         ("--find-clear", getattr(args, "find_clear", False)))
+                                         ("--find-clear", getattr(args, "find_clear", False)),
+                                         ("--compare", getattr(args, "compare", None)))
             if value]       # 기본값(zoom · auto · 0 · 없음 · 2 · checker · 끔)과 다르면 준 것으로 본다 — strip 은 이것들을 안 쓴다
    if given:
       raise UsageError(f"--strip 은 {', '.join(given)} 와 같이 못 쓴다 (뜻이 섞인다)")
@@ -596,9 +644,12 @@ def run(args) -> dict:
    grid, grid_color = grid_options(args, kinds)
 
    files, warnings = collect_inputs(list(args.in_paths))
-   # 비교판이 입력 PNG(--bg 타일 · --on 장면 · --find 그림 포함)를 덮지 않게 (R1-H1)
+   compare = getattr(args, "compare", None)
+   pairs, missing, compare_warnings = compare_pairs(compare, files)
+   # 비교판이 입력 PNG(--bg 타일 · --on 장면 · --find 그림 · --compare 짝 포함)를 덮지 않게 (R1-H1)
    extra = [Path(p) for p in (args.bg if isinstance(bg, np.ndarray) else None,
                               getattr(args, "on_scene", None), getattr(args, "find_old", None)) if p]
+   extra += list(pairs.values())
    guard_overwrite([out_file], files + extra)
    spec = scene_options(args, files)
    items = [image.load(path) for path in files]
@@ -657,6 +708,10 @@ def run(args) -> dict:
          text += f" · ×{s}"
       report_items.append(entry)
       row_labels.append(text)
+   compared = [compare_row(files[i].name, measure(image.load(pair)), report_items[i]) for i, pair in pairs.items()]
+   if missing:
+      warnings.append(_warn("compare_missing", f"--compare 폴더에 같은 이름 짝이 없다 : {compare}", missing))
+   warnings.extend(compare_warnings)
 
    titles = [kind_title(k, tile) for k in kinds]
    sheet = layout_rows(rows, row_labels if label else None, titles if label else None)
@@ -681,6 +736,8 @@ def run(args) -> dict:
       result["on"] = {"scene": str(spec["path"]), "at": spec["at"], "crop": spec["box"] if spec["crop"] else None,
                       "find": str(spec["find"]) if spec["find"] else None, "find_count": spec["find_count"],
                       "find_clear": spec["find_clear"]}
+   if compare is not None:
+      result["compare"] = compared
    if grid:
       result.update({"grid": grid, "grid_color": getattr(args, "grid_color", None) or GRID_COLOR, "grid_margin": list(margin)})
    return result

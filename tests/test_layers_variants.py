@@ -100,7 +100,7 @@ def test_canvas_save_refuses_drawing_on_unpicked_layer(tmp_path):
 def test_split_refuses_variant_set(tmp_path):
    folder = _variant_set(tmp_path)
    with pytest.raises(errors.UsageError, match="files"):
-      split._refuse_small_set(folder)
+      split._old_set(folder)
 
 
 def test_fill_writes_variant_files(tmp_path):

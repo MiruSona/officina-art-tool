@@ -10,19 +10,24 @@
 
 from __future__ import annotations
 
+import functools
 import math
 import os
 from pathlib import Path
 
 import numpy as np
 
+from .. import check as check_mod
 from .. import image, layerset, sheet
 from ..edit import dry_run_fields, is_dry_run, trim
+from ..edit import fill as fill_mod
 from ..errors import ArtToolError, UsageError
 from ..jsonio import read_json, write_json
 from ..palette import parse_hex, to_hex
 from ..paths import guard_outside, guard_overwrite, jailed_output, resolve_root, safe_join, same_key
+from ..pieces import labels as piece_labels
 from . import layers as layers_mod
+from . import tint as tint_mod
 from .split import ANCHOR_KINDS
 
 VERSION = 1
@@ -160,8 +165,57 @@ def _open_set(in_dir) -> tuple[Path, layerset.LayerSet]:
    return folder, layerset.load(folder)
 
 
+def _split_names(text) -> list[str]:
+   return [n.strip() for n in str(text).split(",") if n.strip()] if text else []
+
+
+def _open_like(in_dir, order: list[str] | None, masks: list[str], what: str = "--in") -> tuple[Path, layerset.LayerSet]:
+   """layers.json 이 있으면 그것, 없고 order 가 있으면 맨 폴더로 (7판 4절). 둘 다면 거절. what 은 거절 문구에 쓰는 인자 이름."""
+   if not order:
+      return _open_set(in_dir)
+   folder = Path(in_dir)
+   if not folder.is_dir():
+      raise ArtToolError(f"겹 묶음 폴더가 없다 ({what}) : {folder}")
+   if (folder / layerset.FILE_NAME).exists():
+      raise UsageError(f"--order 를 줬는데 {what} 폴더에 {layerset.FILE_NAME} 이 있다 — 둘 중 무엇을 믿을지 헷갈리지 않게 하나만 쓴다 : {folder}")
+   return folder, layerset.from_folder(folder, order, masks)
+
+
+def _open_any(args) -> tuple[Path, layerset.LayerSet, bool]:
+   """--in 을 연다. 돌려줌 : (폴더, 묶음, 맨 폴더인가)."""
+   order = _split_names(getattr(args, "order", None))
+   masks = _split_names(getattr(args, "masks", None))
+   if masks and not order:
+      raise UsageError("--masks 는 --order 와 같이 쓴다 (layers.json 묶음은 겹 kind 를 mask 로 적는다)")
+   folder, ls = _open_like(args.in_dir, order, masks)
+   return folder, ls, bool(order)
+
+
+def mask_base(ls: layerset.LayerSet, text) -> str | None:
+   """--mask-of 기준겹 검사 (check · view 공용). 이름 하나 · 묶음에 마스크 겹이 있음 · 기준겹은 그리는 겹. 틀리면 종료 2."""
+   if not text:
+      return None
+   base = _names(text, ls.names(), "--mask-of")
+   if len(base) != 1:
+      raise UsageError(f"--mask-of 는 기준겹 하나다 : {text}")
+   if ls.layer(base[0]).is_mask:
+      raise UsageError(f"--mask-of 기준겹이 마스크 겹이다 — 그리는 겹을 준다 : {base[0]}")
+   if not any(layer.is_mask for layer in ls.layers):
+      raise UsageError("--mask-of : 묶음에 마스크 겹(kind: mask)이 없다 (맨 폴더면 --masks 로 적는다)")
+   return base[0]
+
+
+def _inferred_head(report: dict, ls: layerset.LayerSet, inferred: bool) -> dict:
+   """맨 폴더일 때만 보고 맨 위(version 다음)에 inferred · order 를 단다."""
+   if not inferred:
+      return report
+   head = {"version": report["version"]} if "version" in report else {}
+   return {**head, "inferred": True, "order": ls.names(), **{k: v for k, v in report.items() if k != "version"}}
+
+
 def _stack(ls: layerset.LayerSet, parts: dict[str, image.RGBA], pick: list[str] | None = None) -> image.RGBA:
-   order = [n for n in ls.names() if (pick is None or n in pick)]
+   """쌓은 그림. 마스크 겹(kind: mask)은 그리는 겹이 아니라 빠진다 (7판 5절)."""
+   order = [n for n in ls.painted() if (pick is None or n in pick)]
    chosen = {n: parts[n] for n in order if n in parts}
    if not chosen:
       return image.new(*ls.canvas)
@@ -223,16 +277,8 @@ def _diff_order(names: list[str], skeleton: layerset.LayerSet | None) -> list[la
    return [layerset.Layer(name, guess_kind(name)) for name in sorted(wanted, key=rank)]
 
 
-def guess_kind(name: str) -> str:
-   """템플릿이 없을 때 겹 이름으로 종류를 짐작한다 (실물 #24).
-
-   이름 그대로 또는 첫 낱말(`_` · `-` 앞)이 종류 낱말이면 그 종류 — `cloth_top` → cloth, `hair-front` → hair.
-   아니면 deco. 쌓는 순서는 종류로 정한다 : body < cloth < face < hair < deco, 같은 종류끼리는 이름 순.
-   """
-   if name in layerset.KINDS:
-      return name
-   head = name.replace("-", "_").split("_", 1)[0].lower()
-   return head if head in layerset.KINDS else "deco"
+# 맨 폴더 모드(7판 4절)도 써서 layerset 으로 옮겼다. 이름은 그대로 둔다.
+guess_kind = layerset.guess_kind
 
 
 def _diff_inputs(in_dir, base: Path | None = None) -> tuple[dict[str, Path], bool]:
@@ -392,9 +438,11 @@ def run_diff(args) -> dict:
       ))
 
    ls = layerset.LayerSet((width, height), order, [item], _template_name(args.template))
-   layerset.refuse_small(ls, "layers diff")   # 상자 자르기 쓰기는 아직 — 캔버스 크기로 몰래 쓰지 않게
+   layerset.from_dict(ls.to_dict(), "(layers diff)")   # 뼈대의 작은 겹 상자가 기본체 크기를 넘으면 쓰기 전에 거절
+   # 작은 겹은 상자로 잘라 쓴다. 상자 밖 칸은 crop_to_box 가 거절한다 — 한 장이라도 쓰기 전에 다 잘라 본다.
+   cut = {name: layerset.crop_to_box(ls.layer(name), parts[name], f"layers diff {name}") for name in names}
    for name, path in zip(names, writes):
-      image.save(path, parts[name])
+      image.save(path, cut[name])
    layerset.save(root, ls)
 
    return {
@@ -470,6 +518,74 @@ def run_mask(args) -> dict:
 
 # --- view ---
 
+TINT_MAX = 32   # --tint 물들임 칸 수 상한 (사례 7 · 8 크기에서 어림, 7판 2-5)
+
+
+def _tint_table(raw: dict, ls: layerset.LayerSet, mask_base: str | None, where: str) -> dict[str, tuple[int, int, int]]:
+   """{겹: #hex} → {겹: (r, g, b)}. 마스크 겹 열쇠는 --mask-of 기준겹의 그 마스크 안 칸을 칠한다."""
+   out = {}
+   for name, text in raw.items():
+      if name not in ls.names():
+         raise UsageError(f"{where} 에 겹 묶음에 없는 겹 : {name} (있는 겹 : {', '.join(ls.names())})")
+      if ls.layer(name).is_mask and mask_base is None:
+         raise UsageError(f"{where} 의 {name} 은 마스크 겹이다 — 어느 겹을 칠할지 --mask-of 로 준다")
+      try:
+         out[name] = parse_hex(str(text))
+      except ArtToolError as exc:
+         raise UsageError(f"{where} 의 색을 못 읽었다 : {name}={text} (#RRGGBB 꼴)") from exc
+   return out
+
+
+def _parse_tints(specs, ls: layerset.LayerSet, mask_base: str | None) -> list[tuple[str, dict]]:
+   """--tint 들 → [(칸 이름, 물들임 표)]. 글자 `겹=#hex,…` 는 한 칸(이름 = 그 글자), `.json` 은 [{name, tint}] 칸 여럿."""
+   cols: list[tuple[str, dict]] = []
+   for spec in specs or []:
+      text = str(spec).strip()
+      if text.lower().endswith(".json"):
+         data = read_json(text)
+         if not isinstance(data, list) or not data:
+            raise UsageError(f"--tint JSON 은 [{{name, tint}}, …] 비지 않은 목록이다 : {text}")
+         if len(cols) + len(data) > TINT_MAX:   # 칸마다 풀어 보기 전에 개수부터 — 큰 목록을 다 훑지 않는다
+            raise UsageError(f"--tint 물들임 칸은 {TINT_MAX}개까지다")
+         for n, entry in enumerate(data):
+            spot = f"--tint {Path(text).name} 의 {n}번"
+            if not isinstance(entry, dict) or set(entry) != {"name", "tint"}:
+               raise UsageError(f"{spot} 은 name · tint 두 칸 객체다")
+            if not isinstance(entry["name"], str) or not entry["name"].strip() or not isinstance(entry["tint"], dict):
+               raise UsageError(f"{spot} : name 은 글, tint 는 {{겹: #hex}} 사전이다")
+            cols.append((entry["name"], _tint_table(entry["tint"], ls, mask_base, spot)))
+      else:
+         raw = {}
+         for part in text.split(","):
+            name, sep, color = part.partition("=")
+            if not sep or not name.strip():
+               raise UsageError(f"--tint 는 겹=#RRGGBB[,겹=#RRGGBB…] 또는 .json 이다 : {text}")
+            raw[name.strip()] = color.strip()
+         cols.append((text, _tint_table(raw, ls, mask_base, "--tint")))
+      if len(cols) > TINT_MAX:
+         raise UsageError(f"--tint 물들임 칸은 {TINT_MAX}개까지다")
+   return cols
+
+
+def _tinted(ls: layerset.LayerSet, parts: dict[str, image.RGBA], table: dict, mask_base: str | None, shown: list[str] | None) -> image.RGBA:
+   """물들임 표 하나로 쌓은 그림. 표에 있는 겹은 색을 곱하고(`tint`), 마스크 열쇠는 기준겹의 그 마스크 안 칸만 곱한다.
+
+   마스크 칸은 기준겹 **원래 색**에 곱한다 — 기준겹 자체 물들임 위에 또 곱하지 않는다. 마스크가 겹치면 뒤 마스크가 이긴다.
+   """
+   painted = {}
+   for name in ls.painted():
+      if name not in parts or (shown is not None and name not in shown):
+         continue
+      arr = parts[name]
+      out = tint_mod.tint(arr, table[name]) if name in table else arr.copy()
+      if name == mask_base:
+         for mask in ls.names():
+            if mask in table and ls.layer(mask).is_mask and mask in parts:
+               cells = _opaque(parts[mask]) & _opaque(arr)
+               out[cells] = tint_mod.tint(arr, table[mask])[cells]
+      painted[name] = out
+   return _stack(ls, painted)
+
 
 def run_view(args) -> dict:
    if args.only and args.hide:
@@ -478,13 +594,20 @@ def run_view(args) -> dict:
       raise UsageError(f"--scale 은 1 이상이다 : {args.scale}")
    if args.scale > sheet.SCALE_MAX:
       raise UsageError(f"--scale 은 {sheet.SCALE_MAX} 이하다 : {args.scale}")
-   folder, ls = _open_set(args.in_dir)
+   folder, ls, inferred = _open_any(args)
    path = jailed_output(args.out_file)
    guard_outside([path], [folder])          # 겹 묶음 폴더 안에 쓰면 겹 PNG 를 덮을 수 있다 (R1-H2)
    names = ls.names()
    only = _names(args.only, names, "--only")
    hide = _names(args.hide, names, "--hide")
    shown = only or [n for n in names if n not in hide]
+   tint_specs = getattr(args, "tint", None)
+   if tint_specs and args.each:
+      raise UsageError("--tint 와 --each 는 같이 못 준다 (판이 너무 넓어진다)")
+   if getattr(args, "mask_of", None) and not tint_specs:
+      raise UsageError("layers view --mask-of 는 --tint 와 같이 쓴다")
+   base = mask_base(ls, getattr(args, "mask_of", None))
+   tints = _parse_tints(tint_specs, ls, base)
 
    warnings: list[dict] = []
    labels = image.has_label_font()
@@ -494,7 +617,7 @@ def run_view(args) -> dict:
    items = _items(folder, ls)
    # 판 크기를 그리기 전에 본다 (sheet 와 같은 셈)
    cell = sheet.kind_size(ls.canvas[0], ls.canvas[1], "zoom", args.scale)
-   per_row = (len(shown) + 1) if args.each else 1
+   per_row = (len(shown) + 1) if args.each else (len(tints) or 1)
    image.check_pixels(*sheet.layout_size([[cell] * per_row for _ in items], labels, labels), "겹 보기판")
    rows = []
    for item in items:
@@ -502,16 +625,19 @@ def run_view(args) -> dict:
       cells = []
       if args.each:
          cells = [parts.get(n, image.new(*ls.canvas)) for n in shown]
-      cells.append(_stack(ls, parts, shown))
+      if tints:
+         cells = [_tinted(ls, parts, table, base, shown) for _, table in tints]
+      else:
+         cells.append(_stack(ls, parts, shown))
       # 비교판(sheet)과 같은 칸 : nearest 확대 + 바둑판 바탕 — 투명 칸이 어디인지 보인다
       rows.append([sheet.render_kind(cell, "zoom", args.scale) for cell in cells])
-   col_labels = ([*shown, "합침"] if args.each else ["합침"]) if labels else None
+   col_labels = ([name for name, _ in tints] if tints else [*shown, "합침"] if args.each else ["합침"]) if labels else None
    row_labels = items if labels else None
    board = sheet.layout_rows(rows, row_labels, col_labels)
    dry_run = is_dry_run(args)
    if not dry_run:
       image.save(path, board)
-   return {
+   return _inferred_head({
       "status": "warn" if warnings else "ok",
       **dry_run_fields(dry_run, [path]),
       "out": None if dry_run else str(path),
@@ -520,7 +646,8 @@ def run_view(args) -> dict:
       "items": len(rows),
       "label": labels,
       "warnings": warnings,
-   }
+      **({"tints": [name for name, _ in tints]} if tints else {}),   # --tint 를 줄 때만
+   }, ls, inferred)
 
 
 # --- check ---
@@ -614,16 +741,16 @@ def _check_item(ls: layerset.LayerSet, item: str, raw: dict[str, image.RGBA], ma
       good[name] = arr
 
    for a, b in ls.exclusive_pairs():
-      if a in good and b in good:
+      if a in good and b in good and not (ls.layer(a).is_mask or ls.layer(b).is_mask):
          both = _opaque(good[a]) & _opaque(good[b])
          if np.any(both):
             warnings.append(warning("layer_exclusive", f"{item} : {a} 와 {b} 가 같은 칸 {int(np.count_nonzero(both))}개를 칠했다", _points(both)))
 
-   names = [n for n in ls.names() if n in good]
+   names = [n for n in ls.painted() if n in good]   # 마스크 겹은 칠한 칸이 아니라 삐짐을 안 본다
    if names:
-      everything = np.zeros(next(iter(good.values())).shape[:2], dtype=bool)
-      for arr in good.values():
-         everything |= _opaque(arr)
+      everything = np.zeros(good[names[0]].shape[:2], dtype=bool)
+      for name in names:
+         everything |= _opaque(good[name])
       exclusive = set(ls.exclusive_pairs())
       for i, low in enumerate(names):
          for high in names[i + 1 :]:
@@ -651,14 +778,21 @@ VARIANTS_SCAN_MAX = 4096   # 변형 파일을 찾으려 폴더 하나를 훑을 
 
 
 def _scan_variants(folder: Path, ls: layerset.LayerSet) -> dict[str, list[str]]:
-   """겹마다 files 무늬(없으면 `<겹>/{v}.png`)에 맞는 파일들의 {v} 값. 무늬의 폴더 하나만 본다."""
+   """겹마다 files 무늬(없으면 `<겹>/{v}.png`)에 맞는 파일들의 {v} 값. 무늬의 폴더 하나만 본다.
+
+   같은 폴더를 쓰는 겹들은 그 폴더를 한 번 훑어 나눈다 — 파일마다 맞는 겹 무늬 가운데 앞이 가장 긴 겹 하나에만
+   (`hair_{v}.png` · `hair_front_{v}.png`, 리뷰 7-1).
+   """
    root = resolve_root(folder)
-   out: dict[str, list[str]] = {}
+   groups: dict[str, dict[str, tuple[str, str]]] = {}
    for layer in ls.layers:
       head, _, tail = layerset._pattern(layer).rpartition("/")
       prefix, _, suffix = tail.partition(layerset.FILES_SLOT)
+      groups.setdefault(head, {})[layer.name] = (prefix, suffix)
+   out: dict[str, list[str]] = {}
+   for head, patterns in groups.items():
       parent = safe_join(root, head) if head else root
-      found = []
+      names = []
       if parent.is_dir():
          # Path.iterdir 는 (3.13+) 폴더를 통째로 목록으로 만든 뒤 돌려준다. scandir 로 흘려 읽어야 상한이 훑는 도중에 걸린다.
          # 링크는 따라가지 않는다 (is_file(follow_symlinks=False)) — 묶음 폴더 밖 파일을 변형으로 세지 않게.
@@ -666,13 +800,11 @@ def _scan_variants(folder: Path, ls: layerset.LayerSet) -> dict[str, list[str]]:
             for n, entry in enumerate(entries):
                if n >= VARIANTS_SCAN_MAX:
                   raise UsageError(f"layers check : {parent} 에 항목이 {VARIANTS_SCAN_MAX}개보다 많아 변형을 다 훑지 않는다")
-               name = entry.name
-               if entry.is_file(follow_symlinks=False) and len(name) > len(prefix) + len(suffix) and name.startswith(prefix) and name.endswith(suffix):
-                  v = name[len(prefix) : len(name) - len(suffix)]
-                  if layerset.NAME_RE.match(v):
-                     found.append(v)
-      out[layer.name] = sorted(found)
-   return out
+               if entry.is_file(follow_symlinks=False):
+                  names.append(entry.name)
+      for name, found in layerset.assign_stems(names, patterns).items():
+         out[name] = sorted(found)
+   return {layer.name: out[layer.name] for layer in ls.layers}
 
 
 def _check_variants(folder: Path, ls: layerset.LayerSet, items: list[str], warnings: list[dict]) -> dict[str, list[str]]:
@@ -702,8 +834,14 @@ def _check_variants(folder: Path, ls: layerset.LayerSet, items: list[str], warni
 
 
 def run_check(args) -> dict:
-   folder, ls = _open_set(args.in_dir)
+   from .layerchecks import Extra   # 7판 검사는 이 모듈의 도우미를 쓴다 — 맨 위에서 읽으면 서로 물린다
+
+   folder, ls, inferred = _open_any(args)
    items = _items(folder, ls)
+   # 새 인자 검사는 그림을 읽기 전에. 전 판은 이번 판과 같은 길(layers.json 또는 같은 --order · --masks)로 연다
+   order, bare_masks = (_split_names(getattr(args, k, None)) for k in ("order", "masks"))
+   open_before = functools.partial(_open_like, order=order, masks=bare_masks, what="--before")
+   extra = Extra(args, folder, ls, items, inferred, open_before=open_before)
    masks = _template_masks(args.template, ls.canvas)
    original = Path(args.original) if args.original else None
    target = _pick_original_item(items, original) if original else None
@@ -716,8 +854,9 @@ def run_check(args) -> dict:
    roundtrip = None
    for item in items:
       good = _check_item(ls, item, _read_raw(folder, ls, item), masks, warnings)
+      extra.item(item, good, warnings)
       if cover is not None:
-         cover_rows.append(_cover_item(item, good, cover, Path(args.cover).name, rules, warnings))
+         cover_rows.append(_cover_item(item, _painted_parts(ls, good), cover, Path(args.cover).name, rules, warnings))
       if item != target:
          continue
       want = image.load(original)
@@ -731,8 +870,11 @@ def run_check(args) -> dict:
 
    # files 무늬 · 사전 꼴 items 를 쓴 묶음만 변형을 본다 — 안 쓴 묶음의 보고는 예전과 바이트까지 같다
    variants = None
-   if ls.picks or any(layer.files is not None for layer in ls.layers):
+   # 맨 폴더는 그림 목록 = 파일 목록이라 안 쓴 변형이 없다 — 장 수는 counts 가 본다
+   if not inferred and (ls.picks or any(layer.files is not None for layer in ls.layers)):
       variants = _check_variants(folder, ls, items, warnings)
+   added: dict = {}
+   extra.finish(added, warnings)
 
    failed = list(dict.fromkeys(r["rule"] for r in rules if not r["ok"]))   # cover 는 그림마다 줄이 생겨 겹칠 수 있다
    status = "fail" if failed else ("warn" if warnings else "ok")
@@ -753,7 +895,18 @@ def run_check(args) -> dict:
       report["roundtrip_diff"] = roundtrip
    if cover is not None:   # --cover 를 안 주면 보고 꼴이 예전 그대로다
       report["cover"] = cover_rows
+   report.update(added)    # 7판 칸 — 새 인자 · anchor 칸이 없으면 비어 있다
+   report = _inferred_head(report, ls, inferred)
+   known, baseline, fail_on_new = (getattr(args, k, None) for k in ("known", "baseline", "fail_on_new"))
+   if known or baseline or fail_on_new:   # 셋 다 없으면 부르지 않는다 — 보고 바이트 그대로
+      report = check_mod.apply_known(report, check_mod.load_known(known, baseline), fail_on_new)
    return report
+
+
+def _painted_parts(ls: layerset.LayerSet, parts: dict[str, image.RGBA]) -> dict[str, image.RGBA]:
+   """마스크 겹을 뺀 겹들 (가림판 · 빈 칸 셈에 쓴다)."""
+   keep = set(ls.painted())
+   return {name: arr for name, arr in parts.items() if name in keep}
 
 
 def _load_cover(path, canvas: tuple[int, int]) -> np.ndarray:
@@ -923,7 +1076,7 @@ def _fill_plan(ls: layerset.LayerSet, parts: dict[str, image.RGBA], cover: np.nd
    작은 겹은 상자 밖 칸의 후보에서 빠진다(거리를 무한대로) — 그 칸은 다음으로 가까운 겹이 채운다.
    돌려줌 : {겹: (칸 마스크, 출처 y, 출처 x)} · 그 그림에 있는 후보 · 어느 후보도 상자 밖이라 못 채운 칸 수.
    """
-   empty = cover & (_coverage(parts, cover.shape) == 0)
+   empty = cover & (_coverage(_painted_parts(ls, parts), cover.shape) == 0)
    cands = [n for n in nearest if n in parts and np.any(parts[n][..., 3] > 0)]
    if not cands or not np.any(empty):
       return {}, cands, 0
@@ -949,34 +1102,100 @@ def _fill_plan(ls: layerset.LayerSet, parts: dict[str, image.RGBA], cover: np.nd
    return plan, cands, outside
 
 
+HOLE_MAX = 32    # fill --holes 기본 : 이보다 큰 구멍은 뜻한 빈 곳(고리 · 손잡이 안)일 수 있어 안 메운다.
+                 # 실측(7판) : 실수 구멍은 많아야 19칸, 일부러 둔 구멍은 2~1,759칸 — 256 이면 손잡이 안을 메운다
+FAR = 10 ** 9
+
+
+def _row_sources(opaque: np.ndarray, need: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+   """need 칸마다 같은 행에서 가장 가까운 불투명 칸 (y, x). 거리 같으면 왼쪽. 그 행에 없으면 -1."""
+   src_y = np.full(need.shape, -1, dtype=np.int64)
+   src_x = np.full(need.shape, -1, dtype=np.int64)
+   for y in np.unique(np.nonzero(need)[0]):
+      have = np.nonzero(opaque[y])[0]
+      if len(have) == 0:
+         continue
+      xs = np.nonzero(need[y])[0]
+      at = np.searchsorted(have, xs)
+      left = np.where(at > 0, have[np.clip(at - 1, 0, len(have) - 1)], -FAR)    # 왼쪽에 없으면 아주 멀리
+      right = np.where(at < len(have), have[np.clip(at, 0, len(have) - 1)], FAR)
+      src_x[y, xs] = np.where(xs - left <= right - xs, left, right)
+      src_y[y, xs] = y
+   return src_y, src_x
+
+
+def _fill_holes_item(ls: layerset.LayerSet, item: str, parts: dict[str, image.RGBA], holes: list[str], hole_max: int,
+                     out: Path, writes: dict, warnings: list[dict]) -> dict | None:
+   """겹 자신의 안쪽 구멍(`fill --enclosed` 와 같은 뜻)을 그 겹 자신의 색으로 메운다 (7판 3절).
+
+   칸마다 ① 같은 행 가장 가까운 불투명 칸 색 ② 그 행에 없으면 가장 가까운(체비셰프) 칸 색을 그대로 옮긴다 — 평균을 안 낸다.
+   new_colors 는 메운 뒤 색을 실제로 다시 센 값이다(늘 0 이어야 하고, 아니면 그 자체가 버그 신호).
+   """
+   present = [n for n in holes if n in parts]
+   if not present:
+      warnings.append(warning("fill_no_target", f"{item} : --holes 겹이 이 그림에 없어 건너뛰었다"))
+      return None
+   filled, new_colors = {}, {}
+   for name in present:
+      arr = parts[name]
+      label, sizes = piece_labels(fill_mod.enclosed(arr))
+      big = sizes > hole_max
+      inside = label >= 0
+      too_big = inside & big[np.where(inside, label, 0)] if len(sizes) else inside
+      if np.any(too_big):
+         warnings.append(warning("fill_hole_skipped", f"{item} : {name} 의 구멍 {int(big.sum())}개({int(np.count_nonzero(too_big))}칸)가 --hole-max {hole_max} 칸보다 커서 안 메웠다 (뜻한 빈 곳일 수 있다)", _points(too_big)))
+      need = inside & ~too_big
+      if not np.any(need):
+         continue
+      seed = _opaque(arr)
+      src_y, src_x = _row_sources(seed, need)
+      rest = need & (src_x < 0)
+      if np.any(rest):   # 늘 없다 — 지킴용. 갇힌 칸은 같은 행 양쪽에 칠한 칸이 있다. 그래도 조용히 빼먹지 않게
+         _, near_y, near_x = _nearest_source(seed, rest)
+         src_y[rest], src_x[rest] = near_y[rest], near_x[rest]
+      fixed = arr.copy()
+      fixed[need] = arr[src_y[need], src_x[need]]
+      dst = layerset.image_path(out, ls, name, item)
+      if dst is None:
+         raise UsageError(f"layers fill : 그림 {item} 의 pick 에 겹 {name} 이 없다")
+      writes[dst] = layerset.crop_to_box(ls.layer(name), fixed, f"layers fill {item}")
+      filled[name] = int(np.count_nonzero(need))
+      new_colors[name] = len(image.opaque_colors(fixed) - image.opaque_colors(arr))
+   return {"item": item, "filled": filled, "new_colors": new_colors}
+
+
 def run_fill(args) -> dict:
-   folder, ls = _open_set(args.in_dir)
+   folder, ls, inferred = _open_any(args)
    items = _items(folder, ls)
    pick = _names(args.items, items, "--items", "그림") if args.items else items
+   holes_text = getattr(args, "holes", None)
+   hole_max = getattr(args, "hole_max", None)
+   if bool(args.mask) == bool(holes_text):
+      raise UsageError("layers fill : --mask(가림판 빈 칸) 와 --holes(겹 안쪽 구멍) 중 하나만 준다")
+   if holes_text:
+      return _run_fill_holes(args, folder, ls, inferred, items, pick, holes_text, hole_max)
+   if hole_max is not None:
+      raise UsageError("--hole-max 는 --holes 와 같이 쓴다")
    nearest = _names(args.nearest, ls.names(), "--nearest")
    if not nearest:
       raise UsageError("--nearest 에 겹이 하나 이상 있어야 한다")
+   masks = [n for n in nearest if ls.layer(n).is_mask]
+   if masks:
+      raise UsageError(f"--nearest 에 마스크 겹(kind: mask)은 못 쓴다 — 그리는 겹이 아니다 : {', '.join(masks)}")
    color = None
    if args.color:
       try:
          color = parse_hex(args.color)
       except ArtToolError as exc:
          raise UsageError(str(exc)) from exc
-   out = jailed_output(args.out_dir)
-   guard_outside([out], [folder])                    # 원본 묶음 안에 쓰지 않는다
-   guard_outside([folder], [out], "--in")            # 원본 묶음을 품은 폴더에도 안 쓴다
-   if out.exists() and (not out.is_dir() or any(out.iterdir())):
-      raise UsageError(f"--out 은 없거나 빈 폴더여야 한다 (원본 묶음을 안 덮는다) : {out}")
+   out = _fill_out(args, folder)
    cover = _load_cover(args.mask, ls.canvas)
 
    warnings: list[dict] = []
    rows: list[dict] = []
    writes: dict[Path, image.RGBA | Path] = {}
    for item in items:
-      for layer in ls.layers:   # 손 안 대는 겹은 바이트 그대로 복사
-         src = layerset.image_path(folder, ls, layer.name, item)
-         if src is not None and src.is_file():
-            writes[layerset.image_path(out, ls, layer.name, item)] = src
+      _copy_plan(folder, ls, item, out, writes)
       if item not in pick:
          continue
       parts = layerset.read_item(folder, ls, item)
@@ -1002,19 +1221,11 @@ def run_fill(args) -> dict:
       rows.append({"item": item, "filled": filled})
 
    dry_run = is_dry_run(args)
-   if not dry_run:
-      out.mkdir(parents=True, exist_ok=True)
-      (out / layerset.FILE_NAME).write_bytes((folder / layerset.FILE_NAME).read_bytes())   # layers.json 도 바이트 그대로
-      for dst, what in writes.items():
-         dst.parent.mkdir(parents=True, exist_ok=True)
-         if isinstance(what, Path):
-            dst.write_bytes(what.read_bytes())
-         else:
-            image.save(dst, what)
-   return {
+   listed = _write_fill(dry_run, folder, out, inferred, writes)
+   return _inferred_head({
       "version": VERSION,
       "status": "warn" if warnings else "ok",
-      **dry_run_fields(dry_run, [out / layerset.FILE_NAME, *writes]),
+      **dry_run_fields(dry_run, [*listed, *writes]),
       "in": str(folder),
       "cover": Path(args.mask).name,   # "mask" 칸은 다른 명령에서 쓴 가림판 경로라 이름을 가른다
       "nearest": nearest,
@@ -1022,7 +1233,76 @@ def run_fill(args) -> dict:
       "images": rows,
       "warnings": warnings,
       "out": None if dry_run else str(out),
-   }
+   }, ls, inferred)
+
+
+def _fill_out(args, folder: Path) -> Path:
+   out = jailed_output(args.out_dir)
+   guard_outside([out], [folder])                    # 원본 묶음 안에 쓰지 않는다
+   guard_outside([folder], [out], "--in")            # 원본 묶음을 품은 폴더에도 안 쓴다
+   if out.exists() and (not out.is_dir() or any(out.iterdir())):
+      raise UsageError(f"--out 은 없거나 빈 폴더여야 한다 (원본 묶음을 안 덮는다) : {out}")
+   return out
+
+
+def _copy_plan(folder: Path, ls: layerset.LayerSet, item: str, out: Path, writes: dict) -> None:
+   for layer in ls.layers:   # 손 안 대는 겹은 바이트 그대로 복사
+      src = layerset.image_path(folder, ls, layer.name, item)
+      if src is not None and src.is_file():
+         writes[layerset.image_path(out, ls, layer.name, item)] = src
+
+
+def _write_fill(dry_run: bool, folder: Path, out: Path, inferred: bool, writes: dict) -> list[Path]:
+   """새 묶음을 쓴다(dry-run 이면 안 쓴다). 돌려줌 : writes 말고 더 쓰는(쓸) 파일 — layers.json."""
+   listed = [] if inferred else [out / layerset.FILE_NAME]
+   if not dry_run:
+      out.mkdir(parents=True, exist_ok=True)
+      if not inferred:   # 맨 폴더는 목록 없이 같은 꼴(하위 폴더 · <겹>_<그림>.png)로만 쓴다
+         (out / layerset.FILE_NAME).write_bytes((folder / layerset.FILE_NAME).read_bytes())   # layers.json 도 바이트 그대로
+      for dst, what in writes.items():
+         dst.parent.mkdir(parents=True, exist_ok=True)
+         if isinstance(what, Path):
+            dst.write_bytes(what.read_bytes())
+         else:
+            image.save(dst, what)
+   return listed
+
+
+def _run_fill_holes(args, folder: Path, ls: layerset.LayerSet, inferred: bool, items: list[str], pick: list[str], holes_text, hole_max) -> dict:
+   if args.color:
+      raise UsageError("--holes 와 --color 는 같이 못 준다 — 구멍은 겹 자신의 색으로만 메운다 (새 색을 안 만든다)")
+   if args.nearest:
+      raise UsageError("--holes 는 --nearest 를 안 받는다 — 겹 자신의 색으로 메운다")
+   holes = _names(holes_text, ls.names(), "--holes")
+   masks = [n for n in holes if ls.layer(n).is_mask]
+   if masks:
+      raise UsageError(f"--holes 에 마스크 겹(kind: mask)은 못 쓴다 : {', '.join(masks)}")
+   hole_max = HOLE_MAX if hole_max is None else int(hole_max)
+   if hole_max < 1:
+      raise UsageError(f"--hole-max 는 1 이상이다 : {hole_max}")
+   out = _fill_out(args, folder)
+   warnings: list[dict] = []
+   rows: list[dict] = []
+   writes: dict[Path, image.RGBA | Path] = {}
+   for item in items:
+      _copy_plan(folder, ls, item, out, writes)
+      if item in pick:
+         row = _fill_holes_item(ls, item, layerset.read_item(folder, ls, item), holes, hole_max, out, writes, warnings)
+         if row is not None:
+            rows.append(row)
+   dry_run = is_dry_run(args)
+   listed = _write_fill(dry_run, folder, out, inferred, writes)
+   return _inferred_head({
+      "version": VERSION,
+      "status": "warn" if warnings else "ok",
+      **dry_run_fields(dry_run, [*listed, *writes]),
+      "in": str(folder),
+      "holes": holes,
+      "hole_max": hole_max,
+      "images": rows,
+      "warnings": warnings,
+      "out": None if dry_run else str(out),
+   }, ls, inferred)
 
 
 SUBS = {"diff": run_diff, "mask": run_mask, "view": run_view, "check": run_check, "export": run_export, "fill": run_fill}

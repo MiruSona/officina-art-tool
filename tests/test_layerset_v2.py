@@ -161,12 +161,6 @@ def test_crop_to_box_and_outside_rejected():
       layerset.crop_to_box(cheek, arr, "(시험)")
 
 
-def test_refuse_small():
-   layerset.refuse_small(layerset.from_dict(V1), "split")
-   with pytest.raises(UsageError, match="cheek"):
-      layerset.refuse_small(layerset.from_dict(_v2()), "split")
-
-
 def test_draw_canvas_saves_small_layer_cropped_and_reopens(tmp_path):
    from arttool.draw.canvas import Canvas
    canvas = Canvas(template=_v2())
@@ -181,14 +175,14 @@ def test_draw_canvas_saves_small_layer_cropped_and_reopens(tmp_path):
    assert not (tmp_path / "set2" / "body").exists()   # 거절되면 한 장도 안 쓴다
 
 
-def test_split_refuses_set_with_small_layers(tmp_path):
+def test_split_accepts_set_with_small_layers(tmp_path):
+   """7판-다-1 : 작은 겹 묶음도 이제 split 이 받는다(쓸 때 상자로 자른다 — test_layers_small_write)."""
    from arttool.sprite import split
-   split._refuse_small_set(tmp_path)                     # 묶음 없음 → 통과
+   assert split._old_set(tmp_path) is None               # 묶음 없음
    layerset.save(tmp_path, layerset.from_dict(V1))
-   split._refuse_small_set(tmp_path)                     # 옛 묶음 → 통과
+   assert split._old_set(tmp_path) is not None           # 옛 묶음
    layerset.save(tmp_path, layerset.from_dict(_v2()))
-   with pytest.raises(UsageError, match="split"):
-      split._refuse_small_set(tmp_path)
+   assert split._old_set(tmp_path).layer("cheek").small  # 작은 겹 묶음 → 거절 없이 읽는다
 
 
 # ---- 다시 쓸 때 meta 를 잃지 않는다 (4-가 리뷰) ----

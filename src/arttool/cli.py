@@ -324,12 +324,35 @@ def _add_layers(subs) -> None:
    view.add_argument("--out", dest="out_file", required=True)
    view.add_argument("--scale", dest="scale", type=int, default=1)
    view.add_argument("--report", dest="report", help="보고 JSON")
+   view.add_argument("--tint", dest="tint", action="append",
+                     help="물들임 표 : 겹=#RRGGBB[,…] 이면 한 칸, .json [{name, tint}] 이면 칸 여럿 (여러 번 줄 수 있다, 곱하기)")
+   view.add_argument("--mask-of", dest="mask_of", help="--tint 의 마스크 겹 열쇠가 칠할 기준겹 (그 마스크 안 칸만)")
+   view.add_argument("--order", dest="order", help="layers.json 없는 맨 폴더를 읽는다 : 아래 → 위 겹 이름 (쉼표로)")
+   view.add_argument("--masks", dest="masks", help="맨 폴더에서 마스크 겹(kind: mask)으로 볼 겹 (쉼표로, --order 와 같이)")
 
    look = inner.add_parser("check", help="겹 묶음 검사 (경고, --original 다름만 fail)", parents=[COMMON])
    look.add_argument("--in", dest="in_dir", required=True, help="겹 묶음 폴더")
    look.add_argument("--original", dest="original", help="합친 결과와 견줄 원본 PNG")
    look.add_argument("--template", dest="template", help="template.json")
    look.add_argument("--cover", dest="cover", help="가림판 PNG (알파 > 0 = 덮여야 할 칸). 빈 칸은 fail, 겹친 칸은 경고")
+   # 7판 (설계 2026-10-07 2절) — 안 주면 보고가 예전과 바이트까지 같다
+   look.add_argument("--counts", dest="counts", action="store_true", help="겹마다 장(파일) 수를 세어 다르면 경고 layer_count")
+   look.add_argument("--anchor-tol", dest="anchor_tol", type=int, help="layers.json anchor 기준점 허용폭 칸 (기본 0, 0~64)")
+   look.add_argument("--mask-of", dest="mask_of", help="기준겹 하나. 마스크 겹(kind: mask) 합집합이 이 겹을 빈틈 · 겹침 없이 덮나 본다")
+   look.add_argument("--holes", dest="holes", action="store_true", help="겹마다 안쪽 구멍(테두리에서 투명 칸으로 못 닿는 칸)을 센다. 덮이지 않은 구멍은 경고 layer_hole")
+   look.add_argument("--holes-under", dest="holes_under", help="구멍을 덮는 위 겹 (쉼표로). 이 겹들이 다 덮으면 covered")
+   look.add_argument("--hole-min", dest="hole_min", type=int, help="이 칸 수 미만 구멍은 안 센다 (기본 1)")
+   look.add_argument("--hole-max", dest="hole_max", type=int,
+                     help="--holes : 이 칸 수보다 큰 구멍은 regions 에 large 로만 남기고 경고 · open 셈에서 뺀다 (기본 없음 = 전부)")
+   look.add_argument("--before", dest="before", help="전 판 겹 묶음 폴더. 같은 그림 · 겹 짝에 새로 생긴 색을 경고 layer_new_color")
+   look.add_argument("--shared-colors", dest="shared_colors", action="store_true", help="겹끼리 가까운 색을 같이 쓰면 경고 layer_shared_color")
+   look.add_argument("--shared-tol", dest="shared_tol", type=int, help="--shared-colors 색 폭. RGB 각 칸 차 최댓값 (기본 8, 0~64)")
+   look.add_argument("--known", dest="known", action="append",
+                     help="알고 두는 경고 목록 JSON [{rule, where, note}]. where 는 칸 좌표 글 \"[x, y]\" (여러 번 줄 수 있다)")
+   look.add_argument("--baseline", dest="baseline", action="append", help="옛 layers check 보고 JSON. 그 안 경고를 알고 두는 목록으로 더한다")
+   look.add_argument("--fail-on-new", dest="fail_on_new", action="store_true", help="새 경고가 하나라도 남으면 fail (종료 4)")
+   look.add_argument("--order", dest="order", help="layers.json 없는 맨 폴더를 읽는다 : 아래 → 위 겹 이름 (쉼표로)")
+   look.add_argument("--masks", dest="masks", help="맨 폴더에서 마스크 겹(kind: mask)으로 볼 겹 (쉼표로, --order 와 같이)")
    look.add_argument("--report", dest="report", help="보고 JSON")
 
    ship = inner.add_parser("export", help="합친 한 장 · 겹별 PNG 로 내보내기", parents=[COMMON])
@@ -343,12 +366,16 @@ def _add_layers(subs) -> None:
 
    fill = inner.add_parser("fill", help="가림판 안 빈 칸을 가장 가까운 후보 겹에 채워 새 묶음으로", parents=[COMMON])
    fill.add_argument("--in", dest="in_dir", required=True, help="겹 묶음 폴더 (안 덮는다)")
-   fill.add_argument("--mask", dest="mask", required=True, help="가림판 PNG (알파 > 0 = 덮여야 할 칸, 캔버스 크기)")
-   fill.add_argument("--nearest", dest="nearest", required=True, help="빈 칸을 붙일 후보 겹 (쉼표로, 거리 같으면 앞 겹)")
+   fill.add_argument("--mask", dest="mask", help="가림판 PNG (알파 > 0 = 덮여야 할 칸, 캔버스 크기). --holes 와 둘 중 하나")
+   fill.add_argument("--nearest", dest="nearest", help="빈 칸을 붙일 후보 겹 (쉼표로, 거리 같으면 앞 겹). --mask 일 때 꼭")
+   fill.add_argument("--holes", dest="holes", help="이 겹들(쉼표로) 자신의 안쪽 구멍을 같은 행 이웃 색으로 메운다. --mask 와 둘 중 하나")
+   fill.add_argument("--hole-max", dest="hole_max", type=int, help="--holes : 이 칸 수보다 큰 구멍은 안 메운다 (기본 32)")
    fill.add_argument("--color", dest="color", help="#RRGGBB. 안 주면 가장 가까운 칸의 색")
    fill.add_argument("--items", dest="items", help="손볼 그림 (쉼표로, 기본 전부)")
    fill.add_argument("--out", dest="out_dir", required=True, help="새 묶음 폴더 (없거나 빈 폴더)")
    fill.add_argument("--report", dest="report", help="보고 JSON")
+   fill.add_argument("--order", dest="order", help="layers.json 없는 맨 폴더를 읽는다 : 아래 → 위 겹 이름 (쉼표로)")
+   fill.add_argument("--masks", dest="masks", help="맨 폴더에서 마스크 겹(kind: mask)으로 볼 겹 (쉼표로, --order 와 같이)")
 
 
 def _add_cutout(subs) -> None:
@@ -468,6 +495,8 @@ def _add_sheet(subs) -> None:
    node.add_argument("--label", dest="label", action="store_true", help="이름 · 크기 · 색 수 딱지")
    node.add_argument("--grid", dest="grid", type=int, default=0, help="zoom 판에 원본 N 칸마다 눈금선 · 좌표 (기본 0 = 끔, 배율은 4 이상으로 올린다)")
    node.add_argument("--grid-color", dest="grid_color", help="눈금선 색 #RRGGBB (기본 #FF00FF)")
+   node.add_argument("--compare", dest="compare",
+                     help="전 판 폴더 — 입력마다 같은 이름 PNG 와 색 수 · 외톨이 · 외곽선 몫을 [전, 후, 차] 로 보고에 (판 그림은 그대로)")
    node.add_argument("--report", dest="report", help="보고 JSON")
 
 
@@ -835,6 +864,7 @@ REPORT_GUARDED = ("in_dir", "in_file", "base", "original", "template", "spec", "
                   "b64", "mark", "mask", "font", "text_file", "gif", "known", "baseline",
                   "in_path", "from_shape", "like", "profile_map", "ramps", "cover", "bg", "on_scene", "find_old",
                   "grid_file", "legend_file")
+REPORT_GUARDED += ("before", "tint")   # layers check --before 폴더 · layers view --tint JSON (7판)
 
 
 def _guard_report(args) -> None:

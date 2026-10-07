@@ -599,11 +599,13 @@ class Ui9(Kind):
    """9조각 밑판 : 자르는 줄 · 테 선 자리 · 최소 크기 · (말풍선이면) 꼬리 자리.
 
    테두리 칸 수는 `border` 하나(네 변 같음) 또는 `border_l` · `border_b` · `border_r` · `border_t` 로 변마다 따로.
-   꼬리(`tail_w` × `tail_h`)는 아래 테두리 안 가운데에 둔다 — 9조각으로 늘려도 꼬리는 아래 가운데 조각에 남는다.
+   꼬리(`tail_w` × `tail_h`)는 아래 테두리 안에 둔다 — 9조각으로 늘려도 꼬리는 아래 가운데 조각에 남는다.
+   가로 자리는 `tail_at` : `center`(기본 · 옛 값) · `left`(왼 테두리에 붙임) · `right`(오른 테두리에 붙임).
    """
 
    name = "ui9"
-   value_keys = ("border", "border_l", "border_b", "border_r", "border_t", "border_px", "min_center", "tail_w", "tail_h")
+   value_keys = ("border", "border_l", "border_b", "border_r", "border_t", "border_px", "min_center", "tail_w", "tail_h", "tail_at")
+   TAIL_AT = ("left", "center", "right")
    SIDES = ("border_l", "border_b", "border_r", "border_t")
    labels = (
       ("border_text", "테두리 L,B,R,T", "dot"),
@@ -633,6 +635,12 @@ class Ui9(Kind):
       tail_h = int(values.get("tail_h", 0) or 0)
       if tail_h and tail_h >= bottom:
          raise _fail(where, f"꼬리 높이 {tail_h} 는 아래 테두리 {bottom} 보다 작아야 한다 (몸 테두리 줄이 남게)")
+      if "tail_at" in values and values["tail_at"] not in self.TAIL_AT:
+         raise _fail(where, f"values.tail_at 은 {' · '.join(self.TAIL_AT)} 중 하나 : {values['tail_at']!r}")
+      # 옆에 붙이는 꼬리는 좌우 테두리 사이에 들어가야 한다 (center 는 옛 셈 그대로 — 옛 값을 새로 거절하지 않는다)
+      tail_w = int(values.get("tail_w", 0) or 0)
+      if tail_w and tail_h and values.get("tail_at", "center") != "center" and tail_w > size[0] - left - right:
+         raise _fail(where, f"꼬리 너비 {tail_w} 가 좌우 테두리 L{left} R{right} 사이({size[0] - left - right}칸)에 안 들어간다")
 
    def compute(self, ctx: Ctx) -> dict:
       v, w, h = ctx.values, ctx.w, ctx.h
@@ -644,8 +652,15 @@ class Ui9(Kind):
       tail_w, tail_h = int(v.get("tail_w", 0) or 0), int(v.get("tail_h", 0) or 0)
       tail = None
       if tail_w and tail_h:
-         tw = fit(w, min(tail_w, w - 2))
-         tail = [(w - tw) // 2, h - tail_h, (w - tw) // 2 + tw, h]
+         at = v.get("tail_at", "center")
+         if at == "left":
+            x0 = left
+         elif at == "right":
+            x0 = w - right - tail_w
+         else:
+            tail_w = fit(w, min(tail_w, w - 2))
+            x0 = (w - tail_w) // 2
+         tail = [x0, h - tail_h, x0 + tail_w, h]
       return {
          "border": int(v["border"]),
          "borders": [left, bottom, right, top],

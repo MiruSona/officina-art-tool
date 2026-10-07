@@ -49,11 +49,17 @@ KINDS = (
    "variant",                                   # 타일 (base 같이 씀)
    "fx",                                        # 이펙트 · 움직임
 )
+# 그리지 않는 겹 (7판 5절). 층 경계 같은 자리 표시라 쌓기 · 겹침 검사에서 빠진다.
+# KINDS 에 안 넣는 까닭 : split · draw · guess_kind 가 「겹 이름 = kind 낱말」 로 KINDS 를 쓴다 — 이름이 mask 인 겹이 몰래 마스크가 되지 않게.
+MASK_KIND = "mask"
+ALL_KINDS = (*KINDS, MASK_KIND)
+# 맨 위 anchor 칸 이름 값. `sprite.split.ANCHOR_KINDS` 와 같다(시험이 본다) — split 이 이 모듈을 읽어 거꾸로 못 가져온다.
+ANCHOR_KINDS = ("bbox_bottom_center", "bbox_center", "bbox_top_center")
 
-TOP_KEYS = ("version", "canvas", "layers", "items", "template", "meta")
+TOP_KEYS = ("version", "canvas", "layers", "items", "template", "meta", "anchor", "anchor_layer")
 LAYER_KEYS = ("name", "kind", "exclusive_with", "optional", "meta", "size", "offset", "files")
 # 버전 2 에서만 받는 칸. 버전 1 파일에 있으면 「version 2 로 올려라」 로 거절한다.
-TOP_KEYS_V2 = ("meta",)
+TOP_KEYS_V2 = ("meta", "anchor", "anchor_layer")
 LAYER_KEYS_V2 = ("meta", "size", "offset", "files")
 
 # 겹 · 그림 이름은 폴더 · 파일 이름이 되므로 좁게 받는다.
@@ -78,8 +84,12 @@ class Layer:
    def small(self) -> bool:
       return self.size is not None
 
+   @property
+   def is_mask(self) -> bool:
+      return self.kind == MASK_KIND
+
    def uses_v2(self) -> bool:
-      return self.size is not None or self.meta is not None or self.files is not None
+      return self.size is not None or self.meta is not None or self.files is not None or self.is_mask
 
    def to_dict(self) -> dict:
       out: dict = {"name": self.name, "kind": self.kind}
@@ -106,9 +116,17 @@ class LayerSet:
    meta: dict | None = None
    # 사전 꼴 items : 그림 이름 → {겹: 변형}. 여기 없는 그림은 글자 꼴(모든 겹에서 변형 = 그림 이름).
    picks: dict[str, dict[str, str]] = field(default_factory=dict)
+   # 기준점 : ANCHOR_KINDS 이름 하나(칸 좌표) 또는 (x, y) 변 좌표 — 0 ≤ x ≤ w · 0 ≤ y ≤ h. `layers check` 가 장마다 잰다 (7판 2-1 · B1).
+   anchor: str | tuple[int, int] | None = None
+   # 기준점을 잴 겹 하나(그리는 겹). None 이면 마스크 겹을 뺀 겹을 다 쌓은 그림 (7판 B2 — 튀어나온 겹이 bbox 를 끌지 않게).
+   anchor_layer: str | None = None
 
    def names(self) -> list[str]:
       return [layer.name for layer in self.layers]
+
+   def painted(self) -> list[str]:
+      """쌓는 겹 이름(마스크 겹을 뺀 것) — 쌓는 순서 그대로."""
+      return [layer.name for layer in self.layers if not layer.is_mask]
 
    def layer(self, name: str) -> Layer:
       for layer in self.layers:
@@ -126,13 +144,19 @@ class LayerSet:
       return sorted(pairs, key=lambda p: (order[p[0]], order[p[1]]))
 
    def to_dict(self) -> dict:
-      v2 = self.meta is not None or bool(self.picks) or any(layer.uses_v2() for layer in self.layers)
+      v2 = self.meta is not None or bool(self.picks) or self.anchor is not None or self.anchor_layer is not None or any(layer.uses_v2() for layer in self.layers)
       out: dict = {
          "version": VERSION_2 if v2 else VERSION,
          "canvas": [self.canvas[0], self.canvas[1]],
+      }
+      if self.anchor is not None:   # 없는 묶음은 칸 순서까지 예전 그대로
+         out["anchor"] = self.anchor if isinstance(self.anchor, str) else [self.anchor[0], self.anchor[1]]
+      if self.anchor_layer is not None:
+         out["anchor_layer"] = self.anchor_layer
+      out.update({
          "layers": [layer.to_dict() for layer in self.layers],
          "items": [{"name": i, "pick": dict(self.picks[i])} if i in self.picks else i for i in self.items],
-      }
+      })
       if self.template is not None:
          out["template"] = self.template
       if self.meta is not None:
@@ -225,8 +249,10 @@ def _layer(node, where, version: int = VERSION, canvas: tuple[int, int] = (0, 0)
       _v1_extra(node, LAYER_KEYS_V2, "layers[]", where)
    name = _check_name(node.get("name"), "겹", where)
    kind = node.get("kind")
-   if kind not in KINDS:
-      raise _fail(where, f"{name} 의 kind 는 {' · '.join(KINDS)} 중 하나다 : {kind}")
+   if kind not in ALL_KINDS:
+      raise _fail(where, f"{name} 의 kind 는 {' · '.join(ALL_KINDS)} 중 하나다 : {kind}")
+   if kind == MASK_KIND and version == VERSION:
+      raise _bad(where, f"version 1 에는 kind {MASK_KIND} 가 없다 ({name}). version 2 로 올려라")
    exclusive = node.get("exclusive_with", [])
    if not isinstance(exclusive, list) or not all(isinstance(e, str) for e in exclusive):
       raise _fail(where, f"{name} 의 exclusive_with 는 겹 이름 목록이다 : {exclusive}")
@@ -385,7 +411,36 @@ def from_dict(data, where="(사전)") -> LayerSet:
    if template is not None and not isinstance(template, str):
       raise _fail(where, f"template 은 템플릿 이름 글자다 : {template}")
    meta = _meta(data["meta"], "맨 위", where) if "meta" in data else None
-   return LayerSet(canvas, layers, list(items), template, meta, picks)
+   anchor = _anchor(data["anchor"], canvas, where) if "anchor" in data else None
+   anchor_layer = _anchor_layer(data["anchor_layer"], layers, anchor, where) if "anchor_layer" in data else None
+   return LayerSet(canvas, layers, list(items), template, meta, picks, anchor, anchor_layer)
+
+
+def _anchor(value, canvas: tuple[int, int], where) -> str | tuple[int, int]:
+   """anchor 는 ANCHOR_KINDS 이름 하나 또는 정수 [x, y].
+
+   [x, y] 는 칸이 아니라 칸 사이 「변」 좌표다 — bbox 아래변이 캔버스 바닥이면 y = h. 그래서 0 ≤ x ≤ w · 0 ≤ y ≤ h (7판 B1).
+   """
+   if isinstance(value, str):
+      if value not in ANCHOR_KINDS:
+         raise _bad(where, f"anchor 는 {' · '.join(ANCHOR_KINDS)} 중 하나 또는 [x, y] 다 : {value!r}")
+      return value
+   ok = isinstance(value, list) and len(value) == 2 and all(isinstance(v, int) and not isinstance(v, bool) for v in value)
+   if not ok or not (0 <= value[0] <= canvas[0] and 0 <= value[1] <= canvas[1]):
+      raise _bad(where, f"anchor [x, y] 는 변 좌표라 0 ≤ x ≤ {canvas[0]} · 0 ≤ y ≤ {canvas[1]} 정수 두 칸이다 : {value!r}")
+   return int(value[0]), int(value[1])
+
+
+def _anchor_layer(value, layers: list[Layer], anchor, where) -> str:
+   """anchor_layer 는 anchor 와 같이 쓰는 그리는 겹 이름 하나. 마스크 겹 · 없는 이름은 거절."""
+   if anchor is None:
+      raise _bad(where, "anchor_layer 는 anchor 칸과 같이 쓴다")
+   kinds = {layer.name: layer.is_mask for layer in layers}
+   if not isinstance(value, str) or value not in kinds:
+      raise _bad(where, f"anchor_layer 에 없는 겹 : {value!r} (있는 겹 : {', '.join(kinds)})")
+   if kinds[value]:
+      raise _bad(where, f"anchor_layer 가 마스크 겹이다 — 그리는 겹을 준다 : {value}")
+   return value
 
 
 def validate(data) -> None:
@@ -436,7 +491,13 @@ def carry_meta(old: LayerSet | None, fresh: LayerSet) -> LayerSet:
    for item, pick in old.picks.items():
       if item in fresh.items and item not in picks and set(pick) <= names:
          picks[item] = dict(pick)
-   return LayerSet(fresh.canvas, layers, list(fresh.items), fresh.template, meta, picks)
+   anchor = fresh.anchor if fresh.anchor is not None else old.anchor
+   # anchor_layer 는 같은 이름 그리는 겹이 남아 있고 anchor 가 있을 때만 잇는다
+   painted = {layer.name for layer in layers if not layer.is_mask}
+   anchor_layer = fresh.anchor_layer
+   if anchor_layer is None and old.anchor_layer in painted and anchor is not None:
+      anchor_layer = old.anchor_layer
+   return LayerSet(fresh.canvas, layers, list(fresh.items), fresh.template, meta, picks, anchor, anchor_layer)
 
 
 def save(folder: str | os.PathLike, layerset: LayerSet) -> Path:
@@ -528,14 +589,121 @@ def crop_to_box(layer: Layer, arr: image.RGBA, where) -> image.RGBA:
    return image.crop(arr, x, y, w, h)
 
 
-def refuse_small(layerset: LayerSet, what: str) -> None:
-   """작은 겹 쓰기를 아직 못 하는 명령은 미리 막는다 — 캔버스 크기 그림을 작은 겹 자리에 몰래 쓰지 않게."""
-   small = [layer.name for layer in layerset.layers if layer.small]
-   if small:
-      raise UsageError(f"{what} 는 작은 겹(size · offset)이 있는 묶음에 아직 못 쓴다 : {', '.join(small)}")
-
-
 def check_rig_order(layerset: LayerSet, order: list[str]) -> None:
    """프로필 rig 의 layer_order 가 있으면 겹 순서와 같아야 한다(`split --rig` 규칙 그대로)."""
    if list(order) != layerset.names():
       raise ArtToolError(f"layers.json 순서가 rig 의 layer_order 와 다르다 : {layerset.names()} ≠ {list(order)}")
+
+
+def guess_kind(name: str) -> str:
+   """템플릿 · layers.json 이 없을 때 겹 이름으로 종류를 짐작한다 (실물 #24).
+
+   이름 그대로 또는 첫 낱말(`_` · `-` 앞)이 종류 낱말이면 그 종류 — `cloth_top` → cloth, `hair-front` → hair.
+   아니면 deco. 쌓는 순서는 종류로 정한다 : body < cloth < face < hair < deco, 같은 종류끼리는 이름 순.
+   `mask` 는 KINDS 에 없어 고르지 않는다 — 이름이 `mask_…` 인 inpaint 파일이 몰래 마스크 겹이 되지 않게.
+   """
+   if name in KINDS:
+      return name
+   head = name.replace("-", "_").split("_", 1)[0].lower()
+   return head if head in KINDS else "deco"
+
+
+# --- 맨 폴더 (7판 4절) ---
+
+FOLDER_SCAN_MAX = 4096   # 맨 폴더 하나에서 볼 항목 수 상한 (`layers check` 변형 훑기와 같은 값)
+_DIGITS = re.compile(r"(\d+)")
+
+
+def natural_key(name: str) -> list:
+   """`f2` < `f10` 이 되게 숫자 마디를 수로 견준다."""
+   return [int(part) if part.isdigit() else part.casefold() for part in _DIGITS.split(name)]
+
+
+def _entries(folder: Path) -> list[os.DirEntry]:
+   out = []
+   with os.scandir(folder) as entries:
+      for n, entry in enumerate(entries):
+         if n >= FOLDER_SCAN_MAX:
+            raise UsageError(f"맨 폴더에 항목이 {FOLDER_SCAN_MAX}개보다 많다 : {folder}")
+         out.append(entry)
+   return out
+
+
+def assign_stems(names, patterns: dict[str, tuple[str, str]], fold_suffix: bool = False) -> dict[str, list[str]]:
+   """파일 이름들을 겹마다 나눈다. patterns = {겹: (앞, 뒤)} — 파일 `<앞><v><뒤>` 의 v 를 모은다.
+
+   한 파일은 맞는 겹 가운데 **앞이 가장 긴 겹 하나**에만 간다 — `hair_front_1.png` 가 `hair_` 겹의 변형 `front_1` 로도
+   세어지지 않게 (리뷰 7-1). 앞 · 뒤 길이가 같으면 무늬가 같은 것이라 from_dict 가 이미 거절했다.
+   v 가 이름 꼴(NAME_RE)이 아니면 그 파일은 버린다(짧은 앞 겹으로 넘기지 않는다). fold_suffix 면 뒤를 대소문자 무시로 본다.
+   """
+   out: dict[str, list[str]] = {layer: [] for layer in patterns}
+   for name in names:
+      tail = name.lower() if fold_suffix else name
+      best, best_key = None, None
+      for layer, (prefix, suffix) in patterns.items():
+         end = suffix.lower() if fold_suffix else suffix
+         if len(name) > len(prefix) + len(suffix) and name.startswith(prefix) and tail.endswith(end):
+            key = (len(prefix), len(suffix))
+            if best_key is None or key > best_key:
+               best, best_key = layer, key
+      if best is not None:
+         v = name[best_key[0] : len(name) - best_key[1]]
+         if NAME_RE.match(v):
+            out[best].append(v)
+   return out
+
+
+def _png_names(folder: Path) -> list[str]:
+   """folder 바로 아래 파일 이름 (링크는 따라가지 않는다)."""
+   return [entry.name for entry in _entries(folder) if entry.is_file(follow_symlinks=False)]
+
+
+def _png_stems(folder: Path) -> list[str]:
+   """folder 바로 아래 `<v>.png` 파일들의 v."""
+   return assign_stems(_png_names(folder), {"": ("", ".png")}, fold_suffix=True)[""]
+
+
+def from_folder(folder: str | os.PathLike, order: list[str], masks=()) -> LayerSet:
+   """`layers.json` 없는 폴더를 겹 묶음으로 읽는다. 순서는 짐작하지 않고 order 를 그대로 쓴다.
+
+   가. order 이름과 같은 하위 폴더가 하나라도 있으면 하위 폴더 = 겹, 그 안 `<그림>.png`.
+   나. 없으면 한 폴더에 `<겹>_<v>.png` — 겹마다 files 무늬 `<겹>_{v}.png` 를 단다(4판 무늬 기계를 그대로 탄다).
+   겹은 모두 optional(겹마다 장 수가 달라도 된다), kind 는 `guess_kind`, masks 에 적은 겹만 `mask`.
+   canvas 는 order 앞 겹의 이름순 첫 파일 크기. 다른 크기 그림은 `layers check` 가 `layer_canvas` 로 알린다.
+   """
+   root = Path(folder)
+   where = f"{root} (맨 폴더)"
+   order = list(order)
+   for name in order:
+      if not isinstance(name, str) or not NAME_RE.match(name):
+         raise UsageError(f"--order 겹 이름은 영숫자 · _ · - 만 쓴다 : {name!r}")
+   if not order or len({n.casefold() for n in order}) != len(order):
+      raise UsageError(f"--order 는 겹치지 않는 겹 이름 하나 이상이다 : {', '.join(order)}")
+   masks = list(masks)
+   unknown = [m for m in masks if m not in order]
+   if unknown:
+      raise UsageError(f"--masks 에 --order 에 없는 겹 : {', '.join(unknown)}")
+   if len(set(masks)) != len(masks):
+      raise UsageError(f"--masks 에 겹 이름이 겹친다 : {', '.join(masks)}")
+   if set(masks) == set(order):
+      raise UsageError("--masks 가 겹 전부다 — 그리는 겹이 하나는 있어야 한다")
+   subs = [n for n in order if (root / n).is_dir()]
+   # 한 번 훑어 파일마다 가장 긴 겹 접두에만 배정한다 (hair · hair_front)
+   flat = assign_stems(_png_names(root), {n: (f"{n}_", ".png") for n in order}, fold_suffix=True)
+   if subs and any(flat.values()):
+      raise UsageError(f"맨 폴더에 하위 폴더 꼴과 <겹>_<그림>.png 꼴이 섞였다 — 한 꼴로 둔다 : {root}")
+   found = {n: (_png_stems(root / n) if (root / n).is_dir() else []) for n in order} if subs else flat
+   items = sorted({v for vs in found.values() for v in vs}, key=natural_key)
+   if not items:
+      raise ArtToolError(f"맨 폴더에 --order 겹의 그림이 없다 (하위 폴더 <겹>/<그림>.png 또는 <겹>_<그림>.png) : {root}")
+   first = next(n for n in order if found[n])
+   head = sorted(found[first], key=natural_key)[0]
+   rows = []
+   for name in order:
+      row = {"name": name, "kind": MASK_KIND if name in masks else guess_kind(name), "optional": True}
+      if not subs:
+         row["files"] = f"{name}_{FILES_SLOT}.png"
+      rows.append(row)
+   probe = from_dict({"version": VERSION_2, "canvas": [1, 1], "layers": rows, "items": items}, where)
+   canvas = image.read_size(image_path(root, probe, first, head))
+   return from_dict({"version": VERSION_2, "canvas": list(canvas), "layers": rows, "items": items}, where)

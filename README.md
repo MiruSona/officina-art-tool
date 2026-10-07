@@ -307,6 +307,7 @@ walk_south_0.png      낱장
 | `recolor` | 겹 × 색 벌 → PNG N장 + `recolor_report.json` (+ `--sheet` 미리보기) | `out` 에 `..` · 벌이 둘 이상인데 `out` 에 `{v}` 없음 · 같은 출력 이름 두 번 · 벌에 역할 빠짐 · **자리다름이 0 이 아니면 `fail`** |
 | `split` 색상 · 회색 | 규칙 `{"hue":[340,20],"to":..,"min_sat":0.2}` 로 색상(도)으로 겹 나누기, `--gray-levels 255,180,60` 으로 밝기를 회색 단계로 | `hue` 범위 밖 · 시작=끝 · `color` 와 `hue` 같이 · 회색 단계 겹침 (명령안내 18절) |
 | `layers` 변형 묶음 | `layers.json` 겹마다 `files`(`parts/body_{v}.png`), 그림마다 `items` 의 `pick` 으로 변형 고르기. `layers check` 는 `unused_variant` · `variant_size` · `variant_alpha` | 무늬 `{v}` 위치 · 없는 변형 · `exclusive_with` 짝 · `split` 으로 그림 더하기 (명령안내 18절) |
+| `layers check` 7판 검사 | `--counts` · `layers.json` `anchor` 기준점 · `--mask-of`(층 마스크 `kind: mask` 합집합) · `--holes` · `--before 전판/` · `--shared-colors` · `--known/--baseline/--fail-on-new`. 맨 폴더는 `--order a,b [--masks m]`. `view --tint` 물들임 판 · `fill --holes` 구멍 메우기 | 변형 묶음에 `--counts` · `layers.json` 과 `--order` 같이 · `fill` 에 `--mask` · `--holes` 둘 다 (명령안내 25절) |
 | `frames bake` | 프레임 폴더 → 발 줄 맞추기 → 가림판 덮기 → 자르기 → 프레임별 PNG · 띠 · gif | 크기 다른 프레임 · 자르기 상자가 캔버스 밖 · 빈 첫 프레임에 `--foot auto` · 512장 넘음 · `--gif` 없이 `--duration`/`--loop` (명령안내 19절) |
 
 - **겹은 캔버스를 안 자른다.** 원본과 같은 크기·좌표라 Unity 에서 같은 자리에 쌓기만 하면 맞는다.
@@ -442,7 +443,7 @@ border 순서는 **[왼, 아래, 오른, 위]** 다. Unity `spriteBorder` 의 Ve
 | `src/arttool/edit/` · `intake.py` · `sheet.py` | 손질(`cutout` · `trim`) · 한 번에 손질 · 비교판 |
 | `src/arttool/checks/` | 경고 여덟의 「재기」 와 「판정」. `sheet` · `style` 도 재기를 같이 쓴다 |
 | `src/arttool/style/` · `template/` · `draw/` | 화풍 뽑기 · 템플릿 엔진 · PIL 그리기 공개 모듈 `arttool.draw` |
-| `src/arttool/layerset.py` · `sprite/layerops.py` | 겹 묶음 꼴(`layers.json`) · `layers` 묶음 명령 |
+| `src/arttool/layerset.py` · `sprite/layerops.py` · `sprite/layerchecks.py` | 겹 묶음 꼴(`layers.json` · 맨 폴더 `from_folder`) · `layers` 묶음 명령 · `layers check` 7판 검사 |
 | `src/arttool/assets/fonts/` | Pretendard Medium + 라이선스 글 |
 | `templates/` | 템플릿 JSON 18개 |
 | `.claude/skills/arttool-usage/` | 그림 그릴 때 읽는 스킬 (위 「스킬」) |

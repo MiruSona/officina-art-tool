@@ -405,20 +405,35 @@ def _layer_kind(name: str, idx: int, spec: SplitSpec) -> str:
    return "body" if idx == spec.default else "deco"
 
 
-def _refuse_small_set(root: Path) -> None:
-   """이미 있는 묶음에 작은 겹이 있으면 쓰기 전에 막는다 — split 은 캔버스 크기 겹만 쓴다(상자 자르기는 아직)."""
+def _old_set(root: Path) -> layerset.LayerSet | None:
+   """이미 있는 묶음을 읽는다. 없거나 못 읽으면 None(못 읽는 묶음은 _write_layerset 이 보고에 적는다).
+
+   split 은 `<겹>/<원본>.png` 로만 쓴다. files 무늬 · 사전 꼴 items 묶음에 더하면 쓴 파일이 무늬 밖이라
+   목록과 어긋난다 — 조용히 깨지지 않게 쓰기 전에 거절한다 (변형 묶음에 split 더하기는 지원 안 함).
+   """
    file = root / layerset.FILE_NAME
    if not file.is_file():
-      return
+      return None
    try:
       old = layerset.load(file)
    except ArtToolError:
-      return   # 못 읽는 묶음은 지금처럼 _write_layerset 이 보고에 적는다
-   layerset.refuse_small(old, "split")
-   # split 은 `<겹>/<원본>.png` 로만 쓴다. files 무늬 · 사전 꼴 items 묶음에 더하면 쓴 파일이 무늬 밖이라
-   # 목록과 어긋난다 — 조용히 깨지지 않게 쓰기 전에 거절한다 (변형 묶음에 split 더하기는 지원 안 함)
+      return None
    if old.picks or any(layer.files is not None for layer in old.layers):
       raise UsageError(f"split : files 무늬 · 사전 꼴 items 를 쓰는 묶음에는 더할 수 없다. 다른 폴더로 갈라라 : {file}")
+   return old
+
+
+def _boxes(old: layerset.LayerSet | None, spec: SplitSpec, size: tuple[int, int]) -> dict[str, layerset.Layer]:
+   """옛 묶음의 작은 겹 {이름: 겹}. 쓸 때 이 상자로 자른다.
+
+   겹 목록 · 크기가 다르면 어느 상자로 자를지 모른다 — 작은 겹이 있으면 쓰기 전에 거절한다
+   (작은 겹이 없으면 지금처럼 쓰고 layers.json 만 못 쓴 까닭을 보고에 적는다).
+   """
+   if old is None or not any(layer.small for layer in old.layers):
+      return {}
+   if old.names() != spec.layers or old.canvas != size:
+      raise UsageError(f"split : 작은 겹이 있는 묶음과 겹 · canvas 가 다르다 : {old.names()} {old.canvas}. 다른 폴더로 갈라라")
+   return {layer.name: layer for layer in old.layers if layer.small}
 
 
 def _write_layerset(root: Path, spec: SplitSpec, item: str, size: tuple[int, int]) -> tuple[str | None, str | None]:
@@ -498,9 +513,10 @@ def run(in_file: str | Path, spec_file: str | Path, out_dir: str | Path, rig_ord
    writes = [safe_join(root, f"{name}/{source.name}") for name in spec.layers]
    writes += [safe_join(root, REPORT_NAME), safe_join(root, ANCHORS_NAME), safe_join(root, layerset.FILE_NAME)]
    guard_overwrite(writes, [source, spec_path, *spec.masks.values()])
-   _refuse_small_set(root)
+   old = _old_set(root)
 
    arr = image.load(source)
+   boxes = _boxes(old, spec, image.size(arr))
    parts, info = split_array(arr, spec, _load_masks(spec), default_min_piece)
    # 회색 단계는 겹으로 나눈 **뒤** 칠한다. 나누기는 원래 색으로 하고, 되돌림은 회색 원본과 견준다.
    expected = arr
@@ -508,10 +524,15 @@ def run(in_file: str | Path, spec_file: str | Path, out_dir: str | Path, rig_ord
       parts = {name: to_gray_levels(layer, gray_levels) for name, layer in parts.items()}
       expected = to_gray_levels(arr, gray_levels)
 
-   for name, layer in parts.items():
+   # 작은 겹은 상자로 잘라 쓴다. 상자 밖에 칸이 있으면 crop_to_box 가 거절한다 —
+   # 한 장이라도 쓰기 전에 다 잘라 봐서, 거절될 때 반쯤 쓴 묶음을 남기지 않는다.
+   cut = {name: layerset.crop_to_box(boxes[name], layer, f"split {source.name}") if name in boxes else layer
+          for name, layer in parts.items()}
+   for name, layer in cut.items():
       image.save(safe_join(root, f"{name}/{source.name}"), layer)
    # 되돌림은 저장한 파일을 다시 읽어서 본다. 한 파일을 두 겹이 덮어쓴 사고도 여기서 잡힌다.
    saved = {name: image.load(safe_join(root, f"{name}/{source.name}")) for name in spec.layers}
+   saved = {name: layerset.expand(old, boxes[name], got) if name in boxes else got for name, got in saved.items()}
    info["roundtrip_diff"] = roundtrip_diff(expected, layers_mod.compose(spec.layers, saved))
 
    warnings: list[str] = []
