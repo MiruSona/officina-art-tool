@@ -419,6 +419,107 @@ def test_shared_tol_needs_flag_and_range(tmp_path):
    assert run_cli([*base, "--shared-colors", "--shared-tol", "65"]) == errors.EXIT_USAGE
 
 
+# --- 7판-라-2 : --shared-ignore (설계 10-2 · 10-4 장면 5 · 6) ---
+
+
+def _outlined_pair(tmp_path, other_black=(0, 0, 0)):
+   """두 겹이 검은 외곽선 한 칸과 흰색을 같이 쓴다. other_black = glass 쪽 외곽선 색."""
+   content = _box(2, 6, 10, 10, (250, 250, 250))
+   content[9, 2] = (0, 0, 0, 255)
+   glass = _box(2, 2, 10, 6, (60, 90, 160))
+   glass[3, 3] = (246, 246, 244, 255)
+   glass[2, 2] = (*other_black, 255)
+   rows = [{"name": "content", "kind": "content"}, {"name": "glass", "kind": "deco"}]
+   return write_v2(tmp_path / "set", rows, {"f0": {"content": content, "glass": glass}})
+
+
+def _shared_lines(rep):
+   return [w for w in rep["warnings"] if w["rule"] == "layer_shared_color"]
+
+
+def test_shared_ignore_drops_outline_keeps_white(tmp_path):
+   folder = _outlined_pair(tmp_path)
+   _, rep = check(folder, "--shared-colors")
+   assert "#000000" in _shared_lines(rep)[0]["detail"].upper()
+   _, rep = check(folder, "--shared-colors", "--shared-ignore", "#000000")
+   line = _shared_lines(rep)
+   assert len(line) == 1
+   assert "#000000" not in line[0]["detail"] and "#FAFAFA" in line[0]["detail"].upper()
+   assert [2, 9] not in line[0]["items"] and [2, 2] not in line[0]["items"] and [3, 3] in line[0]["items"]
+   assert rep["shared_ignored"] == ["#000000"]
+
+
+def test_shared_ignore_uses_tol(tmp_path):
+   folder = _outlined_pair(tmp_path, other_black=(5, 5, 5))
+   _, rep = check(folder, "--shared-colors", "--shared-ignore", "#000000")
+   line = _shared_lines(rep)
+   assert len(line) == 1 and "#050505" not in line[0]["detail"] and [2, 2] not in line[0]["items"]
+
+
+def test_shared_ignore_both_is_quiet_and_report_order(tmp_path):
+   folder = _outlined_pair(tmp_path)
+   code, rep = check(folder, "--shared-colors", "--shared-ignore", "#fafafa,#000000,#FAFAFA")
+   assert code == errors.EXIT_OK and _shared_lines(rep) == []
+   assert rep["shared_ignored"] == ["#FAFAFA", "#000000"]   # 대문자 · 준 순서 · 겹침 뺌
+
+
+def test_shared_ignore_counts_after_drop(tmp_path, monkeypatch):
+   from arttool.sprite import layerchecks
+   monkeypatch.setattr(layerchecks, "SHARED_COLORS_MAX", 2)   # 겹마다 세 색 — 외곽선을 빼면 두 색
+   folder = _outlined_pair(tmp_path)
+   _, rep = check(folder, "--shared-colors")
+   assert [w["rule"] for w in rep["warnings"]] == ["layer_shared_skipped"]
+   _, rep = check(folder, "--shared-colors", "--shared-ignore", "#000000")
+   assert [w["rule"] for w in rep["warnings"]] == ["layer_shared_color"]
+
+
+def test_no_shared_ignore_no_key(tmp_path):
+   _, rep = check(_outlined_pair(tmp_path), "--shared-colors")
+   assert "shared_ignored" not in rep
+
+
+@pytest.mark.parametrize("text", ["#000", "000000", "", "#000000,", "#000000,,", "#0000000G", "#00000000"])
+def test_shared_ignore_bad_words(tmp_path, text):
+   folder = _outlined_pair(tmp_path)
+   assert run_cli(["layers", "check", "--in", str(folder), "--shared-colors", "--shared-ignore", text]) == errors.EXIT_USAGE
+
+
+def test_shared_ignore_needs_flag_and_cap(tmp_path):
+   folder = _outlined_pair(tmp_path)
+   base = ["layers", "check", "--in", str(folder)]
+   assert run_cli([*base, "--shared-ignore", "#000000"]) == errors.EXIT_USAGE
+   many = ",".join(f"#0000{i:02X}" for i in range(33))
+   assert run_cli([*base, "--shared-colors", "--shared-ignore", many]) == errors.EXIT_USAGE
+   ok = ",".join(f"#0000{i:02X}" for i in range(32))
+   assert run_cli([*base, "--shared-colors", "--shared-ignore", ok]) == errors.EXIT_OK
+
+
+def test_shared_ignore_spaces_after_comma(tmp_path):
+   _, rep = check(_outlined_pair(tmp_path), "--shared-colors", "--shared-ignore", "#000000, #FFFFFF")
+   assert rep["shared_ignored"] == ["#000000", "#FFFFFF"]
+
+
+def test_shared_ignore_cap_counts_after_dedup(tmp_path):
+   folder = _outlined_pair(tmp_path)
+   words = [f"#0000{i:02X}" for i in range(32)] + ["#000000"]   # 33개 · 겹침 빼면 32
+   code, rep = check(folder, "--shared-colors", "--shared-ignore", ",".join(words))
+   assert code == errors.EXIT_OK and len(rep["shared_ignored"]) == 32
+
+
+def test_shared_ignore_tol_zero_drops_exact_only(tmp_path):
+   """--shared-tol 0 이면 뺄 색과 똑같은 색만 빠진다 — 몇 단계 다른 #050505 는 남는다."""
+   folder = _outlined_pair(tmp_path, other_black=(5, 5, 5))
+   content = image.load(folder / "content" / "f0.png")
+   content[9, 3] = (5, 5, 5, 255)
+   image.save(folder / "content" / "f0.png", content)
+   _, rep = check(folder, "--shared-colors", "--shared-ignore", "#000000")
+   assert all("#050505" not in w["detail"] for w in _shared_lines(rep))
+   _, rep = check(folder, "--shared-colors", "--shared-tol", "0", "--shared-ignore", "#000000")
+   line = _shared_lines(rep)
+   assert len(line) == 1 and "#050505" in line[0]["detail"]
+   assert [3, 9] in line[0]["items"] and [2, 2] in line[0]["items"] and [2, 9] not in line[0]["items"]
+
+
 # --- 7-가-6 : --known · --baseline · --fail-on-new ---
 
 

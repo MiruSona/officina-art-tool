@@ -864,6 +864,7 @@ def run_check(args) -> dict:
          roundtrip = image.size(want)[0] * image.size(want)[1]
          rules.append({"rule": "original", "ok": False, "detail": f"원본 크기 {image.size(want)} 가 canvas {ls.canvas} 와 다르다", "items": []})
          continue
+      extra.original(item, good, want, warnings)
       diff = _changed(want, _stack(ls, good))
       roundtrip = int(np.count_nonzero(diff))
       rules.append({"rule": "original", "ok": roundtrip == 0, "detail": f"{item} : 합친 결과와 원본이 다른 칸 {roundtrip}개", "items": _points(diff)})

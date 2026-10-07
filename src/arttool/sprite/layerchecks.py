@@ -1,6 +1,7 @@
 """`layers check` 7판 검사 — 장 수 · 기준점 · 마스크 합집합 · 안쪽 구멍 · 전 판 견줌 · 겹끼리 같은 색 (설계 2026-10-07 2절).
 
-`layerops.run_check` 가 `Extra` 하나를 만들어 그림마다 `item()` 을, 끝에 `finish()` 를 부른다.
+`layerops.run_check` 가 `Extra` 하나를 만들어 그림마다 `item()` 을, `--original` 짝 그림에서 `original()` 을, 끝에 `finish()` 를 부른다.
+7판-라(설계 10절) : `--dents` 패인 자리 덮개 · `--shared-ignore` 같은 색 견줌에서 뺄 색.
 새 인자를 안 주고 새 칸(`anchor`)도 없으면 아무 일도 안 한다 — 보고가 예전과 바이트까지 같다.
 
 - 경고 한 줄 꼴은 `layerops.warning` 그대로 : `{rule, ok: false, detail, items}`. items 는 [x, y] 좌표.
@@ -9,6 +10,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +30,8 @@ SHARED_TOL = 8          # 사례 7 의 흰 반사 · 흰 내용물은 몇 단계
 SHARED_TOL_MAX = 64
 SHARED_COLORS_MAX = 256  # 한 겹 색이 이보다 많으면 그 짝은 건너뛴다 (색 × 색 표가 커진다)
 SHARED_SHOW = 8          # 경고 글에 싣는 색 수
+SHARED_IGNORE_MAX = 32   # --shared-ignore 색 수 상한
+HEX_RE = re.compile(r"#[0-9A-Fa-f]{6}")
 
 
 def _int_range(value, name: str, low: int, high: int) -> int:
@@ -83,6 +87,31 @@ class Extra:
       if tol is not None and not self.shared:
          raise UsageError("--shared-tol 은 --shared-colors 와 같이 쓴다")
       self.shared_tol = _int_range(tol, "--shared-tol", 0, SHARED_TOL_MAX) if tol is not None else SHARED_TOL
+      self.shared_ignore = self._shared_ignore(getattr(args, "shared_ignore", None))
+      # --dents : --original 짝 그림 하나에서 겹마다 아래에서 비는 칸을 위 겹이 덮나 (7판-라 10-1). None = 안 셌다
+      self.dents = bool(getattr(args, "dents", False))
+      if self.dents and not getattr(args, "original", None):
+         raise UsageError("--dents 는 --original 과 같이 쓴다 — 원본에서 칠한 칸을 기준으로 센다")
+      if self.dents and len(ls.painted()) < 2:
+         raise UsageError("--dents : 그리는 겹이 둘 이상이어야 한다 — 덮을 위 겹이 없다")
+      self.dent_rows: list[dict] | None = None
+
+   def _shared_ignore(self, text) -> list[str] | None:
+      """`--shared-ignore` 글 → 대문자 #RRGGBB 목록 (준 순서 · 겹침 뺌). 안 주면 None."""
+      if text is None:
+         return None
+      if not self.shared:
+         raise UsageError("--shared-ignore 는 --shared-colors 와 같이 쓴다")
+      out: list[str] = []
+      for word in text.split(","):
+         word = word.strip()
+         if not HEX_RE.fullmatch(word):
+            raise UsageError(f"--shared-ignore 는 #RRGGBB 를 쉼표로 적는다 : {word!r}")
+         if word.upper() not in out:
+            out.append(word.upper())
+      if len(out) > SHARED_IGNORE_MAX:
+         raise UsageError(f"--shared-ignore 는 {SHARED_IGNORE_MAX}색까지다 : {len(out)}")
+      return out
 
    def _holes_under(self, text) -> list[str]:
       if not text:
@@ -115,6 +144,58 @@ class Extra:
       if self.shared:
          self._shared(item, good, warnings)
 
+   def original(self, item: str, good: dict[str, image.RGBA], want: image.RGBA, warnings: list[dict]) -> None:
+      """`--original` 짝 그림 하나에서 부른다 (원본 크기가 canvas 와 같을 때만)."""
+      if self.dents:
+         self._dents(item, good, want, warnings)
+
+   def _dents(self, item: str, good: dict[str, image.RGBA], want: image.RGBA, warnings: list[dict]) -> None:
+      """그리는 겹 L 마다(맨 위 겹 빼고) 원본엔 칠했는데 L 까지 쌓은 그림이 빈 칸(bare)을 위 겹이 덮나 센다.
+
+      바깥과 이어졌는지는 안 본다 — `--holes` 가 못 잡는 패인 자리(사례 6 뚜껑에 가렸던 몸통 테두리)도 센다.
+      bare 는 L 의 불투명 bbox 안만 — 밖은 위 겹이 L 실루엣 밖에 칠한 칸이라 패인 자리가 아니다(`bare_outside` 로 센다).
+      covered_by 는 위 겹마다 따로 세어 겹끼리 겹치면 합이 bare 를 넘는다.
+      open 은 그 칸이 처음 비는 가장 아래 겹 줄에만 싣는다. 그 장에 없는 겹 L 은 줄이 없다.
+      """
+      self.dent_rows = []
+      order = self.ls.painted()
+      solid = _opaque(want)
+      empty = np.zeros(solid.shape, dtype=bool)
+      opaque = {n: _opaque(good[n]) for n in order if n in good}
+      lids: dict[str, np.ndarray] = {}   # 겹마다 그보다 위 겹들의 칠한 칸 (위에서부터 누적)
+      acc = empty
+      for name in reversed(order):
+         lids[name] = acc
+         if name in opaque:
+            acc = acc | opaque[name]
+      below = empty                      # L 과 그 아래 겹을 쌓은 그림의 칠한 칸 (아래에서부터 누적)
+      seen = empty                       # 아래 겹 줄에서 이미 open 으로 실은 칸
+      for i, name in enumerate(order[:-1]):
+         if name not in opaque:
+            continue
+         below = below | opaque[name]
+         gap = solid & ~below
+         inside = empty.copy()
+         box = image.bbox(good[name])
+         if box is not None:
+            x0, y0, x1, y1 = box
+            inside[y0:y1, x0:x1] = True
+         bare = gap & inside
+         covered_by = {}
+         for upper in order[i + 1 :]:
+            if upper in opaque:
+               hit = int(np.count_nonzero(bare & opaque[upper]))
+               if hit:
+                  covered_by[upper] = hit
+         loose = bare & ~lids[name]
+         left = loose & ~seen
+         seen = seen | loose
+         row = {"item": item, "layer": name, "bare": int(np.count_nonzero(bare)), "bare_outside": int(np.count_nonzero(gap & ~inside)),
+                "covered_by": covered_by, "open": int(np.count_nonzero(left))}
+         self.dent_rows.append(row)
+         if row["open"]:
+            warnings.append(warning("layer_dent", f"{item} : {name} 아래 빈 칸 {row['open']}개를 위 겹이 안 덮는다", _points(left)))
+
    def _before(self, item: str, good: dict[str, image.RGBA], warnings: list[dict]) -> None:
       """같은 그림 · 같은 겹 짝끼리 색을 견준다. 새 색 = 이번 판 불투명 색 − 전 판 불투명 색 (크기는 안 따진다)."""
       b_folder, b_ls, b_items = self.before
@@ -141,8 +222,15 @@ class Extra:
       칸을 색마다 훑지 않고 색 × 색 표로 센다 — 겹마다 색이 SHARED_COLORS_MAX 이하라 표가 작다.
       """
       names = [n for n in self.ls.painted() if n in good]
-      table = {n: _color_counts(good[n]) for n in names}
       tol = self.shared_tol
+      table = {n: _color_counts(good[n]) for n in names}
+      skip: dict[str, np.ndarray] = {}
+      if self.shared_ignore:   # 견주기 전에 양쪽 색 표에서 뺀다 — 256색 상한도 뺀 뒤 색 수로 본다
+         drop = np.array([[int(h[i : i + 2], 16) for i in (1, 3, 5)] for h in self.shared_ignore], dtype=np.int32)
+         for n, (colors, counts) in table.items():
+            keep = _cheb(colors, drop).min(axis=1) > tol if len(colors) else np.zeros(0, dtype=bool)
+            table[n] = (colors[keep], counts[keep])
+         skip = {n: _near_colors(good[n], [tuple(c) for c in drop.tolist()], tol) for n in names}
       for i, low in enumerate(names):
          for high in names[i + 1 :]:
             (ca, na), (cb, nb) = table[low], table[high]
@@ -163,6 +251,8 @@ class Extra:
             text = " · ".join(f"{to_hex(ca[k])} 근처 A {int(a_cells[k])}칸 · B {int(b_cells[k])}칸" for k in hit[:SHARED_SHOW])
             more = f" 외 {len(hit) - SHARED_SHOW}색" if len(hit) > SHARED_SHOW else ""
             spots = _near_colors(good[low], colors, tol) | _near_colors(good[high], colors, tol)
+            if skip:   # 남은 색 근처라도 뺀 색 칸은 좌표에 안 싣는다
+               spots &= ~(skip[low] | skip[high])
             warnings.append(warning("layer_shared_color", f"{item} : {low} · {high} : {text}{more} (--shared-tol {tol})", _points(spots)))
 
    def _holes(self, item: str, good: dict[str, image.RGBA], warnings: list[dict]) -> None:
@@ -279,6 +369,10 @@ class Extra:
          report["anchors"] = self.anchor_rows
       if self.holes:
          report["holes"] = self.hole_rows
+      if self.shared_ignore is not None:
+         report["shared_ignored"] = self.shared_ignore
+      if self.dent_rows is not None:   # 원본 크기가 달라 못 셌으면 칸이 없다
+         report["dents"] = self.dent_rows
       if self.before is not None:
          report["before"] = {"in": str(self.before[0]), "items": self.before_rows}
       if self.mask_base is not None:

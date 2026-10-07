@@ -347,6 +347,10 @@ def _add_layers(subs) -> None:
    look.add_argument("--before", dest="before", help="전 판 겹 묶음 폴더. 같은 그림 · 겹 짝에 새로 생긴 색을 경고 layer_new_color")
    look.add_argument("--shared-colors", dest="shared_colors", action="store_true", help="겹끼리 가까운 색을 같이 쓰면 경고 layer_shared_color")
    look.add_argument("--shared-tol", dest="shared_tol", type=int, help="--shared-colors 색 폭. RGB 각 칸 차 최댓값 (기본 8, 0~64)")
+   look.add_argument("--shared-ignore", dest="shared_ignore",
+                     help="--shared-colors 에서 뺄 색 (#RRGGBB 쉼표로, 32색까지). --shared-tol 안 색도 같이 빠진다")
+   look.add_argument("--dents", dest="dents", action="store_true",
+                     help="--original 짝 그림에서 겹마다 아래에서 비는 칸을 위 겹이 덮나 센다. 안 덮인 칸은 경고 layer_dent")
    look.add_argument("--known", dest="known", action="append",
                      help="알고 두는 경고 목록 JSON [{rule, where, note}]. where 는 칸 좌표 글 \"[x, y]\" (여러 번 줄 수 있다)")
    look.add_argument("--baseline", dest="baseline", action="append", help="옛 layers check 보고 JSON. 그 안 경고를 알고 두는 목록으로 더한다")
