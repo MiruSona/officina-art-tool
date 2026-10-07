@@ -58,6 +58,7 @@ from .errors import EXIT_CHECK_FAIL, EXIT_ERROR, EXIT_OK, ArtToolError, UsageErr
 from .jsonio import read_json, write_json
 from .paths import guard_overwrite, jailed_output
 from .profile import load_profile_args, show_lines as profile_show_lines
+from .providers.local_config import OPTION_KEYS as PROVIDER_OPTION_KEYS   # local 제공자가 받는 spec 칸
 from .extend import canvas as extend_canvas_mod
 from .sprite import anchors as anchors_mod
 from .sprite import layers as layers_mod
@@ -1102,6 +1103,13 @@ def _ui_font(prof, args) -> dict:
    return ui_font_mod.build(prof, args.scan, jailed_output(args.out_file), args.scan_root, args.dry_run)
 
 
+def _spec_variants(spec: dict) -> int:
+   variants = spec.get("variants", 1)
+   if isinstance(variants, bool) or not isinstance(variants, int) or not 1 <= variants <= providers.MAX_VARIANTS:
+      raise UsageError(f"spec variants 는 1~{providers.MAX_VARIANTS} 사이 정수다 : {variants!r}")
+   return variants
+
+
 def _run_provider(args) -> dict:
    if args.sub == "list":
       return {"default": providers.DEFAULT, "providers": providers.describe()}
@@ -1118,6 +1126,11 @@ def _run_provider(args) -> dict:
       prompt=spec.get("prompt", ""),
       seed=spec.get("seed"),
       dry_run=args.dry_run,
+      mask=spec.get("mask"),
+      negative=spec.get("negative", ""),
+      variants=_spec_variants(spec),
+      # local 제공자 칸. 뜻과 앞이 이기는 차례는 providers/local_config.py
+      options={key: spec[key] for key in PROVIDER_OPTION_KEYS if key in spec},
    )
    # 안 준 것(None)만 기본 제공자. 빈 이름 "" 은 그대로 넘겨 「모르는 제공자」 오류가 나게 한다
    name = providers.DEFAULT if args.provider is None else args.provider

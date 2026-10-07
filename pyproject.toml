@@ -35,6 +35,7 @@ packages = [
 
 [tool.setuptools.package-data]
 arttool = ["assets/fonts/*"]
+"arttool.providers" = ["workflows/*.json"]   # provider local 의 워크플로 본보기
 "arttool._home.profiles" = ["*.yaml"]
 "arttool._home.profiles.presets" = ["*.yaml"]
 "arttool._home.palettes" = ["*.json"]

@@ -1,0 +1,12 @@
+{
+   "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "$unet", "weight_dtype": "default"}, "_meta": {"title": "klein 본체 — 실물 확인함(ComfyUI 0.31, L10 2026-10-07)"}},
+   "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": "$text_encoder", "type": "flux2"}, "_meta": {"title": "텍스트 인코더"}},
+   "3": {"class_type": "VAELoader", "inputs": {"vae_name": "$vae"}, "_meta": {"title": "VAE"}},
+   "4": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["1", 0], "lora_name": "$lora", "strength_model": "$lora_strength"}, "_meta": {"title": "도트 LoRA"}},
+   "5": {"class_type": "CLIPTextEncode", "inputs": {"text": "$prompt", "clip": ["2", 0]}, "_meta": {"title": "프롬프트"}},
+   "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "$negative", "clip": ["2", 0]}, "_meta": {"title": "네거티브 (cfg 1 이라 거의 안 먹는다)"}},
+   "7": {"class_type": "EmptyLatentImage", "inputs": {"width": "$width", "height": "$height", "batch_size": 1}, "_meta": {"title": "빈 잠재"}},
+   "8": {"class_type": "KSampler", "inputs": {"model": ["4", 0], "positive": ["5", 0], "negative": ["6", 0], "latent_image": ["7", 0], "seed": "$seed", "steps": 4, "cfg": 1.0, "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0}, "_meta": {"title": "klein distilled 4스텝 euler cfg1"}},
+   "9": {"class_type": "VAEDecode", "inputs": {"samples": ["8", 0], "vae": ["3", 0]}, "_meta": {"title": "풀기"}},
+   "10": {"class_type": "SaveImage", "inputs": {"images": ["9", 0], "filename_prefix": "arttool_prop"}, "_meta": {"title": "결과"}}
+}

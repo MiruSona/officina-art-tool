@@ -9,9 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..errors import ArtToolError
+from ..errors import ArtToolError, UsageError
 
-KINDS = ("character", "tile", "rotate", "skeleton")
+KINDS = ("character", "tile", "rotate", "skeleton", "prop", "inpaint")
+MAX_VARIANTS = 64   # 한 번에 뽑는 후보 수 상한. 잘못 준 값 하나로 서버를 오래 묶지 않게
 
 
 @dataclass
@@ -26,15 +27,22 @@ class ProviderRequest:
    prompt: str = ""
    seed: int | None = None
    dry_run: bool = False
+   # 아래 넷은 local 제공자(prop · inpaint)가 쓴다. 다른 제공자는 기본값 그대로라 안 바뀐다
+   mask: str | None = None
+   negative: str = ""
+   variants: int = 1
+   options: dict = field(default_factory=dict)   # workflow · models · work_size · extra_colors
 
    def validate(self) -> None:
       if self.kind not in KINDS:
          raise ArtToolError(f"모르는 kind : {self.kind} (쓸 수 있는 것 : {', '.join(KINDS)})")
-      if self.frames < 1 or self.directions < 1:
-         raise ArtToolError("frames · directions 는 1 이상이다")
+      if self.frames < 1 or self.directions < 1 or self.variants < 1:
+         raise ArtToolError("frames · directions · variants 는 1 이상이다")
+      if self.variants > MAX_VARIANTS:
+         raise UsageError(f"variants 는 {MAX_VARIANTS} 이하다 : {self.variants}")
 
    def count(self) -> int:
-      return self.frames * self.directions
+      return self.frames * self.directions * self.variants
 
    def to_json(self) -> dict:
       return {
@@ -46,6 +54,10 @@ class ProviderRequest:
          "reference": self.reference,
          "prompt": self.prompt,
          "seed": self.seed,
+         "mask": self.mask,
+         "negative": self.negative,
+         "variants": self.variants,
+         "options": dict(self.options),
       }
 
 

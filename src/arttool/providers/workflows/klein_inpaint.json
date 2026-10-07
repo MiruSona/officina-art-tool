@@ -1,0 +1,17 @@
+{
+   "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "$unet", "weight_dtype": "default"}, "_meta": {"title": "klein 본체 — 실물 확인함(ComfyUI 0.31, L10 2026-10-07)"}},
+   "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": "$text_encoder", "type": "flux2"}, "_meta": {"title": "텍스트 인코더"}},
+   "3": {"class_type": "VAELoader", "inputs": {"vae_name": "$vae"}, "_meta": {"title": "VAE"}},
+   "4": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["1", 0], "lora_name": "$lora", "strength_model": "$lora_strength"}, "_meta": {"title": "도트 LoRA"}},
+   "5": {"class_type": "CLIPTextEncode", "inputs": {"text": "$prompt", "clip": ["2", 0]}, "_meta": {"title": "프롬프트"}},
+   "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "$negative", "clip": ["2", 0]}, "_meta": {"title": "네거티브"}},
+   "7": {"class_type": "LoadImage", "inputs": {"image": "$image"}, "_meta": {"title": "원본 (작업 크기로 키운 것)"}},
+   "8": {"class_type": "LoadImage", "inputs": {"image": "$mask"}, "_meta": {"title": "마스크 그림 (흰 칸 = 고칠 곳)"}},
+   "9": {"class_type": "ImageToMask", "inputs": {"image": ["8", 0], "channel": "red"}, "_meta": {"title": "마스크로 바꾸기"}},
+   "10": {"class_type": "VAEEncode", "inputs": {"pixels": ["7", 0], "vae": ["3", 0]}, "_meta": {"title": "원본 잠재"}},
+   "11": {"class_type": "SetLatentNoiseMask", "inputs": {"samples": ["10", 0], "mask": ["9", 0]}, "_meta": {"title": "마스크 안만 다시 그림"}},
+   "12": {"class_type": "KSampler", "inputs": {"model": ["4", 0], "positive": ["5", 0], "negative": ["6", 0], "latent_image": ["11", 0], "seed": "$seed", "steps": 4, "cfg": 1.0, "sampler_name": "euler", "scheduler": "simple", "denoise": 0.85}, "_meta": {"title": "4스텝 denoise 0.85"}},
+   "13": {"class_type": "VAEDecode", "inputs": {"samples": ["12", 0], "vae": ["3", 0]}, "_meta": {"title": "풀기"}},
+   "14": {"class_type": "ImageCompositeMasked", "inputs": {"destination": ["7", 0], "source": ["13", 0], "x": 0, "y": 0, "resize_source": false, "mask": ["9", 0]}, "_meta": {"title": "밖은 원본 (최종 0픽셀은 제공자가 코드로 다시 맞춘다)"}},
+   "15": {"class_type": "SaveImage", "inputs": {"images": ["14", 0], "filename_prefix": "arttool_inpaint"}, "_meta": {"title": "결과"}}
+}

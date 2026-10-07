@@ -1,0 +1,29 @@
+# provider local 설정 본보기. 복사해서 git 밖 자리에 두고 ARTTOOL_LOCAL_CONFIG 로 그 경로를 알려 준다.
+# 앞이 이긴다 : spec JSON > 이 파일 > 기본값. 주소만 환경변수 ARTTOOL_LOCAL_ENDPOINT 가 이 파일보다 앞이다.
+# 칸의 뜻은 Docs/Guide/명령안내.md 24절 (설계는 Docs/Design/2026-10-07-provider-local설계.md 4-1 절).
+# 모델 이름 · 주소 같은 실제 값은 이 저장소에 적지 않는다. 복사한 파일에만 적는다.
+
+# ComfyUI 주소. http:// 나 https:// 로 시작한다. 결과 JSON 에는 host:port 까지만 남는다
+endpoint:
+
+# 워크플로 자리표시($이름)에 넣을 값. 파일 이름은 ComfyUI 모델 폴더 안 이름이다
+models:
+  unet:
+  text_encoder:
+  vae:
+  lora:
+  lora_strength:
+
+# 내장 본보기 대신 쓸 API 꼴 워크플로 파일. 상대 경로는 이 파일 옆을 기준으로 푼다
+workflows:
+  prop:
+  inpaint:
+
+# 모델에 줄 작업 크기(긴 변). 요청 크기 × 정수 배율(긴 변이 이 값을 넘지 않는 가장 큰 배율)로 맞춘다. 기본 512. spec 의 work_size 가 이 값보다 앞이다
+work_size:
+
+# 한 판을 기다리는 최대 초. 넘으면 멈추라고 보내고 종료 1. 기본 600
+timeout_s:
+
+# 메모리를 크게 먹는 워크플로 파일 이름 목록. 여기 든 것으로 돌리면 경고 한 줄이 붙는다. 툴이 서버를 끄지는 않는다
+heavy: []

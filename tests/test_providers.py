@@ -5,6 +5,7 @@ from arttool import image, providers
 from arttool.errors import ArtToolError
 from arttool.jsonio import read_json
 from arttool.providers.local import ENV_ENDPOINT
+from arttool.providers.local_config import ENV_CONFIG
 from arttool.providers.pixellab import ENV_COST, ENV_KEY
 
 
@@ -12,6 +13,7 @@ def clear_env(monkeypatch):
    monkeypatch.delenv(ENV_ENDPOINT, raising=False)
    monkeypatch.delenv(ENV_KEY, raising=False)
    monkeypatch.delenv(ENV_COST, raising=False)
+   monkeypatch.delenv(ENV_CONFIG, raising=False)
 
 
 def test_code_always_available(monkeypatch):
@@ -123,7 +125,8 @@ def test_pixellab_refuses_real_call(tmp_path, monkeypatch):
 def test_local_needs_endpoint(tmp_path, monkeypatch):
    clear_env(monkeypatch)
    monkeypatch.setenv(ENV_ENDPOINT, "http://mini:8080")
-   req = providers.ProviderRequest(kind="tile", out_dir=tmp_path / "out", dry_run=True)
+   models = {"unet": "u", "text_encoder": "t", "vae": "v", "lora": "l", "lora_strength": 1.0}
+   req = providers.ProviderRequest(kind="prop", out_dir=tmp_path / "out", dry_run=True, options={"models": models})
    result = providers.get("local").make(req)
    assert (tmp_path / "out" / "local_request.json").is_file()
    assert result.cost_usd == 0.0
@@ -135,3 +138,44 @@ def test_describe_shape(monkeypatch):
    assert rows["code"]["available"] is True
    assert rows["pixellab"]["available"] is False
    assert "skeleton" in rows["pixellab"]["capabilities"]
+
+
+def test_new_request_fields_default():
+   """local 용으로 더한 칸 넷은 기본값이 있어 다른 제공자 요청이 그대로 만들어진다."""
+   req = providers.ProviderRequest(kind="character", out_dir="o")
+   assert req.mask is None
+   assert req.negative == ""
+   assert req.variants == 1
+   assert req.options == {}
+   data = req.to_json()
+   assert data["variants"] == 1 and data["mask"] is None and data["negative"] == "" and data["options"] == {}
+
+
+def test_options_not_shared_between_requests():
+   first = providers.ProviderRequest(kind="prop", out_dir="o")
+   first.options["work_size"] = 512
+   assert providers.ProviderRequest(kind="prop", out_dir="o").options == {}
+
+
+def test_count_multiplies_variants():
+   req = providers.ProviderRequest(kind="prop", out_dir="o", directions=2, frames=3, variants=4)
+   assert req.count() == 24
+   assert providers.ProviderRequest(kind="character", out_dir="o", directions=4, frames=2).count() == 8
+
+
+def test_zero_variants_is_an_error():
+   with pytest.raises(ArtToolError, match="variants"):
+      providers.ProviderRequest(kind="prop", out_dir="o", variants=0).validate()
+
+
+def test_new_kinds_known():
+   assert "prop" in providers.KINDS and "inpaint" in providers.KINDS
+
+
+def test_local_capabilities_are_prop_and_inpaint(tmp_path, monkeypatch):
+   clear_env(monkeypatch)
+   monkeypatch.setenv(ENV_ENDPOINT, "http://mini:8080")
+   assert providers.get("local").capabilities() == {"prop", "inpaint"}
+   req = providers.ProviderRequest(kind="character", out_dir=tmp_path / "out", dry_run=True)
+   with pytest.raises(ArtToolError, match="못 만든다"):
+      providers.get("local").make(req)

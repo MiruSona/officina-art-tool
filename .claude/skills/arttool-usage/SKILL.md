@@ -5,7 +5,7 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 
 # 도트 그림은 ArtTool 과 같이 만든다
 
-그림을 얻는 길은 둘이다. **PixelLab(MCP 도구)으로 뽑기**와 **PIL(`arttool.draw`)로 직접 그리기**.
+그림을 얻는 길은 셋이다. **로컬 모델로 뽑기(`provider make --provider local`)**, **PixelLab(MCP 도구)으로 뽑기**, **PIL(`arttool.draw`)로 직접 그리기**.
 어느 길이든 앞뒤는 같다 — 그리기 전에 **밑판(템플릿)**, 그린 뒤에 **손질 · 검사 · 비교판**.
 
 | 더 볼 것 | 언제 |
@@ -26,8 +26,11 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 | 그림 | 길 | 까닭 |
 | --- | --- | --- |
 | 28~64px 평평한 아이콘 · 타일 · 단순 설비 · 도형 이펙트 | **PIL** | 색 · 크기가 정확하고, 값 하나 고쳐 다시 뽑는다. 공짜 · 빠름 (실측 아이콘 6장 PIL 3분 vs AI 11분) |
+| 소품 · 건물 · 이펙트 64px 급 새 그림 · inpaint (`ARTTOOL_LOCAL_ENDPOINT` 가 있을 때) | **`arttool provider make --provider local --kind prop\|inpaint --spec req.json --out gen/` 먼저, 마음에 안 들면 PixelLab MCP** | 돈이 안 든다. inpaint 는 마스크 밖이 0픽셀 바뀐다고 코드가 보장한다. 쓰는 법은 `명령안내.md` 24절. 내장 본보기는 실물 확인 전 초안이라 첫 판은 노드 이름부터 맞춘다 |
 | 캐릭터 · 표정 · 질감 · 큰 그림 · 배경 | **PixelLab** | 좌표를 손으로 찍어서는 못 만든다 |
 | 섞어서 | 둘 다 | AI 로 큰 덩어리, PIL 로 점 몇 개(볼 · 반짝이) · 이음 손질 |
+
+**로컬로 뽑은 뒤 차례** : prop 은 `cutout --key corner` → `merge-colors --max-colors 16 --per-image`(여러 장이면 `--per-image` 필수, 아니면 한도 2048 로 종료 1) → `check`, inpaint 는 `check` · `layers diff`. inpaint 원본은 정리가 끝난 그림을 쓰고 새 색은 `extra_colors` 로 준다. 무거운 판(`heavy`)은 돌리기 전에 서버의 큰 프로세스를 내린다.
 
 ## 흐름 한눈에
 

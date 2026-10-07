@@ -7,7 +7,7 @@
 | 2 | 인자가 잘못됨 |
 | 3 | 프로필이 잘못됨 |
 | 4 | 검수 실패 |
-| 5 | 바깥 실행 파일 없음 |
+| 5 | 바깥 실행 파일 없음 · 서버에 닿지 않음 |
 | 6 | 경로 감옥 위반 |
 """
 
@@ -39,6 +39,12 @@ class CheckFailed(ArtToolError):
 
 
 class MissingExecutable(ArtToolError):
+   exit_code = EXIT_NO_EXE
+
+
+class ServerUnreachable(ArtToolError):
+   """바깥 서버(ComfyUI 등)에 닿지 않는다. 실행 파일이 없을 때와 같은 5 를 쓴다."""
+
    exit_code = EXIT_NO_EXE
 
 

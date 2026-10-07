@@ -460,8 +460,10 @@ border 순서는 **[왼, 아래, 오른, 위]** 다. Unity `spriteBorder` 의 Ve
 | 이름 | 켜지는 조건 | 지금 상태 |
 | --- | --- | --- |
 | `code` | 늘 켜짐 (기본) | 참조 그림에서 잘라 낸다 |
-| `local` | `ARTTOOL_LOCAL_ENDPOINT` | 요청 JSON 만 낸다 |
+| `local` | `ARTTOOL_LOCAL_ENDPOINT` (또는 설정 파일 `endpoint`, 파일 경로는 `ARTTOOL_LOCAL_CONFIG`) | ComfyUI 로 소품(`prop`) · `inpaint` 를 뽑는다 |
 | `pixellab` | `PIXELLAB_API_KEY` | 요청 JSON 과 견적만. 단가는 `PIXELLAB_COST_PER_IMAGE` |
+
+`local` 은 돈이 안 든다. 쓰는 법은 `Docs/Guide/명령안내.md` 24절, 설정 칸의 빈 본보기는 저장소 맨 위 `local.example.yaml`(복사해서 git 밖에 둔다)이다.
 
 키가 없는 제공자는 오류가 아니라 목록에서 빠진다. 대놓고 고른 제공자만 오류로 멈춘다.
 키는 환경변수로만 읽고 요청 JSON · 산출물 · 로그 어디에도 안 적는다.
@@ -475,7 +477,7 @@ border 순서는 **[왼, 아래, 오른, 위]** 다. Unity `spriteBorder` 의 Ve
 | 2 | 인자가 잘못됨 |
 | 3 | 프로필이 잘못됨 |
 | 4 | 검수 실패 |
-| 5 | 바깥 실행 파일 없음 |
+| 5 | 바깥 실행 파일 없음 · 서버에 닿지 않음 |
 | 6 | 경로 감옥 위반 |
 
 ## 아직 안 붙인 것
@@ -484,6 +486,6 @@ border 순서는 **[왼, 아래, 오른, 위]** 다. Unity `spriteBorder` 의 Ve
 - `provider make --provider pixellab` 은 요청 JSON 견적만 낸다. 실제 뽑기는 PixelLab MCP 쪽 일이다(에이전트가 MCP 도구를 직접 부른다).
 - **Unity 에디터 스크립트 둘(`UiImportSettings.cs` · `TmpFontBaker.cs`)은 컴파일해 본 적이 없다.** Unity 가 이 PC 에 없다.
 - 화면 정의의 격자 · 스크롤 · 목록 · 전환, `hover` · `focus` 상태, 커서 핫스폿은 2차다.
-- `local` 제공자의 실제 호출. 지금은 `--dry-run` 요청 JSON 까지만.
+- `local` 제공자의 내장 본보기 워크플로(`klein_prop` · `klein_inpaint`)는 실물 ComfyUI 0.31 에서 확인했다(10-07, 노드 하나 안 고치고 돌았다). 안 붙인 것은 자세 · 애니 · Qwen-Edit · Z-Image 본보기(2차)다.
 
 설계는 `Docs/Design/2026-08-25-그림툴설계.md` · `Docs/Design/2026-10-04-ArtTool개선설계.md`, 할 일은 `Docs/Todo/진행상황.md` · `Docs/Todo/그림툴.md` 를 본다.
