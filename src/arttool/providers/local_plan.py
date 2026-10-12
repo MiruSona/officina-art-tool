@@ -20,7 +20,7 @@ from .local_config import LocalSettings
 # dry-run 에서 아직 안 올린 그림 자리에 넣는 이름. 실제 판은 서버가 준 이름으로 채운다
 MAX_SEED = 2**64 - 1
 UPLOAD_STAND_IN = {"image": "<올릴 그림 : 원본>", "mask": "<올릴 그림 : 마스크>"}
-# inpaint 원본을 올릴 때 투명 칸 · 덧댄 칸에 까는 색. spec 에 바탕색 칸이 아직 없어 흰색 고정
+# inpaint 원본을 올릴 때 투명 칸 · 덧댄 칸에 까는 색. 돌려받은 뒤 같은 색을 걷는다(postproc.clear_background)
 UPLOAD_BACKGROUND = (255, 255, 255)
 
 
@@ -37,6 +37,7 @@ class Plan:
    source: image.RGBA | None = None
    area: np.ndarray | None = None   # inpaint 고칠 곳 (요청 크기, bool)
    palette: list[tuple[int, int, int]] | None = None   # inpaint 마스크 안 색 맞추기. None 이면 안 맞춤
+   clear_tol: int | None = None   # inpaint 올림 바탕 걷기 문턱. None 이면 안 걷는다 (prop · 끈 판)
    warnings: list[str] = field(default_factory=list)
 
    @property
@@ -87,6 +88,8 @@ def build_plan(req: ProviderRequest, settings: LocalSettings) -> Plan:
       plan.palette = snap_palette(plan, settings)
       if plan.palette == []:
          raise UsageError("마스크 안 색을 맞출 색이 없다 (원본이 다 투명하면 extra_colors 를 준다)")
+      if settings.clear_background:
+         plan.clear_tol = settings.clear_tol
    if name in settings.heavy:
       plan.warnings.append(f"무거운 판 : {name} 은 피크 ~25GB. 다른 큰 프로세스(LLM 서버 등)를 내린 뒤 돌린다")
    plan.filled(0, dict(UPLOAD_STAND_IN))   # 남은 자리가 있으면 여기서 종료 2 — dry-run 도 같이 멈춘다

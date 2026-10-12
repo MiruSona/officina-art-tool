@@ -9,6 +9,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import numpy as np
+
 from .. import image, layerset
 from ..edit import dry_run_fields, is_dry_run
 from ..errors import ArtToolError, UsageError
@@ -70,16 +72,55 @@ def _pick_layer(canvas: Canvas, name: str | None) -> str:
    raise UsageError(f"--layer 로 겹을 고른다 : {' · '.join(canvas.names)}")
 
 
+def _shrink_window(source, shrink: int, box):
+   """줄인 그림(전체 크기)을 만들되, 창이 있으면 원본에서 창×N 영역만 줄여 그 자리에 놓는다. 나머지 칸은 투명.
+
+   맞출 색 목록은 늘 원본 전체에서 뽑는다 — 창만 잘라도 전체를 줄인 뒤 자른 것과 같게."""
+   colors = grid.opaque_colors(source)
+   height, width = source.shape[:2]
+   small_h, small_w = (height + shrink - 1) // shrink, (width + shrink - 1) // shrink
+   if box is None:
+      return grid.shrink_cells(source, shrink, colors)
+   x0, y0 = max(box[0], 0), max(box[1], 0)
+   x1, y1 = min(box[2], small_w), min(box[3], small_h)
+   small = np.zeros((small_h, small_w, 4), dtype=source.dtype)
+   if x0 >= x1 or y0 >= y1:
+      return small   # 빈 창 — to_text 가 거절 글을 낸다
+   part = source[y0 * shrink:y1 * shrink, x0 * shrink:x1 * shrink]
+   small[y0:y1, x0:x1] = grid.shrink_cells(part, shrink, colors)
+   return small
+
+
+def _show_text(canvas: Canvas, args, box, shrink: int) -> tuple[str, list[int]]:
+   """(격자 글, 찍은 그림 크기 [너비, 높이]). shrink ≥ 2 면 줄인 그림에서 찍고 `# 줄임 N` 줄을 맨 위에 단다."""
+   if shrink == 1:
+      return canvas.to_grid(args.layer, box, args.rulers), list(canvas.size)
+   source = canvas.layer(args.layer).arr if args.layer is not None else canvas.merged()
+   small = _shrink_window(source, shrink, box)
+   text = grid.to_text(small, canvas.legend, box, args.rulers)
+   return f"# 줄임 {shrink}\n{text}", [small.shape[1], small.shape[0]]
+
+
+def _too_big_hint(shrink: int) -> str:
+   if shrink > 1:
+      return "--box x,y,w,h 로 창을 주거나 --shrink 를 더 크게 준다"
+   return "--box x,y,w,h 로 창을 주거나 --shrink 로 줄인다"
+
+
 def run_show(args) -> dict:
+   shrink = args.shrink
+   if shrink < 1:
+      raise UsageError(f"--shrink 는 1 이상 정수다 : {shrink}")
    canvas, _folder = open_input(args)
    box = _box(args.box)
    try:
-      text = canvas.to_grid(args.layer, box, args.rulers)
+      text, size = _show_text(canvas, args, box, shrink)
    except ArtToolError as exc:
-      if box is None and max(canvas.size) > grid.MAX_SIDE:
-         raise UsageError(f"{exc}. --box x,y,w,h 로 창을 준다") from exc
+      shown = [(side + shrink - 1) // shrink for side in canvas.size]
+      if box is None and max(shown) > grid.MAX_SIDE:
+         raise UsageError(f"{exc}. {_too_big_hint(shrink)}") from exc
       raise
-   return {"status": "ok", "in": str(args.in_path), "layer": args.layer, "size": list(canvas.size),
+   return {"status": "ok", "in": str(args.in_path), "layer": args.layer, "shrink": shrink, "size": size,
            "legend": {k: to_hex(rgb) for k, rgb in canvas.legend.letters().items()},
            "grid_text": text}
 

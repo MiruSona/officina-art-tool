@@ -221,6 +221,8 @@ def _add_grid(subs) -> None:
    show.add_argument("--layer", help="겹 하나만. 안 주면 합친 그림")
    show.add_argument("--box", help="창 x,y,w,h")
    show.add_argument("--rulers", action="store_true", help="x 눈금 줄 · y 줄머리를 붙인다")
+   show.add_argument("--shrink", type=int, default=1,
+                     help="N×N 칸을 한 칸으로 줄여 읽는다 (×2 원본이면 2). --box · 눈금은 줄인 좌표")
    apply.add_argument("--grid", dest="grid_file", required=True, help="격자 글 파일 (.px)")
    apply.add_argument("--layer", help="덧그릴 겹. 겹이 하나면 안 줘도 된다")
    apply.add_argument("--at", default=None, help="패치 왼쪽 위 x,y (음수는 --at=-2,3). 안 주면 글의 `# 원점` 줄, 그것도 없으면 0,0")

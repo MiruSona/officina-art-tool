@@ -1,4 +1,4 @@
-"""local 제공자의 그림 손질 : 키우기 · 줄이기 · 마스크 안 색 맞추기 · 밖 덮어쓰기 · 밖 바뀐 칸 세기.
+"""local 제공자의 그림 손질 : 키우기 · 줄이기 · 올림 바탕 걷기 · 마스크 안 색 맞추기 · 밖 덮어쓰기 · 밖 바뀐 칸 세기.
 
 자리를 왜 제공자 안에 두나는 설계 문서 2절(`Docs/Design/2026-10-07-provider-local설계.md`).
 """
@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image
 
 from .. import image
+from ..edit.cutout import flood
 from ..errors import ArtToolError, UsageError
 
 
@@ -128,6 +129,25 @@ def snap_colors(arr: image.RGBA, area: np.ndarray, colors: list[tuple[int, int, 
    out[area, :3] = picked.astype(np.uint8)
    out[area, 3] = 255
    return out
+
+
+def clear_background(arr: image.RGBA, source: image.RGBA, area: np.ndarray, background: tuple[int, int, int],
+                     tol: int) -> tuple[image.RGBA, np.ndarray, int]:
+   """올릴 때 깐 바탕색을 걷는다 : 마스크 안 원본 투명 칸 중 바탕색과 tol 안이고 바깥 투명과 4방향으로 이어진 칸.
+
+   (결과, 되돌린 칸 bool 판, 바탕색인데 못 닿아 남긴 칸 수). 규칙 · 까닭은 `Docs/Design/2026-10-12-inpaint흰칸되돌리기설계.md`.
+   """
+   was_clear = area & (source[:, :, 3] == 0)
+   gap = np.abs(arr[:, :, :3].astype(np.int32) - np.array(background, dtype=np.int32)).max(axis=2)
+   near = was_clear & (gap <= tol)
+   outside_clear = ~area & (source[:, :, 3] == 0)
+   edge = np.zeros(area.shape, dtype=bool)
+   edge[0, :] = edge[-1, :] = edge[:, 0] = edge[:, -1] = True   # 캔버스 바깥은 투명으로 본다
+   reach = flood(outside_clear | edge, near | outside_clear)
+   cleared = reach & near
+   out = arr.copy()
+   out[cleared] = source[cleared]
+   return out, cleared, int((near & ~cleared).sum())
 
 
 def composite_outside(result: image.RGBA, source: image.RGBA, area: np.ndarray) -> image.RGBA:

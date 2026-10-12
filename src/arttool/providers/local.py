@@ -62,6 +62,7 @@ class LocalProvider(Provider):
          "workflows": [plan.filled(index, dict(UPLOAD_STAND_IN)) for index in range(len(plan.seeds))],
          "uploads": uploads,
          "upload_background": list(UPLOAD_BACKGROUND) if plan.kind == "inpaint" else None,
+         "clear_background": _clear_request(plan),
          "would_write": plan.would_write(),
          "warnings": plan.warnings,
       }
@@ -78,14 +79,15 @@ class LocalProvider(Provider):
       client.require_nodes(workflow.class_types(plan.template))
       uploads = self._upload(client, plan)
       save_ids = workflow.save_nodes(plan.template)
-      images, raws, warnings = [], [], list(plan.warnings)
+      images, raws, cleared, warnings = [], [], [], list(plan.warnings)
       outside = 0
       try:
          for index in range(len(plan.seeds)):
-            out_path, raw_path, changed = _one_variant(client, plan, root, index, uploads, save_ids, warnings)
+            out_path, raw_path, changed, count = _one_variant(client, plan, root, index, uploads, save_ids, warnings)
             images.append(str(out_path))
             raws.append(str(raw_path))
             outside += changed
+            cleared.append(count)
       except ArtToolError as exc:
          if not images:
             raise
@@ -99,6 +101,7 @@ class LocalProvider(Provider):
       }
       if plan.kind == "inpaint":
          meta["outside_changed"] = outside
+         meta["cleared"] = cleared
       return ProviderResult(images=images, meta=meta, provider=self.name, cost_usd=0.0, seed=plan.seeds[0],
                             warnings=warnings)
 
@@ -121,7 +124,10 @@ class LocalProvider(Provider):
 
 
 def _one_variant(client, plan: Plan, root: Path, index: int, uploads: dict, save_ids: list[str], warnings: list[str]):
-   """variant 하나 : 줄 세우기 → 기다리기 → 받기 → raw 저장 → 덧댄 칸 잘라 내기 → 축소 → (inpaint 마무리) → 저장."""
+   """variant 하나 : 줄 세우기 → 기다리기 → 받기 → raw 저장 → 덧댄 칸 잘라 내기 → 축소 → (inpaint 마무리) → 저장.
+
+   반환 (그림 경로, raw 경로, 밖 바뀐 칸, 걷은 바탕 칸). 바탕색인데 갇혀 남긴 칸은 warnings 에 더한다.
+   """
    prompt_id = client.queue_prompt(plan.filled(index, uploads))
    found = _output_images(client.wait(prompt_id), save_ids)
    if len(found) > 1:
@@ -133,23 +139,41 @@ def _one_variant(client, plan: Plan, root: Path, index: int, uploads: dict, save
       width, height = plan.scaled_size
       raw = raw[:height, :width]
    small = postproc.downscale_box(raw, plan.size)
-   changed = 0
+   changed, cleared = 0, 0
    if plan.kind == "inpaint":
-      small, changed = _finish_inpaint(plan, small)
+      small, changed, cleared, enclosed = _finish_inpaint(plan, small)
+      if enclosed:
+         warnings.append(f"{plan.base_name(index)} : 바탕색인데 바깥 투명과 안 이어져 남긴 칸 {enclosed}개 "
+                         "(원본 구멍이면 cutout --key 로 그 칸 색을 지운다)")
    out_path = safe_join(root, f"{plan.base_name(index)}.png")
    image.save(out_path, small)
-   return out_path, raw_path, changed
+   return out_path, raw_path, changed, cleared
 
 
-def _finish_inpaint(plan: Plan, small: image.RGBA) -> tuple[image.RGBA, int]:
-   """마스크 안 색 맞추기 → 밖 원본 덮어쓰기 → 밖 바뀐 칸 세기. 0 이 아니면 계약 위반이라 멈춘다."""
+def _finish_inpaint(plan: Plan, small: image.RGBA) -> tuple[image.RGBA, int, int, int]:
+   """올림 바탕 걷기 → 마스크 안 색 맞추기 → 밖 원본 덮어쓰기 → 밖 바뀐 칸 세기. 밖이 0 이 아니면 계약 위반이라 멈춘다.
+
+   snap 은 칸을 불투명으로 만들어서, 걷은 칸은 snap 범위에서 뺀다. 반환은 (그림, 밖 바뀐 칸, 걷은 칸, 갇혀 남긴 칸).
+   """
+   cleared = np.zeros(plan.area.shape, dtype=bool)
+   enclosed = 0
+   if plan.clear_tol is not None:
+      small, cleared, enclosed = postproc.clear_background(small, plan.source, plan.area, UPLOAD_BACKGROUND,
+                                                           plan.clear_tol)
    if plan.palette is not None:
-      small = postproc.snap_colors(small, plan.area, plan.palette)
+      small = postproc.snap_colors(small, plan.area & ~cleared, plan.palette)
    small = postproc.composite_outside(small, plan.source, plan.area)
    changed = postproc.count_outside_changed(small, plan.source, plan.area)
    if changed:
       raise ArtToolError(f"inpaint 마스크 밖이 {changed}칸 바뀌었다 (계약 위반)")
-   return small, changed
+   return small, changed, int(cleared.sum()), enclosed
+
+
+def _clear_request(plan: Plan) -> dict | None:
+   """dry-run 에 남길 올림 바탕 걷기 설정. prop · 끈 판은 None."""
+   if plan.clear_tol is None:
+      return None
+   return {"color": list(UPLOAD_BACKGROUND), "tol": plan.clear_tol}
 
 
 def _output_images(entry: dict, save_ids: list[str]) -> list[tuple[str, str, str]]:

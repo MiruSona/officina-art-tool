@@ -28,6 +28,7 @@ from ..palette import RGB, parse_hex, to_hex
 
 LETTERS = string.ascii_lowercase + string.ascii_uppercase + string.digits
 MAX_SIDE = 64
+NEAREST_BUDGET = 1 << 21  # 줄일 때 거리 표를 이 칸 수(칸 × 색)씩 끊어 센다
 TRANSPARENT = "."
 _FORBIDDEN = {TRANSPARENT, "#"}
 _LEGEND_LINE = re.compile(r"^(\S)\s+(#[0-9A-Fa-f]{6})\s*$")
@@ -176,6 +177,61 @@ def to_text(arr: np.ndarray, legend: Legend | None = None, box: Box | None = Non
    if rulers:
       legend_block += f"\n# 원점 {x0},{y0}"
    return legend_block + "\n\n" + "\n".join(rows) + "\n"
+
+
+def opaque_colors(arr: np.ndarray) -> np.ndarray:
+   """불투명(알파 > 0) 칸에 쓰인 RGB 를 겹침 없이 정렬한 목록 (색 수, 3) float64. 줄일 때 맞출 색이다."""
+   rgb = arr[arr[:, :, 3] > 0][:, :3].astype(np.int32)
+   keys = np.unique((rgb[:, 0] << 16) | (rgb[:, 1] << 8) | rgb[:, 2])   # 한 수로 묶어 정렬 = (R, G, B) 순 정렬
+   return np.stack([keys >> 16, (keys >> 8) & 255, keys & 255], axis=1).astype(np.float64)
+
+
+def _nearest(rgb: np.ndarray, colors: np.ndarray) -> np.ndarray:
+   """`rgb`(칸 수, 3) 각각을 `colors`(정렬된 색 목록) 중 가장 가까운 색으로. 거리 동점이면 목록 앞 것.
+
+   칸 수 × 색 수 거리 표가 커지지 않게 `NEAREST_BUDGET` 칸씩 끊어 센다."""
+   picked = np.empty_like(rgb)
+   step = max(1, NEAREST_BUDGET // len(colors))
+   for start in range(0, len(rgb), step):
+      diff = rgb[start:start + step, None, :] - colors[None, :, :]
+      picked[start:start + step] = colors[np.argmin(np.sum(diff * diff, axis=2), axis=1)]
+   return picked
+
+
+def _block_sum(values: np.ndarray, n: int) -> np.ndarray:
+   """(높이, 너비, …) 를 N 배수로 0 을 덧대고 N×N 칸마다 더한다 → (높이/N, 너비/N, …)."""
+   height, width = values.shape[:2]
+   pad_h, pad_w = -height % n, -width % n
+   padded = np.pad(values, [(0, pad_h), (0, pad_w)] + [(0, 0)] * (values.ndim - 2))
+   out_h, out_w = (height + pad_h) // n, (width + pad_w) // n
+   return padded.reshape(out_h, n, out_w, n, *values.shape[2:]).sum(axis=(1, 3))
+
+
+def shrink_cells(arr: np.ndarray, n: int, colors: np.ndarray | None = None) -> np.ndarray:
+   """N×N 칸을 한 칸으로 줄인다 — ×2 원본을 내 격자 크기로 읽을 때 (`grid show --shrink`).
+
+   불투명(알파 > 0) 칸이 절반 미만이면 투명, 아니면 불투명 칸 RGB 평균을 `colors` 중 가장 가까운 색으로(알파 255).
+   `colors` 를 안 주면 `arr` 의 `opaque_colors`. 너비 · 높이가 N 으로 안 나뉘면 끝 칸은 남은 칸만으로 센다.
+   """
+   require_rgba(arr)
+   if isinstance(n, bool) or not isinstance(n, (int, np.integer)) or n < 1:
+      raise ArtToolError(f"줄임 배율은 1 이상 정수다 : {n}")
+   if n == 1:
+      return arr.copy()
+   if colors is None:
+      colors = opaque_colors(arr)
+   opaque = arr[:, :, 3] > 0
+   count = _block_sum(opaque.astype(np.int64), n)
+   cells = _block_sum(np.ones(opaque.shape, dtype=np.int64), n)
+   rgb_sum = _block_sum(arr[:, :, :3].astype(np.int64) * opaque[:, :, None], n)
+   keep = count * 2 >= cells   # 칸이 1 이상이라 keep 이면 count 도 1 이상
+   out = np.zeros((*count.shape, 4), dtype=arr.dtype)
+   if not keep.any():
+      return out
+   mean = rgb_sum[keep] / count[keep][:, None]
+   out[keep, :3] = _nearest(mean, colors)
+   out[keep, 3] = 255
+   return out
 
 
 def _merge(own: Legend, given: Legend | None) -> Legend:

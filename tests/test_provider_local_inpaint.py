@@ -201,6 +201,127 @@ def test_inpaint_dry_run_lists_uploads(fake, tmp_path):
    assert all(name.startswith("<올릴 그림") for name in loads)
 
 
+# --- 올림 바탕(흰색) 되돌리기. 설계 : Docs/Design/2026-10-12-inpaint흰칸되돌리기설계.md ---
+
+WHITE = (255, 255, 255)
+DARK = (40, 40, 40)
+
+
+def white_scene(tmp_path, rim: bool = False) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+   """64 원본 : 위는 투명, 32~48줄 · 16~48칸만 불투명 덩어리. 마스크 : 16~40줄 · 16~48칸.
+
+   마스크 안 위쪽 16줄(512칸)은 원본이 투명이다. 모델 결과는 처음엔 온통 흰색 — 시험이 고쳐 쓴다.
+   """
+   src = np.zeros((64, 64, 4), dtype=np.uint8)
+   src[32:48, 16:48] = (*DARK, 255)
+   if rim:
+      src[32, 16:48] = (230, 230, 230, 255)   # 10-12 통 그림의 밝은 테두리 흉내
+   mask = np.zeros((64, 64, 4), dtype=np.uint8)
+   mask[:, :, 3] = 255
+   mask[16:40, 16:48, :3] = 255
+   image.save(tmp_path / "src.png", src)
+   image.save(tmp_path / "mask.png", mask)
+   area = mask[:, :, 0] == 255
+   model = np.zeros((64, 64, 3), dtype=np.uint8)
+   model[:, :] = WHITE
+   return src, area, model
+
+
+def serve(fake, model: np.ndarray) -> None:
+   """64 모델 결과를 8배로 키워 가짜 서버가 돌려주게 한다. BOX 축소하면 그대로 돌아온다."""
+   big = np.repeat(np.repeat(model, 8, axis=0), 8, axis=1)
+   buffer = io.BytesIO()
+   Image.fromarray(big, mode="RGB").save(buffer, format="PNG")
+   fake.state.view_body = buffer.getvalue()
+
+
+def test_white_on_clear_cells_turns_clear(fake, tmp_path):
+   src, area, model = white_scene(tmp_path)
+   serve(fake, model)
+   result = providers.get("local").make(inpaint(tmp_path))
+   out = image.load(result.images[0])
+   was_clear = area & (src[:, :, 3] == 0)
+   assert np.array_equal(out[was_clear], src[was_clear])   # 원본과 바이트 같은 투명
+   assert np.array_equal(out, src)                          # 불투명 칸은 snap source 로 원본 색
+   assert result.meta["cleared"] == [512]
+   assert result.meta["outside_changed"] == 0
+
+
+def test_drawn_dark_object_on_clear_cells_stays(fake, tmp_path):
+   src, area, model = white_scene(tmp_path)
+   model[20:28, 24:40] = (60, 60, 60)   # 투명 자리에 새로 그린 쇠판 흉내
+   serve(fake, model)
+   result = providers.get("local").make(inpaint(tmp_path))
+   out = image.load(result.images[0])
+   assert (out[20:28, 24:40, 3] == 255).all()
+   assert (out[20:28, 24:40, :3] == DARK).all()
+   assert result.meta["cleared"] == [512 - 8 * 16]
+
+
+def test_enclosed_white_stays_and_warns(fake, tmp_path):
+   src, area, model = white_scene(tmp_path)
+   model[18:30, 20:36] = (60, 60, 60)
+   model[20:28, 22:34] = WHITE   # 그린 덩어리 안에 갇힌 흰 반짝임
+   serve(fake, model)
+   result = providers.get("local").make(inpaint(tmp_path, options={"snap": "none"}))
+   out = image.load(result.images[0])
+   assert (out[20:28, 22:34] == (*WHITE, 255)).all()
+   assert result.meta["cleared"] == [512 - 12 * 16]
+   warned = [w for w in result.warnings if "inpaint_000" in w and "이어져" in w]
+   assert len(warned) == 1 and "96" in warned[0]
+
+
+def test_white_on_opaque_source_is_not_cleared(fake, tmp_path):
+   src, area, model = white_scene(tmp_path)
+   serve(fake, model)
+   result = providers.get("local").make(inpaint(tmp_path, options={"snap": "none"}))
+   out = image.load(result.images[0])
+   was_opaque = area & (src[:, :, 3] == 255)
+   assert (out[was_opaque] == (*WHITE, 255)).all()   # snap none 이라 모델 흰색 그대로
+   assert (out[area & (src[:, :, 3] == 0)][:, 3] == 0).all()
+
+
+def test_clear_runs_before_snap_source(fake, tmp_path):
+   src, area, model = white_scene(tmp_path, rim=True)
+   serve(fake, model)
+   was_clear = area & (src[:, :, 3] == 0)
+   result = providers.get("local").make(inpaint(tmp_path))
+   out = image.load(result.images[0])
+   assert (out[was_clear][:, 3] == 0).all()   # 가장 밝은 원본 색 #E6E6E6 으로 안 눌린다
+   off = providers.get("local").make(inpaint(tmp_path, options={"clear_background": False}))
+   out_off = image.load(off.images[0])
+   assert (out_off[was_clear] == (230, 230, 230, 255)).all()   # 끄면 10-12 부작용 그대로
+
+
+@pytest.mark.parametrize("bad", [{"clear_tol": 300}, {"clear_tol": "a"}, {"clear_tol": True}, {"clear_tol": -1},
+                                 {"clear_background": "yes"}, {"clear_background": 1}])
+def test_clear_background_bad_values_exit_2(fake, tmp_path, bad):
+   write_source(tmp_path)
+   with pytest.raises(errors.UsageError, match="clear_") as caught:
+      providers.get("local").make(inpaint(tmp_path, options=bad))
+   assert "모르는 칸" not in str(caught.value)
+   assert fake.state.calls == []
+
+
+def test_clear_background_off_and_dry_run(fake, tmp_path):
+   src, area, model = white_scene(tmp_path)
+   serve(fake, model)
+   result = providers.get("local").make(inpaint(tmp_path, options={"clear_background": False, "snap": "none"}))
+   out = image.load(result.images[0])
+   assert (out[area] == (*WHITE, 255)).all()   # 끄면 지금처럼 흰 불투명
+   assert result.meta["cleared"] == [0]
+   providers.get("local").make(inpaint(tmp_path, dry_run=True))
+   assert read_json(tmp_path / "out" / "local_request.json")["clear_background"] == {"color": [255, 255, 255], "tol": 16}
+   providers.get("local").make(inpaint(tmp_path, dry_run=True, options={"clear_tol": 0}))
+   assert read_json(tmp_path / "out" / "local_request.json")["clear_background"]["tol"] == 0
+   providers.get("local").make(inpaint(tmp_path, dry_run=True, options={"clear_background": False}))
+   assert read_json(tmp_path / "out" / "local_request.json")["clear_background"] is None
+   prop = providers.ProviderRequest(kind="prop", out_dir=tmp_path / "prop", prompt="barrel", dry_run=True,
+                                    options={"models": dict(MODELS)})
+   providers.get("local").make(prop)
+   assert read_json(tmp_path / "prop" / "local_request.json")["clear_background"] is None
+
+
 # --- 손질 함수 ---
 
 
@@ -227,6 +348,25 @@ def test_composite_and_count():
    merged = postproc.composite_outside(result, source, area)
    assert postproc.count_outside_changed(merged, source, area) == 0
    assert (merged[area] == 200).all()
+
+
+def test_clear_background_seeds_from_canvas_edge():
+   """마스크 밖 투명이 없어도 캔버스 가장자리에 닿은 흰 칸은 되돌린다. 반투명 원본 칸은 대상이 아니다."""
+   source = np.zeros((6, 6, 4), dtype=np.uint8)
+   source[:, 3:] = (40, 40, 40, 255)
+   source[2, 1] = (40, 40, 40, 128)
+   area = np.zeros((6, 6), dtype=bool)
+   area[:, :3] = True
+   result = np.full((6, 6, 4), 255, dtype=np.uint8)
+   result[:, 3:] = (40, 40, 40, 255)
+   result[0, 0] = (250, 245, 255, 255)   # 흰색과 채널 차이 10 — tol 16 안
+   out, cleared, enclosed = postproc.clear_background(result, source, area, (255, 255, 255), 16)
+   assert int(cleared.sum()) == 17 and enclosed == 0   # 18칸 중 반투명 1칸 빼고
+   assert not cleared[2, 1]
+   assert (out[cleared] == source[cleared]).all()
+   assert (out[2, 1] == 255).all()
+   _, strict, _ = postproc.clear_background(result, source, area, (255, 255, 255), 5)
+   assert not strict[0, 0]
 
 
 def test_bad_color_exits_2():

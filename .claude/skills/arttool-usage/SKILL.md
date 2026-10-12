@@ -13,7 +13,7 @@ description: Use when making pixel art (dot) for a game — before drawing with 
 | `기준.md` | 「좋은 도트」 기준 · 검사 여덟이 무엇을 보나 · 색 수 · 외곽선 · 램프 · 프레임 |
 | `뽑기-pixellab.md` | PixelLab 으로 뽑을 때 — 도구 고르기 · 흔한 사고 · 겹 떼기 · 크기 한도 · 그림 넘기기(id · 주소 · base64) · 통한 글귀 |
 | `그리기-pil.md` | PIL 로 그릴 때 — `arttool.draw` 표 · 겹별로 그리는 순서 · 예시 스크립트 셋 |
-| `고리-그리기.md` | PIL 로 캐릭터 · 얼굴 있는 것을 그릴 때 — 그리고 → 린트 · 격자 · 바뀐 칸 그림으로 보고 → 고치는 바퀴(최대 3) · 본보기 `scripts/draw_char_loop.py` |
+| `고리-그리기.md` | PIL 로 캐릭터 · 얼굴 있는 것을 그릴 때 — 그리고 → 린트 · 격자 · 바뀐 칸 그림으로 보고 → 고치는 바퀴(최대 3) · 본보기 `scripts/draw_char_loop.py` · 원본을 ½ 로 옮길 때는 「원본 베끼기 갈래」(견줌 창) |
 | `<ArtTool>/README.md` | 명령 전체 · 프로필 칸 · 보고 꼴 |
 | `<ArtTool>/Docs/Guide/명령안내.md` | 명령마다 자세한 인자 · 경고 · 한계 (9~12절이 피드백 후속 판) |
 | `<ArtTool>/Docs/Guide/AI-그래픽-캐릭터-배경-가이드.html` | 사람이 보는 그림 안내 (예전 것) |

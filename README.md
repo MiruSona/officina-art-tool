@@ -189,7 +189,7 @@ arttool provider make  --kind character --spec req.json --out gen/ --dry-run
 
 | 명령 | 하는 일 |
 | --- | --- |
-| `grid show --in <폴더 \| PNG> [--item idle] [--layer 겹] [--box x,y,w,h] [--rulers] [--legend l.json]` | 격자 글을 찍는다(파일 안 씀). 겹을 안 주면 합친 그림. 한 변이 64 를 넘으면 `--box` 가 필요하다(종료 2) |
+| `grid show --in <폴더 \| PNG> [--item idle] [--layer 겹] [--box x,y,w,h] [--rulers] [--legend l.json] [--shrink N]` | 격자 글을 찍는다(파일 안 씀). 겹을 안 주면 합친 그림. 한 변이 64 를 넘으면 `--box` 가 필요하다(종료 2). `--shrink 2` 는 ×2 원본을 2×2 칸 → 1칸으로 줄여 읽고, 창 · 원점도 줄인 좌표다 |
 | `grid apply --in <폴더 \| PNG> --grid patch.px --out <새 자리> [--layer 겹] [--at x,y] [--mode over\|replace] [--report r.json]` | 패치를 덧그려 **새 자리**에 쓴다. `--in` 과 같으면 종료 2. 보고에 `pixels_written` · `pixels_clipped` · `bbox` |
 | `lint --in <폴더 \| PNG> [--item idle] [--template t] [--rules a,b] [--report r.json]` | 칸마다 결함을 짚는다. **파일 안 쓰고, 걸려도 종료 0.** `asym` 은 CLI 에서 자동으로 안 켜지니 `--rules orphan,asym` 처럼 준다 |
 

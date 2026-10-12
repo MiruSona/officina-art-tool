@@ -57,7 +57,7 @@ c.save("work/set")
 
 | 이름 | 꼴 | 하는 일 |
 | --- | --- | --- |
-| `Canvas` | `Canvas(size=None, *, template=None, layers=None, ramps=None, light=None, preset=None, profile=None)` | 같은 크기 겹 여럿. `template` = 템플릿 이름(`"char_small"`, `size` 같이) · `template render` 출력 폴더 · `template.json` · `layers.json` · 사전. `layers` = 템플릿 없이 겹 정하기(`["body", ("eye", "face")]` — 이름이 kind 낱말이 아니면 `(이름, kind)`). 둘 다 없으면 `body` 한 겹 |
+| `Canvas` | `Canvas(size=None, *, template=None, layers=None, ramps=None, light=None, preset=None, profile=None)` | 같은 크기 겹 여럿. `template` = 템플릿 이름(`"char_small"`, `size` 같이) · `template render` 출력 폴더 · `template.json` · `layers.json` · 사전. `layers` = 템플릿 없이 겹 정하기(`["body", ("eye", "face")]` — 이름이 kind 낱말이 아니면 `(이름, kind)`). 쓸 수 있는 kind : `body` · `cloth` · `face` · `hair` · `deco` · `base` · `structure` · `front` · `frame` · `fill` · `content` · `badge` · `variant` · `fx` (`outline` 은 없다 — 선은 `("line", "deco")` 꼴). 둘 다 없으면 `body` 한 겹 |
 | `c["이름"]` · `c.layer(이름)` | → `Layer` | 겹 꺼내기 |
 | `c.names` · `c.size` · `c.guide` · `c.ramps` · `c.light` | 속성 | 겹 이름(아래 → 위) · (너비, 높이) · `Guide` · 팔레트 · 빛 방향 |
 | `c.pick(램프, 칸)` | → `#RRGGBB` | 팔레트 램프의 칸 색. 0 = 가장 어둡게, -1 = 가장 밝게. 팔레트가 없으면 오류 |

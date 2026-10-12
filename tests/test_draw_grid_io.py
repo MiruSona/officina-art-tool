@@ -8,7 +8,7 @@ import pytest
 import test_layers_ops
 from arttool import cli, errors, image
 from arttool.draw import Canvas, Legend
-from arttool.draw.grid import parse, to_text
+from arttool.draw.grid import parse, shrink_cells, to_text
 from arttool.errors import ArtToolError
 from arttool.palette import Ramps
 
@@ -258,6 +258,169 @@ def test_cli_grid_apply_png_dry_run_and_same_path(tmp_path, capsys):
    assert dry["dry_run"] is True and not out.exists() and dry["pixels_written"] == 2
    assert cli.main(argv) == 0
    assert image.load(out)[0, 0, 3] == 0 and image.load(out)[0, 2, 3] == 255
+
+
+# ---- grid show --shrink (견줌창 실측 5-2 ①) ----
+
+R1, R2, WHITE = (10, 0, 0), (20, 0, 0), (200, 200, 200)
+
+
+def _shrink_source():
+   """4x4 → 2x2. 왼위 = 평균→R1 · 오른위 = 불투명 1칸이라 투명 · 왼아래 = 절반 · 동점 · 오른아래 = 흰색."""
+   arr = image.new(4, 4)
+   arr[0, 0] = (*R1, 255)
+   arr[0, 1] = (*R1, 128)
+   arr[1, 0] = (*R2, 255)
+   arr[0, 2] = (*BLUE, 255)
+   arr[2, 0] = (*R1, 255)
+   arr[3, 1] = (*R2, 255)
+   arr[2, 2] = arr[2, 3] = arr[3, 2] = (*WHITE, 255)
+   arr[3, 3] = (*BLUE, 255)
+   return arr
+
+
+def test_shrink_cells_average_snap_half_and_tie():
+   small = shrink_cells(_shrink_source(), 2)
+   assert small.shape == (2, 2, 4)
+   assert small[0, 0].tolist() == [*R1, 255]        # (13.3, 0, 0) → R1 · 반투명이 섞여도 결과 alpha 255
+   assert small[0, 1, 3] == 0                        # 4칸 중 1칸만 불투명 → 투명
+   assert small[1, 0].tolist() == [*R1, 255]        # 2칸 = 절반 → 불투명 · (15,0,0) 동점은 정렬 앞 R1
+   assert small[1, 1].tolist() == [*WHITE, 255]
+   assert np.array_equal(shrink_cells(_shrink_source(), 1), _shrink_source())
+   with pytest.raises(ArtToolError):
+      shrink_cells(_shrink_source(), 0)
+
+
+def test_shrink_cells_all_transparent_odd_size():
+   small = shrink_cells(image.new(5, 7), 2)
+   assert small.shape == (4, 3, 4) and not small[:, :, 3].any()   # 너비 5 → 3 · 높이 7 → 4
+
+
+def test_shrink_cells_last_column_counts_only_remaining_cells():
+   arr = image.new(3, 3)
+   arr[:, 2] = (*WHITE, 255)
+   assert shrink_cells(arr, 2)[:, :, 3].tolist() == [[0, 255], [0, 255]]
+
+
+def _shrink_by_loop(arr, n):
+   """한 칸씩 도는 기준 셈 — 벡터 셈이 같은 답을 내는지 견준다."""
+   opaque = arr[:, :, 3] > 0
+   colors = np.array(sorted({tuple(int(v) for v in c) for c in arr[opaque][:, :3]}), dtype=np.float64)
+   height, width = arr.shape[:2]
+   out = np.zeros(((height + n - 1) // n, (width + n - 1) // n, 4), dtype=np.uint8)
+   for sy in range(out.shape[0]):
+      for sx in range(out.shape[1]):
+         block = arr[sy * n:(sy + 1) * n, sx * n:(sx + 1) * n]
+         mask = block[:, :, 3] > 0
+         if mask.sum() * 2 < mask.size:
+            continue
+         mean = block[mask][:, :3].astype(np.float64).mean(axis=0)
+         out[sy, sx, :3] = colors[int(np.argmin(((colors - mean) ** 2).sum(axis=1)))]
+         out[sy, sx, 3] = 255
+   return out
+
+
+def _noisy_art(width, height, seed):
+   rng = np.random.default_rng(seed)
+   palette = rng.integers(0, 256, (9, 3), dtype=np.uint8)
+   palette[1] = palette[0] + 2   # 평균이 두 색 가운데에 떨어지는 동점을 만든다
+   arr = image.new(width, height)
+   arr[:, :, :3] = palette[rng.integers(0, 9, (height, width))]
+   arr[:, :, 3] = rng.choice([0, 0, 90, 255, 255], (height, width))
+   return arr
+
+
+@pytest.mark.parametrize("n", [2, 3, 4, 7])
+def test_shrink_cells_matches_cell_by_cell_rule(n):
+   for seed, (width, height) in enumerate([(23, 17), (40, 40), (9, 31)]):
+      arr = _noisy_art(width, height, seed)
+      assert np.array_equal(shrink_cells(arr, n), _shrink_by_loop(arr, n))
+
+
+@pytest.mark.parametrize("box", ["40,30,40,50", "-3,-2,10,9", "0,0,64,64", "70,60,20,20"])
+def test_cli_grid_show_shrink_box_equals_shrink_then_crop(tmp_path, capsys, box):
+   arr = _noisy_art(151, 141, 5)
+   png = tmp_path / "big.png"
+   image.save(png, arr)
+   assert cli.main(["grid", "show", "--in", str(png), "--shrink", "2", "--rulers", "--box", box]) == 0
+   x, y, w, h = (int(v) for v in box.split(","))
+   want = to_text(shrink_cells(arr, 2), None, (x, y, x + w, y + h), True)
+   assert capsys.readouterr().out == "# 줄임 2\n" + want
+
+
+def test_cli_grid_show_shrink_reads_original_grid(tmp_path, capsys):
+   png = tmp_path / "x2.png"
+   image.save(png, image.scale_up(_sample(), 2))
+   assert cli.main(["grid", "show", "--in", str(png), "--shrink", "2"]) == 0
+   out = capsys.readouterr().out
+   assert out.splitlines()[0] == "# 줄임 2"
+   assert out.split("\n", 1)[1] == to_text(_sample())
+
+
+def test_cli_grid_show_shrink_box_and_origin_in_shrunk_coords(tmp_path, capsys):
+   png = tmp_path / "x2.png"
+   image.save(png, image.scale_up(_sample(), 2))
+   assert cli.main(["grid", "show", "--in", str(png), "--shrink", "2", "--rulers", "--box", "2,1,3,2"]) == 0
+   shown = capsys.readouterr().out
+   assert "# 줄임 2" in shown and "# 원점 2,1" in shown and "a #0000FF" in shown
+   assert shown.splitlines()[-2:] == ["1 a..", "2 ..."]
+   # 줄인 좌표 그대로 내 격자(원래 크기 PNG)에 붙는다 — apply 가 `# 줄임` 줄을 무시한다
+   mine = tmp_path / "mine.png"
+   image.save(mine, _sample())
+   patch = tmp_path / "p.px"
+   patch.write_text(shown.replace("a #0000FF", "a #FF0000"), encoding="utf-8")
+   out, rep = tmp_path / "b.png", tmp_path / "r.json"
+   assert cli.main(["grid", "apply", "--in", str(mine), "--grid", str(patch), "--out", str(out), "--report", str(rep)]) == 0
+   report = json.loads(rep.read_text(encoding="utf-8"))
+   assert report["at"] == [2, 1] and report["bbox"] == [2, 1, 3, 2]
+   assert image.load(out)[1, 2].tolist() == [*RED, 255]
+
+
+def test_cli_grid_show_shrink_limit_on_shrunk_size_and_json(tmp_path, capsys):
+   png = tmp_path / "big.png"
+   image.save(png, image.new(128, 64))
+   assert cli.main(["grid", "show", "--in", str(png)]) == errors.EXIT_USAGE
+   capsys.readouterr()
+   assert cli.main(["grid", "show", "--in", str(png), "--shrink", "2", "--json"]) == 0
+   report = json.loads(capsys.readouterr().out)
+   assert report["shrink"] == 2 and report["size"] == [64, 32]
+   assert report["grid_text"].startswith("# 줄임 2\n")
+   assert cli.main(["grid", "show", "--in", str(png), "--shrink", "1", "--json"]) == errors.EXIT_USAGE
+   capsys.readouterr()
+   small = tmp_path / "s.png"
+   image.save(small, _sample())
+   assert cli.main(["grid", "show", "--in", str(small), "--json"]) == 0
+   report = json.loads(capsys.readouterr().out)
+   assert report["shrink"] == 1 and report["size"] == [6, 4] and "# 줄임" not in report["grid_text"]
+
+
+@pytest.mark.parametrize(("shrink", "hint"), [("1", "--shrink 로 줄인다"), ("2", "--shrink 를 더 크게")])
+def test_cli_grid_show_too_big_hint_depends_on_shrink(tmp_path, capsys, shrink, hint):
+   png = tmp_path / "wide.png"
+   image.save(png, image.new(260, 8))
+   assert cli.main(["grid", "show", "--in", str(png), "--shrink", shrink]) == errors.EXIT_USAGE
+   assert hint in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_cli_grid_show_bad_shrink_exits_2(tmp_path, capsys, value):
+   png = tmp_path / "a.png"
+   image.save(png, _sample())
+   assert cli.main(["grid", "show", "--in", str(png), f"--shrink={value}"]) == errors.EXIT_USAGE
+   assert "--shrink" in capsys.readouterr().err
+
+
+def test_cli_grid_show_non_int_shrink_exits_2(tmp_path):
+   with pytest.raises(SystemExit) as caught:
+      cli.main(["grid", "show", "--in", "a.png", "--shrink", "1.5"])
+   assert caught.value.code == 2
+
+
+def test_cli_grid_show_shrink_folder_layer(tmp_path, capsys):
+   folder = _set(tmp_path)
+   assert cli.main(["grid", "show", "--in", str(folder), "--layer", "face", "--shrink", "2", "--json"]) == 0
+   report = json.loads(capsys.readouterr().out)
+   assert report["size"] == [6, 6] and report["shrink"] == 2
 
 
 # ---- lint CLI (G4b) ----

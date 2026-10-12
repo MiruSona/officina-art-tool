@@ -21,8 +21,9 @@ DEFAULT_TIMEOUT_S = 600.0
 MAX_WORK_SIZE = 2048
 SNAP_MODES = ("source", "profile", "none")
 CONFIG_KEYS = ("endpoint", "models", "workflows", "work_size", "timeout_s", "heavy")
-OPTION_KEYS = ("workflow", "models", "work_size", "extra_colors", "snap", "palette")
+OPTION_KEYS = ("workflow", "models", "work_size", "extra_colors", "snap", "palette", "clear_background", "clear_tol")
 WORKFLOW_KEYS = ("prop", "inpaint")
+DEFAULT_CLEAR_TOL = 16   # inpaint 올림 바탕 걷기 문턱. 근거는 Docs/Design/2026-10-12-inpaint흰칸되돌리기설계.md 3-2
 
 
 @dataclass
@@ -36,6 +37,8 @@ class LocalSettings:
    snap: str = "source"
    extra_colors: list = field(default_factory=list)
    palette: list | None = None
+   clear_background: bool = True
+   clear_tol: int = DEFAULT_CLEAR_TOL
 
    @property
    def host(self) -> str:
@@ -90,7 +93,17 @@ def load_settings(kind: str, options: dict) -> LocalSettings:
       raise UsageError(f"snap 은 {' · '.join(SNAP_MODES)} 중 하나다 : {settings.snap!r}")
    settings.extra_colors = _list(options.get("extra_colors"), "extra_colors")
    settings.palette = options.get("palette")
+   settings.clear_background = _first(options.get("clear_background"), True)
+   if not isinstance(settings.clear_background, bool):
+      raise UsageError(f"clear_background 는 true · false 중 하나다 : {settings.clear_background!r}")
+   settings.clear_tol = _first(options.get("clear_tol"), DEFAULT_CLEAR_TOL)
+   if not _is_byte(settings.clear_tol):
+      raise UsageError(f"clear_tol 은 0~255 사이 정수다 : {settings.clear_tol!r}")
    return settings
+
+
+def _is_byte(value) -> bool:
+   return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 255
 
 
 def _first(*values):
