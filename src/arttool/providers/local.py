@@ -8,6 +8,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import numpy as np
+
 from .. import image
 from ..errors import ArtToolError
 from ..jsonio import write_json
@@ -16,7 +18,7 @@ from . import postproc, workflow
 from .base import Provider, ProviderRequest, ProviderResult
 from .comfy import ComfyClient
 from .local_config import ENV_ENDPOINT, LocalSettings, configured_endpoint, load_settings
-from .local_plan import UPLOAD_STAND_IN, Plan, build_plan
+from .local_plan import UPLOAD_BACKGROUND, UPLOAD_STAND_IN, Plan, build_plan
 
 __all__ = ["ENV_ENDPOINT", "LocalProvider"]
 
@@ -59,6 +61,7 @@ class LocalProvider(Provider):
          "seeds": plan.seeds,
          "workflows": [plan.filled(index, dict(UPLOAD_STAND_IN)) for index in range(len(plan.seeds))],
          "uploads": uploads,
+         "upload_background": list(UPLOAD_BACKGROUND) if plan.kind == "inpaint" else None,
          "would_write": plan.would_write(),
          "warnings": plan.warnings,
       }
@@ -100,10 +103,17 @@ class LocalProvider(Provider):
                             warnings=warnings)
 
    def _upload(self, client: ComfyClient, plan: Plan) -> dict:
-      """원본 · 마스크를 정수 배율로 키우고 16 배수까지 덧대 올린다. 덧댄 칸은 투명 · 안 고침."""
+      """원본 · 마스크를 정수 배율로 키우고 16 배수까지 덧대 올린다. 덧댄 칸은 안 고침.
+
+      ComfyUI LoadImage 는 알파를 버려 투명 칸이 검정으로 들어간다. 그래서 원본은 투명 칸(덧댄 칸 포함)을
+      바탕색 위에 깔아 불투명하게 올린다. 마스크 밖은 돌려받은 뒤 원본 RGBA 로 되돌리니 투명이 남는다.
+      """
       if plan.kind != "inpaint":
          return {}
       source = postproc.pad_to(postproc.upscale_nearest(plan.source, plan.factor), plan.work_size)
+      alpha = source[:, :, 3:4].astype(np.float32) / 255.0
+      rgb = source[:, :, :3] * alpha + np.array(UPLOAD_BACKGROUND, dtype=np.float32) * (1.0 - alpha)
+      source = np.dstack([np.rint(rgb).astype(np.uint8), np.full(source.shape[:2], 255, dtype=np.uint8)])
       mask = postproc.upscale_nearest(postproc.mask_picture(plan.area), plan.factor)
       mask = postproc.pad_to(mask, plan.work_size)
       image_name = client.upload_image(postproc.to_png(source))

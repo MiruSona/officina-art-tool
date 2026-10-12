@@ -20,6 +20,8 @@ from .local_config import LocalSettings
 # dry-run 에서 아직 안 올린 그림 자리에 넣는 이름. 실제 판은 서버가 준 이름으로 채운다
 MAX_SEED = 2**64 - 1
 UPLOAD_STAND_IN = {"image": "<올릴 그림 : 원본>", "mask": "<올릴 그림 : 마스크>"}
+# inpaint 원본을 올릴 때 투명 칸 · 덧댄 칸에 까는 색. spec 에 바탕색 칸이 아직 없어 흰색 고정
+UPLOAD_BACKGROUND = (255, 255, 255)
 
 
 @dataclass

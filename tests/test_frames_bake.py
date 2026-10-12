@@ -123,6 +123,16 @@ def test_save_gif_duration_limit_checked_without_write(tmp_path):
    assert not (tmp_path / "a.gif").exists()
 
 
+def test_save_gif_over_255_colors_points_to_merge_colors(tmp_path):
+   # frames bake --gif · tint --gif 둘 다 이 거절을 받는다
+   arr = image.new(20, 15)
+   keys = np.arange(300)
+   arr.reshape(-1, 4)[:300] = np.stack([keys % 256, keys // 256, np.full(300, 7), np.full(300, 255)], axis=1)
+   with pytest.raises(errors.ArtToolError, match=r"merge-colors --max-colors 255 .*--tol"):
+      image.save_gif([arr], tmp_path / "a.gif", 100, write=False)
+   assert not (tmp_path / "a.gif").exists()
+
+
 def test_strip_size_checked_before_scaling(tmp_path, monkeypatch):
    _frames(tmp_path / "f", [3, 4])
    monkeypatch.setattr(image, "MAX_PIXELS", 100)       # 띠 24x12 = 288 > 100

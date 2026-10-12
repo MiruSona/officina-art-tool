@@ -187,3 +187,38 @@ def test_open_flags_soft_alpha(tmp_path):
    image.save(tmp_path / "set" / "body" / "idle.png", arr)
    rep = Canvas.open(tmp_path / "set").report()
    assert [w["rule"] for w in rep["warnings"]] == ["alpha"]
+
+
+def _anchored_set(tmp_path):
+   """anchor · anchor_layer 를 적은 겹 묶음 하나를 만든다."""
+   c = Canvas(16, layers=CHAR_LAYERS)
+   c["body"].arr[4:12, 4:12] = (200, 100, 50, 255)
+   src = tmp_path / "a"
+   c.save(src)
+   data = json.loads((src / layerset.FILE_NAME).read_text(encoding="utf-8"))
+   data["version"] = 2
+   data["anchor"] = [8, 15]
+   data["anchor_layer"] = "body"
+   (src / layerset.FILE_NAME).write_text(json.dumps(data), encoding="utf-8")
+   return src
+
+
+def test_open_then_save_elsewhere_keeps_anchor(tmp_path):
+   src = _anchored_set(tmp_path)
+   Canvas.open(src).save(tmp_path / "b")
+   again = layerset.load(tmp_path / "b")
+   assert again.anchor == (8, 15)
+   assert again.anchor_layer == "body"
+
+
+def test_anchor_layer_dropped_when_layer_gone(tmp_path):
+   src = _anchored_set(tmp_path)
+   c = Canvas.open(src)
+   # 지금 공개 API 로는 겹을 못 빼지만, 나중에 겹 빼기 · 이름 바꾸기가 생길 때를 막는 방어
+   # 겹을 빼는 공개 손잡이가 없어 겹 목록을 직접 줄인다
+   c.spec = [row for row in c.spec if row.name != "body"]
+   del c._layers["body"]
+   c.save(tmp_path / "b")
+   again = layerset.load(tmp_path / "b")
+   assert again.anchor == (8, 15)
+   assert again.anchor_layer is None

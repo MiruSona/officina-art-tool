@@ -1,12 +1,16 @@
 """local 제공자 inpaint 흐름 시험 : 밖 바이트 동일 · 안쪽 색 · 크기 검사 · 손질 함수."""
 
+import io
+
 import numpy as np
 import pytest
+from PIL import Image
 
 from arttool import errors, image, providers
 from arttool.jsonio import read_json
 from arttool.providers import postproc
 from arttool.providers.local_config import ENV_CONFIG, ENV_ENDPOINT
+from arttool.providers.local_plan import UPLOAD_BACKGROUND
 from fake_comfy import FakeComfy
 
 MODELS = {"unet": "u", "text_encoder": "t", "vae": "v", "lora": "l", "lora_strength": 1.0}
@@ -97,6 +101,70 @@ def test_uploads_source_and_mask_scaled_up(fake, tmp_path):
    assert b"\x89PNG" in fake.state.uploads[0]
 
 
+def sent_picture(body: bytes) -> np.ndarray:
+   """multipart 몸통에서 PNG 를 꺼내 RGBA 배열로."""
+   return np.array(Image.open(io.BytesIO(body[body.index(b"\x89PNG"):])).convert("RGBA"))
+
+
+def test_uploaded_source_has_no_transparent_cells(fake, tmp_path):
+   src, _ = write_source(tmp_path)
+   providers.get("local").make(inpaint(tmp_path))
+   sent = sent_picture(fake.state.uploads[0])
+   assert sent.shape[:2] == (512, 512)
+   assert (sent[:, :, 3] == 255).all()
+   factor = 512 // 64
+   clear = np.repeat(np.repeat(src[:, :, 3] == 0, factor, axis=0), factor, axis=1)
+   assert clear.any()
+   assert (sent[clear][:, :3] == UPLOAD_BACKGROUND).all()
+   assert np.array_equal(sent[~clear][:, :3], np.repeat(np.repeat(src, factor, 0), factor, 1)[~clear][:, :3])
+
+
+def test_half_transparent_cell_is_blended_onto_background(fake, tmp_path):
+   src = np.zeros((64, 64, 4), dtype=np.uint8)
+   src[:, :] = (40, 40, 40, 255)
+   src[0, 0] = (61, 92, 155, 128)
+   mask = np.zeros((64, 64, 4), dtype=np.uint8)
+   mask[:, :, 3] = 255
+   mask[30:40, 30:40, :3] = 255
+   image.save(tmp_path / "src.png", src)
+   image.save(tmp_path / "mask.png", mask)
+   providers.get("local").make(inpaint(tmp_path))
+   sent = sent_picture(fake.state.uploads[0])
+   want = np.rint(np.array([61, 92, 155]) * 128 / 255 + np.array(UPLOAD_BACKGROUND) * 127 / 255)
+   assert (sent[:8, :8, :3] == want).all()   # 64 → 512 라 8배로 키운 칸
+   assert (sent[:8, :8, 3] == 255).all()
+
+
+def test_padded_cells_get_background_too(fake, tmp_path):
+   src = np.zeros((33, 33, 4), dtype=np.uint8)
+   src[:, :] = (40, 40, 40, 255)
+   mask = np.zeros((33, 33, 4), dtype=np.uint8)
+   mask[:, :, 3] = 255
+   mask[5:10, 5:10, :3] = 255
+   image.save(tmp_path / "src.png", src)
+   image.save(tmp_path / "mask.png", mask)
+   factor, work = postproc.work_layout((33, 33), 512)
+   scaled = 33 * factor
+   assert work[0] > scaled   # 33 × 15 = 495 → 496 으로 덧댄다
+   providers.get("local").make(inpaint(tmp_path, size=(33, 33)))
+   sent = sent_picture(fake.state.uploads[0])
+   assert sent.shape[:2] == (work[1], work[0])
+   assert (sent[:, :, 3] == 255).all()
+   assert (sent[scaled:, :, :3] == UPLOAD_BACKGROUND).all()
+   assert (sent[:, scaled:, :3] == UPLOAD_BACKGROUND).all()
+   assert (sent[:scaled, :scaled, :3] == (40, 40, 40)).all()
+
+
+def test_transparent_outside_mask_stays_transparent(fake, tmp_path):
+   src, area = write_source(tmp_path)
+   result = providers.get("local").make(inpaint(tmp_path))
+   out = image.load(result.images[0])
+   clear_outside = (src[:, :, 3] == 0) & ~area
+   assert clear_outside.any()
+   assert (out[clear_outside][:, 3] == 0).all()
+   assert result.meta["outside_changed"] == 0
+
+
 def test_size_mismatch_exits_2(fake, tmp_path):
    write_source(tmp_path)
    with pytest.raises(errors.UsageError, match="요청 size"):
@@ -128,6 +196,7 @@ def test_inpaint_dry_run_lists_uploads(fake, tmp_path):
    assert fake.state.calls == []
    written = read_json(tmp_path / "out" / "local_request.json")
    assert len(written["uploads"]) == 2 and "512x512" in written["uploads"][0]
+   assert written["upload_background"] == [255, 255, 255]
    loads = [n["inputs"]["image"] for n in written["workflows"][0].values() if n["class_type"] == "LoadImage"]
    assert all(name.startswith("<올릴 그림") for name in loads)
 

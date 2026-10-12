@@ -105,7 +105,7 @@ def save_gif(frames: list[RGBA], path: str | os.PathLike, duration: int, *, loop
    solid = [arr[:, :, 3] >= GIF_ALPHA_CUT for arr in padded]
    colors = np.unique(np.concatenate([k[m] for k, m in zip(keys, solid)]))
    if len(colors) > 255:
-      raise ArtToolError(f"GIF 공용 팔레트는 255 색까지다 : {len(colors)} 색 (줄이면 색이 몰래 바뀌어 거절한다)")
+      raise ArtToolError(f"GIF 공용 팔레트는 255 색까지다 : {len(colors)} 색 (줄이면 색이 몰래 바뀌어 거절한다) — 먼저 merge-colors --max-colors 255 로 줄인다 (프레임 전체를 한 표로 · 색이 많으면 --tol 을 같이)")
    palette = [0, 0, 0]
    for key in colors.tolist():
       palette += [(key >> 16) & 255, (key >> 8) & 255, key & 255]

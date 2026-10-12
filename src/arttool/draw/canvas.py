@@ -350,6 +350,7 @@ class Canvas:
    template : 템플릿 이름(예 "char_small", 파일을 안 쓰고 바로 셈) · `template render` 출력 폴더 · `template.json` ·
               `layers.json` 경로 또는 사전. 겹 목록 · 가이드 · 화풍을 읽는다.
    layers   : 템플릿 없이 겹을 정할 때. 이름 목록(이름이 kind 낱말일 때) · (이름, kind) 목록 · layers.json 꼴 줄 목록.
+              `layers=` 를 주면 template 의 layers.json 에 있는 meta · anchor 는 잇지 않는다.
               둘 다 없으면 `body` 한 겹.
    ramps    : 팔레트 램프 파일 경로 또는 `Ramps`. 없으면 template.json 의 `check.palette.ramps_file` 을 쓴다.
    light    : 빛 방향 top_left · top · top_right. 없으면 템플릿 화풍, 그것도 없으면 top_left.
@@ -363,6 +364,8 @@ class Canvas:
       self.guide: Guide | None = None
       self.template_name: str | None = None
       self.meta: dict | None = None   # layers.json 맨 위 meta — 다시 쓸 때 잃지 않게 들고 있는다
+      self.anchor: str | tuple[int, int] | None = None   # 맨 위 anchor · anchor_layer 도 meta 처럼 들고 다닌다
+      self.anchor_layer: str | None = None
       where = "(인자)"
       if template is not None:
          lay_data, tpl_data, self.guide, where = _read_source(template, size, preset, profile)
@@ -374,6 +377,8 @@ class Canvas:
          parsed = layerset.from_dict(lay_data, where)
          rows = parsed.layers
          self.meta = parsed.meta
+         self.anchor = parsed.anchor
+         self.anchor_layer = parsed.anchor_layer
       elif tpl_data is not None and isinstance(tpl_data.get("layers"), list) and tpl_data["layers"]:
          rows = _layers_from(tpl_data["layers"], where)
       else:
@@ -774,7 +779,11 @@ class Canvas:
       # 사전 꼴 그림이면 그 pick 을 잇는다 : 있는 폴더는 그 폴더의 pick, 새 폴더는 open 때 읽은 pick
       pick = old.picks.get(item) if old is not None and item in old.items else self._picks.get(item)
       picks = {item: dict(pick)} if pick is not None else {}
-      lay = layerset.carry_meta(old, layerset.LayerSet(self.size, list(self.spec), items, self.template_name, self.meta, picks))
+      # anchor_layer 겹이 겹 목록에서 사라졌으면 조용히 뺀다 (carry_meta 와 같은 규칙)
+      painted = {row.name for row in self.spec if not row.is_mask}
+      anchor_layer = self.anchor_layer if self.anchor is not None and self.anchor_layer in painted else None
+      fresh = layerset.LayerSet(self.size, list(self.spec), items, self.template_name, self.meta, picks, self.anchor, anchor_layer)
+      lay = layerset.carry_meta(old, fresh)
       # pick 에 없는 겹은 이 그림에 없다. 그 겹에 그린 게 있으면 조용히 버리지 않고 거절한다.
       for name in self.names:
          if layerset.image_path(root, lay, name, item) is None and self._layers[name].arr[..., 3].any():
