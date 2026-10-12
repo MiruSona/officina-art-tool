@@ -30,6 +30,7 @@ LETTERS = string.ascii_lowercase + string.ascii_uppercase + string.digits
 MAX_SIDE = 64
 NEAREST_BUDGET = 1 << 21  # 줄일 때 거리 표를 이 칸 수(칸 × 색)씩 끊어 센다
 TRANSPARENT = "."
+EMPTY_LEGEND_HEAD = "# 범례"   # 범례가 비었을 때 다는 주석 줄 머리 — to_text · diff_text · strip_legend 가 같이 쓴다
 _FORBIDDEN = {TRANSPARENT, "#"}
 _LEGEND_LINE = re.compile(r"^(\S)\s+(#[0-9A-Fa-f]{6})\s*$")
 _RULER_TOP = re.compile(r"^\s+\d+\s*$")
@@ -167,16 +168,32 @@ def to_text(arr: np.ndarray, legend: Legend | None = None, box: Box | None = Non
       rows.append("".join(chars))
 
    if rulers:
-      head = len(str(y1 - 1))
+      # 줄머리 폭은 창이 아니라 그림 전체 높이로 정한다 — 창마다 2자리 · 3자리로 바뀌면
+      # 창 여럿을 고정 폭으로 자르는 쪽이 깨진다(y 0~59 창과 60~119 창이 같은 폭이게).
+      head = len(str(height - 1))
       top = " " * (head + 1) + "".join(str(x % 10) for x in range(x0, x1))
       rows = [top] + [f"{y:>{head}} {row}" for y, row in zip(range(y0, y1), rows)]
 
    legend_block = legend.text()
    if not legend_block:
-      legend_block = "# 범례 : 색 없음 (모두 투명)"
+      legend_block = f"{EMPTY_LEGEND_HEAD} : 색 없음 (모두 투명)"
    if rulers:
       legend_block += f"\n# 원점 {x0},{y0}"
    return legend_block + "\n\n" + "\n".join(rows) + "\n"
+
+
+def strip_legend(text: str) -> str:
+   """`to_text` 글에서 범례 줄(`k #RRGGBB` · `EMPTY_LEGEND_HEAD` 줄)만 뺀다 — `grid show --no-legend`.
+
+   `# 원점` · `# 줄임` 같은 다른 머리 줄은 남긴다. 머리 줄이 다 빠지면 가르는 빈 줄도 뺀다.
+   이 글을 다시 붙일 때는 범례가 없으니 `--legend` 로 글자표를 같이 준다.
+   """
+   head, sep, body = text.partition("\n\n")
+   if not sep:
+      return text
+   kept = [line for line in head.splitlines()
+           if not _LEGEND_LINE.match(line) and not line.startswith(EMPTY_LEGEND_HEAD)]
+   return "\n".join(kept) + "\n\n" + body if kept else body
 
 
 def opaque_colors(arr: np.ndarray) -> np.ndarray:
@@ -359,5 +376,5 @@ def diff_text(before: np.ndarray, after: np.ndarray, legend: Legend | None = Non
 
    block = "\n".join(f"{letter} {to_hex(rgb)}" for letter, rgb in legend.letters().items() if letter in used)
    if not block:
-      block = "# 범례 : 바뀐 색 없음"
+      block = f"{EMPTY_LEGEND_HEAD} : 바뀐 색 없음"
    return block + "\n\n" + "\n".join(rows) + "\n"

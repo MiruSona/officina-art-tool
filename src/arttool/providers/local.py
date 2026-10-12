@@ -61,11 +61,12 @@ class LocalProvider(Provider):
          "seeds": plan.seeds,
          "workflows": [plan.filled(index, dict(UPLOAD_STAND_IN)) for index in range(len(plan.seeds))],
          "uploads": uploads,
-         "upload_background": list(UPLOAD_BACKGROUND) if plan.kind == "inpaint" else None,
          "clear_background": _clear_request(plan),
          "would_write": plan.would_write(),
          "warnings": plan.warnings,
       }
+      if plan.kind == "inpaint":
+         request["upload_background"] = list(UPLOAD_BACKGROUND)   # 바탕을 올리는 건 inpaint 뿐 — 다른 판은 칸이 없다
       request_file = safe_join(root, "local_request.json")
       write_json(request_file, request)
       warnings = ["로컬 모델은 돈이 안 든다. 대신 서버 메모리를 쓴다", *plan.warnings]

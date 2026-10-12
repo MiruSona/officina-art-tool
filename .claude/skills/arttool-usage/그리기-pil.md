@@ -73,6 +73,7 @@ c.save("work/set")
 | `c.to_grid(layer=None, box=None, rulers=False)` · `c.paste_grid(겹, text, at, mode)` · `c.legend` | → 격자 글 · `{pixels_written, pixels_clipped, bbox}` | 겹을 안 주면 합친 그림. `c.legend` 가 세션 동안 같은 색 = 같은 글자를 지킨다. 64 넘는 그림은 가이드 상자 이름(`g.box(…)`)을 안내하며 거절 |
 | `c.set_symmetry(axis, layers=None)` · `c.set_clip(mask, layers=None)` | → `Canvas` | 여러 겹에 한 번에 |
 | `c.lint(rules=None, waive=(), ramps=None, light=None, outline_mode=None, axis_x=None, outline_color=None)` | → `LintResult` | 칸 좌표 박힌 결함. `.lines()` 한 줄 글 · `.to_dict()` `{status, issues, counts, metrics}`. 기본 5규칙 + symmetry 켠 겹에만 `asym`. `outline_gap` · `light_mismatch` · 수치는 합친 그림으로 한 번(`layer` 없음). `waive=[(x, y)]` 로 일부러 둔 칸을 뺀다. 규칙 이름은 `lint.` 머리 — `report()` · `check` 와 안 겹친다 |
+| 린트 이슈 한 건 | `issues` 의 dict `{rule, layer, x, y, color, detail}` | `x` · `y` 는 칸 좌표, 그림 전체 이슈면 둘 다 `None`. `layer` 는 겹 이름, 합친 그림으로 잰 규칙이면 `None`. `color` 는 `#RRGGBB` 또는 `None` |
 | `c.mark()` · `c.changed()` · `c.preview_changed(path, scale=8, pad=2)` · `c.diff_grid()` | → `Canvas` · `{count, bbox, layers}` · 경로 · 격자 글 | 바퀴 시작 표시 → 바뀐 칸(dirty 기준 — 되돌린 칸도 센다) → 바뀐 곳만 확대 PNG(자홍 테) → 안 바뀐 칸은 `·` 인 격자. 바뀐 칸이 없으면 `preview_changed` · `diff_grid` 는 거절. 경로가 겹 묶음 폴더 안이면 거절 |
 | `shade` | `shade(base, steps=6, hue_step=None, metal=False, base_index=None)` → RGB 목록 | **그늘 계산** — 밑색 하나 → 어두운 쪽부터 밝은 쪽 램프. 어두울수록 차갑게, `metal=True` 면 반대. `hue_step` 을 안 주면 칸 수에 맞춘 값(칸마다 10° 이하 · 처음 ~ 끝 36° 이하 — 4칸 10° · 6칸 7.2°) |
 | `pick` | `pick(ramps, name, index)` | `c.pick` 과 같은 것(팔레트를 따로 들고 있을 때) |

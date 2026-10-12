@@ -345,7 +345,7 @@ def test_cli_grid_show_shrink_box_equals_shrink_then_crop(tmp_path, capsys, box)
    assert cli.main(["grid", "show", "--in", str(png), "--shrink", "2", "--rulers", "--box", box]) == 0
    x, y, w, h = (int(v) for v in box.split(","))
    want = to_text(shrink_cells(arr, 2), None, (x, y, x + w, y + h), True)
-   assert capsys.readouterr().out == "# 줄임 2\n" + want
+   assert capsys.readouterr().out == "# 줄임 2 151x141\n" + want
 
 
 def test_cli_grid_show_shrink_reads_original_grid(tmp_path, capsys):
@@ -353,7 +353,7 @@ def test_cli_grid_show_shrink_reads_original_grid(tmp_path, capsys):
    image.save(png, image.scale_up(_sample(), 2))
    assert cli.main(["grid", "show", "--in", str(png), "--shrink", "2"]) == 0
    out = capsys.readouterr().out
-   assert out.splitlines()[0] == "# 줄임 2"
+   assert out.splitlines()[0] == "# 줄임 2 12x8"
    assert out.split("\n", 1)[1] == to_text(_sample())
 
 
@@ -384,7 +384,7 @@ def test_cli_grid_show_shrink_limit_on_shrunk_size_and_json(tmp_path, capsys):
    assert cli.main(["grid", "show", "--in", str(png), "--shrink", "2", "--json"]) == 0
    report = json.loads(capsys.readouterr().out)
    assert report["shrink"] == 2 and report["size"] == [64, 32]
-   assert report["grid_text"].startswith("# 줄임 2\n")
+   assert report["grid_text"].startswith("# 줄임 2 128x64\n")
    assert cli.main(["grid", "show", "--in", str(png), "--shrink", "1", "--json"]) == errors.EXIT_USAGE
    capsys.readouterr()
    small = tmp_path / "s.png"
@@ -452,3 +452,79 @@ def test_cli_lint_folder_report_and_bad_rule(tmp_path, capsys):
    assert all(i["layer"] in ("body", "hair", "face", None) for i in report["issues"])
    assert cli.main(["lint", "--in", str(folder), "--rules", "nope"]) == errors.EXIT_USAGE
    assert "--rules" in capsys.readouterr().err
+
+
+def test_cli_grid_show_no_legend_drops_legend_lines(tmp_path, capsys):
+   """--legend 파일이 없으면 글에서만 범례 줄을 빼고 JSON legend 칸은 남긴다(글자표를 잃지 않게)."""
+   png = tmp_path / "x2.png"
+   image.save(png, image.scale_up(_sample(), 2))
+   argv = ["grid", "show", "--in", str(png), "--shrink", "2", "--rulers", "--box", "0,0,6,4", "--no-legend"]
+   assert cli.main([*argv, "--json"]) == 0
+   report = json.loads(capsys.readouterr().out)
+   assert report["legend"] == {"a": "#FF0000", "b": "#0000FF", "c": "#0A141E"}
+   lines = report["grid_text"].splitlines()
+   assert lines[:2] == ["# 줄임 2 12x8", "# 원점 0,0"] and lines[2] == ""   # 다른 머리 줄은 남는다
+   assert not any(" #" in line for line in lines)                          # 범례 줄은 없다
+   assert cli.main(argv) == 0                                              # 사람용 출력도 같은 글
+   assert capsys.readouterr().out == report["grid_text"]
+
+
+def test_cli_grid_show_no_legend_with_legend_file_drops_json_key_and_reapplies(tmp_path, capsys):
+   png = tmp_path / "a.png"
+   image.save(png, _sample())
+   legend = tmp_path / "legend.json"
+   legend.write_text(json.dumps({"a": "#FF0000", "b": "#0000FF", "c": "#0A141E"}), encoding="utf-8")
+   assert cli.main(["grid", "show", "--in", str(png), "--no-legend", "--legend", str(legend), "--json"]) == 0
+   report = json.loads(capsys.readouterr().out)
+   assert "legend" not in report
+   assert report["grid_text"] == to_text(_sample()).split("\n\n", 1)[1]
+   # 범례 없는 글도 --legend 글자표가 있으면 되붙는다
+   patch = tmp_path / "p.px"
+   patch.write_text("bb\n", encoding="utf-8")
+   out = tmp_path / "b.png"
+   assert cli.main(["grid", "apply", "--in", str(png), "--grid", str(patch), "--legend", str(legend), "--out", str(out)]) == 0
+   assert image.load(out)[0, 1].tolist() == [*BLUE, 255]
+
+
+def _apply_report(tmp_path, canvas_png, patch, name):
+   out, rep = tmp_path / f"out_{name}.png", tmp_path / f"out_{name}.json"
+   assert cli.main(["grid", "apply", "--in", str(canvas_png), "--grid", str(patch), "--out", str(out), "--report", str(rep)]) == 0
+   assert out.is_file()                                                    # 붙이기 · 종료는 그대로
+   return json.loads(rep.read_text(encoding="utf-8"))
+
+
+def test_cli_grid_apply_shrink_header_on_matching_small_canvas_no_warning(tmp_path, capsys):
+   big = tmp_path / "x2.png"
+   image.save(big, image.scale_up(_sample(), 2))                           # 12x8 원본
+   assert cli.main(["grid", "show", "--in", str(big), "--shrink", "2", "--rulers", "--box", "2,1,3,2"]) == 0
+   patch = tmp_path / "p.px"
+   patch.write_text(capsys.readouterr().out, encoding="utf-8")             # 창 글 — 원점 2,1
+   small = tmp_path / "s.png"
+   image.save(small, image.new(6, 4))                                      # 줄인 크기 캔버스
+   assert "warnings" not in _apply_report(tmp_path, small, patch, "ok")
+
+
+def test_cli_grid_apply_shrink_header_on_original_canvas_warns(tmp_path, capsys):
+   big = tmp_path / "x2.png"
+   image.save(big, image.scale_up(_sample(), 2))
+   assert cli.main(["grid", "show", "--in", str(big), "--shrink", "2", "--rulers", "--box", "2,1,3,2"]) == 0
+   patch = tmp_path / "p.px"
+   patch.write_text(capsys.readouterr().out, encoding="utf-8")
+   warned = _apply_report(tmp_path, big, patch, "orig")["warnings"]       # 창 글이라도 원본 크기로 가린다
+   assert len(warned) == 1 and "원본 크기" in warned[0]
+   odd = tmp_path / "odd.png"
+   image.save(odd, image.new(9, 9))
+   warned = _apply_report(tmp_path, odd, patch, "odd")["warnings"]
+   assert len(warned) == 1 and "원본도 줄인 크기도 아니다" in warned[0]
+
+
+def test_cli_grid_apply_old_shrink_header_general_warning(tmp_path):
+   small = tmp_path / "s.png"
+   image.save(small, image.new(6, 4))
+   patch = tmp_path / "p.px"
+   patch.write_text("# 줄임 2\nr #FF0000\n\nr\n", encoding="utf-8")       # 옛 꼴 — 원본 크기 없음
+   warned = _apply_report(tmp_path, small, patch, "old")["warnings"]
+   assert len(warned) == 1 and "줄인 크기가 아니면" in warned[0]
+   plain = tmp_path / "plain.px"                                           # 줄임 없는 글 — warnings 칸 자체가 없다
+   plain.write_text("r #FF0000\n\nr\n", encoding="utf-8")
+   assert "warnings" not in _apply_report(tmp_path, small, plain, "plain")

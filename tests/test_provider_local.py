@@ -97,6 +97,7 @@ def test_dry_run_calls_nothing_and_writes_filled_workflow(fake, tmp_path):
    assert written["endpoint"] == fake.url.split("//")[1]
    assert "http://" not in json.dumps(written)
    assert sorted((tmp_path / "out").iterdir()) == [tmp_path / "out" / "local_request.json"]
+   assert "upload_background" not in written                            # 바탕을 올리는 건 inpaint 뿐
 
 
 def test_user_workflow_file_overrides_builtin(fake, tmp_path):

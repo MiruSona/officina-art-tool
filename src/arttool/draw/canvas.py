@@ -780,7 +780,7 @@ class Canvas:
       pick = old.picks.get(item) if old is not None and item in old.items else self._picks.get(item)
       picks = {item: dict(pick)} if pick is not None else {}
       # anchor_layer 겹이 겹 목록에서 사라졌으면 조용히 뺀다 (carry_meta 와 같은 규칙)
-      painted = {row.name for row in self.spec if not row.is_mask}
+      painted = set(self.painted)
       anchor_layer = self.anchor_layer if self.anchor is not None and self.anchor_layer in painted else None
       fresh = layerset.LayerSet(self.size, list(self.spec), items, self.template_name, self.meta, picks, self.anchor, anchor_layer)
       lay = layerset.carry_meta(old, fresh)

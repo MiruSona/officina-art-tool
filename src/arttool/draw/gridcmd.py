@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
@@ -92,13 +93,16 @@ def _shrink_window(source, shrink: int, box):
 
 
 def _show_text(canvas: Canvas, args, box, shrink: int) -> tuple[str, list[int]]:
-   """(격자 글, 찍은 그림 크기 [너비, 높이]). shrink ≥ 2 면 줄인 그림에서 찍고 `# 줄임 N` 줄을 맨 위에 단다."""
+   """(격자 글, 찍은 그림 크기 [너비, 높이]). shrink ≥ 2 면 줄인 그림에서 찍고 `# 줄임 N WxH` 줄을 맨 위에 단다.
+
+   WxH 는 원본 캔버스 크기다 — `grid apply` 가 이 글을 어느 크기 캔버스에 붙이는지 가릴 때 쓴다."""
    if shrink == 1:
       return canvas.to_grid(args.layer, box, args.rulers), list(canvas.size)
    source = canvas.layer(args.layer).arr if args.layer is not None else canvas.merged()
    small = _shrink_window(source, shrink, box)
    text = grid.to_text(small, canvas.legend, box, args.rulers)
-   return f"# 줄임 {shrink}\n{text}", [small.shape[1], small.shape[0]]
+   width, height = canvas.size
+   return f"# 줄임 {shrink} {width}x{height}\n{text}", [small.shape[1], small.shape[0]]
 
 
 def _too_big_hint(shrink: int) -> str:
@@ -120,9 +124,52 @@ def run_show(args) -> dict:
       if box is None and max(shown) > grid.MAX_SIDE:
          raise UsageError(f"{exc}. {_too_big_hint(shrink)}") from exc
       raise
-   return {"status": "ok", "in": str(args.in_path), "layer": args.layer, "shrink": shrink, "size": size,
-           "legend": {k: to_hex(rgb) for k, rgb in canvas.legend.letters().items()},
-           "grid_text": text}
+   result = {"status": "ok", "in": str(args.in_path), "layer": args.layer, "shrink": shrink, "size": size,
+             "legend": {k: to_hex(rgb) for k, rgb in canvas.legend.letters().items()},
+             "grid_text": text}
+   if args.no_legend:
+      # 창 여럿을 나란히 볼 때 범례 수십 줄이 끼지 않게 글에서만 뺀다.
+      # 글자표는 --legend 파일이 들고 있을 때만 JSON 칸도 뺀다 — 없으면 글자 → 색을 잃는다
+      result["grid_text"] = grid.strip_legend(text)
+      if args.legend_file:
+         del result["legend"]
+   return result
+
+
+# `# 줄임 N WxH`(새 꼴, WxH = 원본 크기) · `# 줄임 N`(옛 꼴) 둘 다 받는다
+_SHRINK_LINE = re.compile(r"^#\s*줄임\s+(\d+)(?:\s+(\d+)x(\d+))?\s*$")
+
+
+def _shrink_of(text: str) -> tuple[int, tuple[int, int] | None] | None:
+   """격자 글 머리의 (줄임 N, 원본 크기 또는 None). `# 줄임` 줄이 없으면 None."""
+   for line in text.splitlines():
+      found = _SHRINK_LINE.match(line.strip())
+      if found:
+         size = None if found.group(2) is None else (int(found.group(2)), int(found.group(3)))
+         return int(found.group(1)), size
+   return None
+
+
+def _shrink_warnings(header, canvas_size) -> list[str]:
+   """줄인 좌표 격자(`# 줄임 N`, N ≥ 2)를 어느 크기 캔버스에 붙이나 본다. 붙이기는 그대로 한다(경고만).
+
+   새 꼴(원본 크기 있음) : 캔버스 = 원본이면 「어긋난다」, = 줄인 크기(올림 나눗셈)면 경고 없음,
+   둘 다 아니면 「원본도 줄인 크기도 아니다」. 창 글이라도 원본 크기로 가린다.
+   옛 꼴(크기 없음) : 가릴 수 없어 일반 경고 한 줄.
+   """
+   n, original = header
+   cw, ch = canvas_size
+   if original is None:
+      return [f"격자 글이 `# 줄임 {n}` 이라 1/{n} 좌표다 — 캔버스 {cw}x{ch} 가 줄인 크기가 아니면 자리가 어긋난다"]
+   ow, oh = original
+   small = ((ow + n - 1) // n, (oh + n - 1) // n)
+   if (cw, ch) == small:
+      return []
+   if (cw, ch) == (ow, oh):
+      return [f"격자 글이 `# 줄임 {n}` 이라 1/{n} 좌표인데 캔버스 {cw}x{ch} 는 원본 크기다 — "
+              f"줄인 크기 {small[0]}x{small[1]} 캔버스에 붙이거나 --shrink 없이 다시 찍는다"]
+   return [f"격자 글이 `# 줄임 {n}` (원본 {ow}x{oh} → {small[0]}x{small[1]}) 인데 "
+           f"캔버스 {cw}x{ch} 는 원본도 줄인 크기도 아니다 — 자리가 맞는지 본다"]
 
 
 def _plan_writes(folder: Path | None, out: Path, canvas: Canvas, item: str) -> list[Path]:
@@ -156,8 +203,11 @@ def run_apply(args) -> dict:
          raise UsageError(f"--out 은 없거나 빈 폴더여야 한다 (원본 묶음을 안 덮는다) : {out}")
    name = _pick_layer(canvas, args.layer)
    at = None if args.at is None else tuple(_ints(args.at, 2, "--at"))
-   result = canvas.paste_grid(name, grid_file.read_text(encoding="utf-8"), at, args.mode)
+   text = grid_file.read_text(encoding="utf-8")
+   result = canvas.paste_grid(name, text, at, args.mode)
    at = canvas[name].last["at"]                     # --at 을 안 주면 글의 `# 원점` 줄 자리
+   header = _shrink_of(text)
+   warnings = _shrink_warnings(header, canvas.size) if header is not None and header[0] >= 2 else []
 
    dry_run = is_dry_run(args)
    writes = _plan_writes(folder, out, canvas, args.item)
@@ -171,7 +221,8 @@ def run_apply(args) -> dict:
          shutil.copytree(folder, out, dirs_exist_ok=True)   # 손 안 댄 겹 · 다른 그림은 바이트 그대로
          canvas.save(out, args.item)
    return {"status": "ok", **dry_run_fields(dry_run, writes), "in": str(args.in_path),
-           "out": None if dry_run else str(out), "layer": name, "at": at, "mode": args.mode, **result}
+           "out": None if dry_run else str(out), "layer": name, "at": at, "mode": args.mode, **result,
+           **({"warnings": warnings} if warnings else {})}
 
 
 SUBS = {"show": run_show, "apply": run_apply}

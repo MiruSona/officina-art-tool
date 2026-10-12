@@ -127,6 +127,15 @@ def test_rulers_single_digit_head():
    assert lines == ["  012", "0 ...", "1 ..."]
 
 
+def test_rulers_head_width_fixed_by_picture_height_across_windows():
+   """그림이 100 줄을 넘으면 y 0~ 창도 60~ 창도 줄머리가 3자리 — 고정 폭으로 잘라도 안 깨진다."""
+   arr = _arr(4, 130)
+   top = _grid_lines(to_text(arr, Legend(), box=(0, 0, 4, 2), rulers=True))
+   low = _grid_lines(to_text(arr, Legend(), box=(0, 98, 4, 101), rulers=True))
+   assert top == ["    0123", "  0 ....", "  1 ...."]
+   assert low == ["    0123", " 98 ....", " 99 ....", "100 ...."]
+
+
 def test_over_64_without_box_rejected_with_hint():
    with pytest.raises(ArtToolError, match="box="):
       to_text(_arr(65, 10), Legend())
