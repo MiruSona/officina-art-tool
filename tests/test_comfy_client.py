@@ -62,10 +62,10 @@ def test_closed_port_exits_5_without_path():
 
 
 def test_upload_sends_multipart_png(fake):
-   name = ComfyClient(fake.url).upload_image(PNG_STUB)
+   name = ComfyClient(fake.url).upload_image(PNG_STUB, "arttool_image.png")
    assert name == "arttool_up1.png"
    body = fake.state.bodies["/upload/image"]
-   assert b'name="image"; filename="arttool_' in body
+   assert b'name="image"; filename="arttool_image.png"' in body
    assert PNG_STUB in body
    assert b'name="overwrite"' in body
 
@@ -188,3 +188,51 @@ def test_view_query_escapes_server_name(fake):
    _, path = fake.state.calls[-1]
    assert path.startswith("/view?")
    assert "..%2Fx.png" in path and "a+b" in path
+
+
+@pytest.mark.parametrize("answer", [{"p1": ["x"]}, {"p1": {"status": "x", "outputs": {}}}])
+def test_odd_history_shapes_are_not_attribute_errors(fake, monkeypatch, answer):
+   client = ComfyClient(fake.url, timeout_s=0.1, poll_s=0.02)
+   monkeypatch.setattr(client, "_json", lambda method, path, **kw: answer if path.startswith("/history") else {})
+   entry_or_error = None
+   try:
+      entry_or_error = client.wait("p1")
+   except errors.ArtToolError as exc:
+      entry_or_error = exc
+   # 리스트 기록은 「아직 없음」으로 보고 시간 초과, 글자 status 는 빈 표로 보고 끝난 판으로 받는다
+   if answer["p1"] == ["x"]:
+      assert "시간 초과" in str(entry_or_error)
+   else:
+      assert entry_or_error == answer["p1"]
+
+
+def test_wait_cancels_on_any_error(fake, monkeypatch):
+   client = ComfyClient(fake.url)
+   cancelled = []
+   monkeypatch.setattr(client, "cancel", cancelled.append)
+
+   def boom(_):
+      raise RuntimeError("뜻밖의 오류")
+
+   monkeypatch.setattr(client, "_poll", boom)
+   with pytest.raises(RuntimeError):
+      client.wait("p1")
+   assert cancelled == ["p1"]
+
+
+def test_wait_survives_brief_unreachable(fake, monkeypatch):
+   client = ComfyClient(fake.url, poll_s=0.01)
+   real = client._json
+   blips = [2]
+
+   def flaky(method, path, **kw):
+      if path.startswith("/history") and blips[0]:
+         blips[0] -= 1
+         raise errors.ServerUnreachable("잠깐 끊김")
+      return real(method, path, **kw)
+
+   monkeypatch.setattr(client, "_json", flaky)
+   assert client.wait("p1")["status"]["completed"]
+   blips[0] = 3
+   with pytest.raises(errors.ServerUnreachable):
+      client.wait("p1")

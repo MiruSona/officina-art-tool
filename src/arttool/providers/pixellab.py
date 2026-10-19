@@ -45,12 +45,11 @@ class PixelLabProvider(Provider):
       self.require_kind(req)
       root = resolve_root(req.out_dir)
       request_file = safe_join(root, "pixellab_request.json")
-      write_json(request_file, req.to_json())
-
       warnings = []
       if self.unit_cost() is None:
          warnings.append(f"단가를 아직 안 쟀다. {ENV_COST} 를 넣으면 견적이 나온다")
       if req.dry_run:
+         write_json(request_file, req.to_json())
          meta = {"request": str(request_file), "images": req.count()}
          return ProviderResult(provider=self.name, cost_usd=self.estimate(req), meta=meta, warnings=warnings)
       raise ArtToolError("PixelLab 실제 호출은 아직 안 붙였다. --dry-run 으로 요청 JSON 과 견적만 낸다")

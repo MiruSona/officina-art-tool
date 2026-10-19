@@ -121,3 +121,17 @@ def test_bad_snap_exits_2(tmp_path, monkeypatch):
    monkeypatch.delenv(ENV_CONFIG, raising=False)
    with pytest.raises(errors.UsageError, match="snap"):
       load_settings("inpaint", {"snap": "box"})
+
+
+@pytest.mark.parametrize("spec", [{"size": 64}, {"frames": "a"}, {"directions": [1]}])
+def test_cli_bad_spec_types_exit_2(fake, tmp_path, capsys, spec):
+   assert cli.main(make(tmp_path, {"prompt": "p", "models": MODELS, **spec})) == errors.EXIT_USAGE
+   assert "Traceback" not in capsys.readouterr().err
+
+
+def test_cli_spec_not_object_exits_2(fake, tmp_path, capsys):
+   spec_file = tmp_path / "spec.json"
+   spec_file.write_text("[1, 2]", encoding="utf-8")
+   argv = ["--json", "provider", "make", "--provider", "local", "--kind", "prop", "--spec", str(spec_file),
+           "--out", str(tmp_path / "out")]
+   assert cli.main(argv) == errors.EXIT_USAGE

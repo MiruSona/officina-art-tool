@@ -528,3 +528,14 @@ def test_cli_grid_apply_old_shrink_header_general_warning(tmp_path):
    plain = tmp_path / "plain.px"                                           # 줄임 없는 글 — warnings 칸 자체가 없다
    plain.write_text("r #FF0000\n\nr\n", encoding="utf-8")
    assert "warnings" not in _apply_report(tmp_path, small, plain, "plain")
+
+
+def test_cli_grid_apply_accepts_bom(tmp_path):
+   """PowerShell 이 BOM 을 붙여 저장한 격자 글도 받는다."""
+   png = tmp_path / "a.png"
+   image.save(png, _sample())
+   patch = tmp_path / "p.px"
+   patch.write_text("r #FF0000\n\nr\n", encoding="utf-8-sig")
+   out = tmp_path / "b.png"
+   assert cli.main(["grid", "apply", "--in", str(png), "--grid", str(patch), "--at", "0,0", "--out", str(out)]) == 0
+   assert image.load(out)[0, 0].tolist() == [255, 0, 0, 255]

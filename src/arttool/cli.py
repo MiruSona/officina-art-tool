@@ -1153,13 +1153,22 @@ def _run_provider(args) -> dict:
       return {"default": providers.DEFAULT, "providers": providers.describe()}
 
    spec = read_json(args.spec) if args.spec else {}
+   if not isinstance(spec, dict):
+      raise UsageError(f"spec 맨 위는 표(키: 값)여야 한다 : {args.spec}")
+   # 사람이 쓴 spec 값만 감싼다 — 생성자 쪽 TypeError(코드 버그)는 그대로 터지게 둔다
+   try:
+      size = tuple(spec.get("size", (64, 64)))
+      directions = int(spec.get("directions", 4))
+      frames = int(spec.get("frames", 1))
+   except (TypeError, ValueError) as exc:
+      raise UsageError(f"spec 값의 꼴이 틀렸다 (size 는 [가로, 세로], directions · frames 는 정수) : {exc}") from None
    req = providers.ProviderRequest(
       kind=args.kind,
       out_dir=Path(args.out_dir),
-      size=tuple(spec.get("size", (64, 64))),
+      size=size,
       projection=spec.get("projection", "quarter"),
-      directions=int(spec.get("directions", 4)),
-      frames=int(spec.get("frames", 1)),
+      directions=directions,
+      frames=frames,
       reference=spec.get("reference"),
       prompt=spec.get("prompt", ""),
       seed=spec.get("seed"),

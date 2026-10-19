@@ -110,3 +110,26 @@ def test_chain_make_cutout_merge_check(fake, tmp_path, capsys):
    assert read_json(report)["status"] in ("ok", "warn")
    out = image.load(merged / "prop_000.png")
    assert out[0, 0, 3] == 0 and image.count_colors(out) <= 16
+
+
+def test_rerun_into_used_folder_exits_2(fake, tmp_path):
+   providers.get("local").make(prop(tmp_path, prompt="p"))
+   before = (tmp_path / "out" / "prop_000.png").read_bytes()
+   with pytest.raises(errors.UsageError, match="빈 폴더") as caught:
+      providers.get("local").make(prop(tmp_path, prompt="other"))
+   assert caught.value.exit_code == errors.EXIT_USAGE
+   assert (tmp_path / "out" / "prop_000.png").read_bytes() == before   # 지난 판 그림이 그대로
+
+
+def test_double_size_return_crops_padding_proportionally(fake, tmp_path):
+   # size 63x64 → 배율 8 → 504x512 를 512x512 로 덧댄다. 서버가 2배(1024)로 돌려주면 1008 까지만 쓴다
+   arr = np.zeros((1024, 1024, 3), dtype=np.uint8)
+   arr[:, :1008] = (0, 200, 0)
+   arr[:, 1008:] = (255, 0, 255)   # 덧댄 칸 — 결과에 섞이면 안 된다
+   buffer = io.BytesIO()
+   Image.fromarray(arr, mode="RGB").save(buffer, format="PNG")
+   fake.state.view_body = buffer.getvalue()
+   result = providers.get("local").make(prop(tmp_path, prompt="p", size=(63, 64)))
+   out = image.load(result.images[0])
+   assert image.size(out) == (63, 64)
+   assert (out[:, :, :3] == (0, 200, 0)).all()

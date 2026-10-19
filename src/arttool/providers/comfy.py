@@ -64,9 +64,11 @@ class ComfyClient:
       if missing:
          raise ArtToolError(clean(f"이 노드가 서버에 없다 : {', '.join(missing)}"))
 
-   def upload_image(self, data: bytes) -> str:
-      """그림 한 장을 input 폴더에 올리고 LoadImage 에 넣을 이름을 돌려준다."""
-      name = f"arttool_{uuid.uuid4().hex[:12]}.png"
+   def upload_image(self, data: bytes, name: str) -> str:
+      """그림 한 장을 input 폴더에 올리고 LoadImage 에 넣을 이름을 돌려준다.
+
+      같은 이름은 overwrite 로 덮는다 — input 폴더에 판마다 찌꺼기가 안 쌓인다.
+      """
       boundary = uuid.uuid4().hex
       headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
       answer = self._json("POST", "/upload/image", body=multipart(boundary, name, data), headers=headers)
@@ -93,8 +95,8 @@ class ComfyClient:
       """끝날 때까지 /history 를 폴링해 그 판의 기록을 돌려준다. 시간 초과 · Ctrl+C 면 우리 판을 치우고 멈춘다."""
       try:
          return self._poll(prompt_id)
-      except KeyboardInterrupt:
-         self.cancel(prompt_id)
+      except BaseException:
+         self.cancel(prompt_id)   # 시간 초과 · 실패 · Ctrl+C 무엇이든 서버에 우리 판을 남기지 않는다
          raise
 
    def cancel(self, prompt_id: str) -> None:
@@ -124,19 +126,22 @@ class ComfyClient:
       while True:
          try:
             entry = self._json("GET", path).get(prompt_id)
-         except ResponseCut:
+         except (ResponseCut, ServerUnreachable):   # 같은 망의 잠깐 끊김으로 긴 판 전체를 버리지 않는다
             cuts += 1
             if cuts > POLL_RETRIES:
                raise
             entry = None
+         if not isinstance(entry, dict):
+            entry = None
          if entry:
-            status = entry.get("status") or {}
+            status = entry.get("status")
+            if not isinstance(status, dict):
+               status = {}
             if status.get("status_str") == "error":
                raise ArtToolError(f"ComfyUI 판이 실패했다 : {history_error(status)}")
             if status.get("completed", True):
                return entry
          if time.monotonic() >= deadline:
-            self.cancel(prompt_id)
             raise ArtToolError(f"시간 초과 : {self.timeout_s:g}초 안에 안 끝났다 (우리 판을 줄에서 치웠다)")
          time.sleep(self.poll_s)
 

@@ -15,8 +15,12 @@ def write_json(path: str | os.PathLike, data: dict) -> None:
    ensure_parent(file)
    # 같은 폴더에 두 프로세스가 동시에 써도 서로의 tmp 를 안 덮게 PID 를 붙인다.
    tmp = file.with_name(f"{file.name}.{os.getpid()}.tmp")
-   tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-   os.replace(tmp, file)
+   try:
+      tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+      os.replace(tmp, file)
+   except BaseException:
+      tmp.unlink(missing_ok=True)      # 실패하면 tmp 찌꺼기를 남기지 않는다
+      raise
 
 
 def read_json(path: str | os.PathLike) -> dict:

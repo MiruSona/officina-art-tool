@@ -1,6 +1,7 @@
 """local 제공자 inpaint 흐름 시험 : 밖 바이트 동일 · 안쪽 색 · 크기 검사 · 손질 함수."""
 
 import io
+import os
 
 import numpy as np
 import pytest
@@ -98,6 +99,8 @@ def test_uploads_source_and_mask_scaled_up(fake, tmp_path):
    sent = fake.state.prompts[0]
    names = {node["inputs"]["image"] for node in sent.values() if node["class_type"] == "LoadImage"}
    assert names == {"arttool_up1.png", "arttool_up2.png"}
+   assert f'filename="arttool_image_{os.getpid()}.png"'.encode() in fake.state.uploads[0]   # 프로세스마다 다른 이름 + overwrite
+   assert f'filename="arttool_mask_{os.getpid()}.png"'.encode() in fake.state.uploads[1]
    assert b"\x89PNG" in fake.state.uploads[0]
 
 
@@ -288,7 +291,9 @@ def test_clear_runs_before_snap_source(fake, tmp_path):
    result = providers.get("local").make(inpaint(tmp_path))
    out = image.load(result.images[0])
    assert (out[was_clear][:, 3] == 0).all()   # 가장 밝은 원본 색 #E6E6E6 으로 안 눌린다
-   off = providers.get("local").make(inpaint(tmp_path, options={"clear_background": False}))
+   off_req = inpaint(tmp_path, options={"clear_background": False})
+   off_req.out_dir = tmp_path / "off"   # 같은 폴더에 다시 쓰면 지난 판 보호로 멈춘다
+   off = providers.get("local").make(off_req)
    out_off = image.load(off.images[0])
    assert (out_off[was_clear] == (230, 230, 230, 255)).all()   # 끄면 10-12 부작용 그대로
 

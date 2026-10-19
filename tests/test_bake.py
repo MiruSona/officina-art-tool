@@ -94,3 +94,16 @@ def test_bake_refuses_skipped_report(tmp_path):
       bake.bake(prof, out, tmp_path / "unity")
    bake.bake(prof, out, tmp_path / "unity", force=True)
    assert read_json(tmp_path / "unity" / "sprite_manifest.json")["forced"] is True
+
+
+def test_rebake_removes_stale_anchors_and_lut(tmp_path):
+   prof, out = build(tmp_path)
+   write_json(out / "anchors.json", {"version": 1, "profile": prof.name, "frame": [16, 16], "points": []})
+   unity = tmp_path / "unity"
+   bake.bake(prof, out, unity)
+   assert (unity / "anchors.json").is_file() and (unity / "palette_lut.png").is_file()
+   (out / "anchors.json").unlink()
+   prof.palette["swap"] = "bake"
+   result = bake.bake(prof, out, unity)
+   assert "palette_lut.png" not in result["files"]
+   assert not (unity / "anchors.json").exists() and not (unity / "palette_lut.png").exists()

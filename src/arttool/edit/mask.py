@@ -24,7 +24,7 @@ WHITE = (255, 255, 255, 255)
 
 def _shape(path: str) -> dict:
    try:
-      data = json.loads(Path(path).read_text(encoding="utf-8"))
+      data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
    except (OSError, ValueError) as error:
       raise UsageError(f"--from-shape 를 못 읽는다 : {path} ({error})") from None
    shape = data.get("shape") if isinstance(data, dict) else None

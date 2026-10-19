@@ -203,7 +203,7 @@ def run_apply(args) -> dict:
          raise UsageError(f"--out 은 없거나 빈 폴더여야 한다 (원본 묶음을 안 덮는다) : {out}")
    name = _pick_layer(canvas, args.layer)
    at = None if args.at is None else tuple(_ints(args.at, 2, "--at"))
-   text = grid_file.read_text(encoding="utf-8")
+   text = grid_file.read_text(encoding="utf-8-sig")
    result = canvas.paste_grid(name, text, at, args.mode)
    at = canvas[name].last["at"]                     # --at 을 안 주면 글의 `# 원점` 줄 자리
    header = _shrink_of(text)

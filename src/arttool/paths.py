@@ -94,8 +94,12 @@ def write_text(path: str | os.PathLike, text: str) -> Path:
    file = Path(path)
    ensure_parent(file)
    tmp = file.with_name(f"{file.name}.{os.getpid()}.tmp")
-   tmp.write_text(text, encoding="utf-8", newline=chr(10))
-   os.replace(tmp, file)
+   try:
+      tmp.write_text(text, encoding="utf-8", newline=chr(10))
+      os.replace(tmp, file)
+   except BaseException:
+      tmp.unlink(missing_ok=True)      # 실패하면 tmp 찌꺼기를 남기지 않는다
+      raise
    return file
 
 

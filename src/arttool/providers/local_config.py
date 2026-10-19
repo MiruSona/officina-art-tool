@@ -55,7 +55,7 @@ def read_config() -> dict:
    if not path.is_file():
       raise UsageError(f"{ENV_CONFIG} 가 가리키는 설정 파일이 없다 : {path.name}")
    try:
-      data = yaml.safe_load(path.read_text(encoding="utf-8"))
+      data = yaml.safe_load(path.read_text(encoding="utf-8-sig"))
    except (UnicodeDecodeError, yaml.YAMLError) as exc:
       raise UsageError(f"local 설정 파일을 못 읽었다 : {path.name} ({exc.__class__.__name__})") from None
    if data is None:

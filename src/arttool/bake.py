@@ -160,6 +160,7 @@ def bake(prof: Profile, build_dir: str | Path, out_dir: str | Path, namespace: s
 def _bake_anchors(build: Path, root: Path) -> list[str]:
    source = build / "anchors.json"
    if not source.is_file():
+      safe_join(root, "anchors.json").unlink(missing_ok=True)   # 지난 판 것이 남으면 Unity 가 옛 값을 읽는다
       return []
    write_json(safe_join(root, "anchors.json"), read_json(source))
    return ["anchors.json"]
@@ -168,6 +169,8 @@ def _bake_anchors(build: Path, root: Path) -> list[str]:
 def _bake_palette(prof: Profile, root: Path, namespace: str) -> list[str]:
    ramps_path = prof.ramps_path()
    if ramps_path is None or not ramps_path.is_file():
+      for stale in ("PaletteRampAsset.json", "palette_lut.png"):   # 지난 판 것이 남으면 Unity 가 옛 LUT 를 읽는다
+         safe_join(root, stale).unlink(missing_ok=True)
       return []
 
    ramps = palette.load_ramps(ramps_path)
@@ -179,4 +182,6 @@ def _bake_palette(prof: Profile, root: Path, namespace: str) -> list[str]:
    if prof.palette["swap"] in ("runtime_lut", "both"):
       palette.save_lut(safe_join(root, "palette_lut.png"), ramps)
       made.append("palette_lut.png")
+   else:
+      safe_join(root, "palette_lut.png").unlink(missing_ok=True)
    return made

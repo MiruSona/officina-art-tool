@@ -5,13 +5,14 @@
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
 import numpy as np
 
 from .. import image
-from ..errors import ArtToolError
+from ..errors import ArtToolError, UsageError
 from ..jsonio import write_json
 from ..paths import resolve_root, safe_join
 from . import postproc, workflow
@@ -19,6 +20,9 @@ from .base import Provider, ProviderRequest, ProviderResult
 from .comfy import ComfyClient
 from .local_config import ENV_ENDPOINT, LocalSettings, configured_endpoint, load_settings
 from .local_plan import UPLOAD_BACKGROUND, UPLOAD_STAND_IN, Plan, build_plan
+
+# 같은 서버를 여러 세션이 함께 써도 남의 원본을 덮지 않게 프로세스마다 이름을 가른다
+UPLOAD_NAMES = {"image": f"arttool_image_{os.getpid()}.png", "mask": f"arttool_mask_{os.getpid()}.png"}
 
 __all__ = ["ENV_ENDPOINT", "LocalProvider"]
 
@@ -45,6 +49,10 @@ class LocalProvider(Provider):
       root = resolve_root(req.out_dir)
       if req.dry_run:
          return self._dry_run(req, settings, plan, root)
+      # 이름이 늘 prop_000 부터라 지난 판 위에 쓰면 일부만 덮여 결과 JSON 의 seed 와 그림이 어긋난다
+      taken = [name for name in plan.would_write() if safe_join(root, name).exists()]
+      if taken:
+         raise UsageError(f"출력 폴더에 지난 판 파일이 있다 : {taken[0]}{f' 외 {len(taken) - 1}개' if len(taken) > 1 else ''}. 빈 폴더를 준다 ({root})")
       return self._run(settings, plan, root)
 
    def _dry_run(self, req: ProviderRequest, settings: LocalSettings, plan: Plan, root: Path) -> ProviderResult:
@@ -120,8 +128,8 @@ class LocalProvider(Provider):
       source = np.dstack([np.rint(rgb).astype(np.uint8), np.full(source.shape[:2], 255, dtype=np.uint8)])
       mask = postproc.upscale_nearest(postproc.mask_picture(plan.area), plan.factor)
       mask = postproc.pad_to(mask, plan.work_size)
-      image_name = client.upload_image(postproc.to_png(source))
-      return {"image": image_name, "mask": client.upload_image(postproc.to_png(mask))}
+      image_name = client.upload_image(postproc.to_png(source), UPLOAD_NAMES["image"])
+      return {"image": image_name, "mask": client.upload_image(postproc.to_png(mask), UPLOAD_NAMES["mask"])}
 
 
 def _one_variant(client, plan: Plan, root: Path, index: int, uploads: dict, save_ids: list[str], warnings: list[str]):
@@ -136,9 +144,11 @@ def _one_variant(client, plan: Plan, root: Path, index: int, uploads: dict, save
    raw = postproc.from_png(client.fetch_image(*found[0]), max_side=2 * max(plan.work_size))
    raw_path = safe_join(root, plan.raw_name(index, image.size(raw)[0]))
    image.save(raw_path, raw)
-   if image.size(raw) == plan.work_size:
-      width, height = plan.scaled_size
-      raw = raw[:height, :width]
+   # 워크플로가 다른 크기로 돌려줘도 덧댄 칸은 같은 비율로 잘라 낸다 — 덧댄 칸까지 줄이면 그림이 밀린다
+   raw_w, raw_h = image.size(raw)
+   work_w, work_h = plan.work_size
+   width, height = plan.scaled_size
+   raw = raw[:round(height * raw_h / work_h), :round(width * raw_w / work_w)]
    small = postproc.downscale_box(raw, plan.size)
    changed, cleared = 0, 0
    if plan.kind == "inpaint":
@@ -179,10 +189,13 @@ def _clear_request(plan: Plan) -> dict | None:
 
 def _output_images(entry: dict, save_ids: list[str]) -> list[tuple[str, str, str]]:
    """history 기록에서 SaveImage 노드 결과를 id 순으로 (파일 이름, 하위 폴더, 종류) 로 모은다."""
-   outputs = entry.get("outputs") or {}
+   outputs = entry.get("outputs")
+   if not isinstance(outputs, dict):
+      outputs = {}
    found = []
    for node_id in save_ids:
-      for item in (outputs.get(node_id) or {}).get("images") or []:
+      node = outputs.get(node_id)
+      for item in (node.get("images") if isinstance(node, dict) else None) or []:
          if isinstance(item, dict) and isinstance(item.get("filename"), str):
             found.append((item["filename"], str(item.get("subfolder") or ""), str(item.get("type") or "output")))
    if not found:
