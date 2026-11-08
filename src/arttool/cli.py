@@ -433,6 +433,7 @@ def _add_outline(subs) -> None:
    node.add_argument("--color", dest="color", help="--mode solid 의 색 #RRGGBB (다른 mode 에 주면 종료 2)")
    node.add_argument("--light", dest="light", default="top_left", help="selout+light 의 빛 방향 (기본 top_left)")
    node.add_argument("--grow", dest="grow", action="store_true", help="그리기 전에 캔버스를 사방 --width 만큼 늘린다")
+   node.add_argument("--steps", dest="steps", type=int, help="selout 깊이 1 ~ 8 : 몇 단 어둡게 (기본 2, selout+light 빛 쪽은 steps - 1)")
    node.add_argument("--report", dest="report", help="보고 JSON")
 
 

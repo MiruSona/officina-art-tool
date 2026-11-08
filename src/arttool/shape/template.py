@@ -243,11 +243,15 @@ def expand_template(template: dict, preset: str | None = None, params: dict | No
    return _fill(body, values, "spec")
 
 
+# 틀 명세에 틀 밖에서 덧붙일 수 있는 칸 (펼친 명세에 그대로 옮긴다)
+OUTSIDE_KEYS = ("texture", "palette_lock")
+
+
 def expand(data: dict, base_dir: str | os.PathLike = ".", where: str = "명세") -> dict:
    """`{"template", "preset"?, "params"?}` 명세 → 보통 명세 사전. 틀 경로는 명세 파일 폴더 기준이다."""
-   extra = sorted(set(data) - {"template", "preset", "params", "note", "texture"})
+   extra = sorted(set(data) - {"template", "preset", "params", "note", *OUTSIDE_KEYS})
    if extra:
-      raise _err(where, f"틀 명세에는 template · preset · params · note · texture 만 둔다 : {', '.join(extra)}")
+      raise _err(where, f"틀 명세에는 template · preset · params · note · {' · '.join(OUTSIDE_KEYS)} 만 둔다 : {', '.join(extra)}")
    ref = data["template"]
    if not isinstance(ref, str) or not ref:
       raise _err(f"{where}.template", f"틀 파일 경로다 : {ref!r}")
@@ -263,7 +267,8 @@ def expand(data: dict, base_dir: str | os.PathLike = ".", where: str = "명세")
    if preset is not None and not isinstance(preset, str):
       raise _err(f"{where}.preset", f"묶음 이름이다 : {preset!r}")
    out = expand_template(template, preset, data.get("params") or {}, where)
-   if "texture" in data:
-      # 질감은 틀 밖에서 붙인다 — 모양(틀 값)은 그대로 두고 질감만 더할 수 있게.
-      out = {**out, "texture": data["texture"]}
+   for key in OUTSIDE_KEYS:
+      if key in data:
+         # 질감 · 팔레트 잠금은 틀 밖에서 붙인다 — 모양(틀 값)은 그대로 두고 마무리만 더할 수 있게.
+         out = {**out, key: data[key]}
    return out

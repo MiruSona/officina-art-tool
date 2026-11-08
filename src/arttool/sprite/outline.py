@@ -23,6 +23,17 @@ from ..profile import load_profile_args
 VERSION = 1
 
 
+def _steps(args, mode: str) -> int | None:
+   steps = getattr(args, "steps", None)
+   if steps is None:
+      return None
+   if not isinstance(steps, int) or isinstance(steps, bool) or not 1 <= steps <= 8:
+      raise UsageError(f"--steps 는 1 ~ 8 정수다 : {steps!r}")
+   if not mode.startswith("selout"):
+      raise UsageError("--steps 는 --mode selout · selout+light 일 때만 쓴다")
+   return steps
+
+
 def _options(args) -> tuple[str, str, int, str | None, str, bool]:
    mode = getattr(args, "mode", "black") or "black"
    where = getattr(args, "where", "outside") or "outside"
@@ -61,6 +72,7 @@ def _ramps(args, mode: str):
 
 def run(args) -> dict:
    mode, where, width, color, light, grow = _options(args)
+   steps = _steps(args, mode)
    ramps = _ramps(args, mode)
    inputs = list_inputs(args.in_dir)
    outs = plan_outputs(inputs, args.in_dir, args.out_dir)
@@ -77,7 +89,7 @@ def run(args) -> dict:
       padded[width:width + height, width:width + width_px] = arr
       notes: list = []
       try:
-         cells = plan(padded, mode, ramps=ramps, light=light, where=where, color=color, width=width, notes=notes)
+         cells = plan(padded, mode, ramps=ramps, light=light, where=where, color=color, width=width, notes=notes, steps=steps)
       except ArtToolError as exc:
          raise UsageError(str(exc)) from exc
       if grow:
@@ -115,6 +127,7 @@ def run(args) -> dict:
       "mode": mode,
       "where": where,
       "width": width,
+      **({"steps": steps} if steps is not None else {}),
       "grow": grow,
       "images": rows,
       "warnings": warnings,

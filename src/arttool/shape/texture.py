@@ -11,10 +11,10 @@
 
 | kind | 하는 일 | 칸 |
 | --- | --- | --- |
-| `wood_grain` | 도형마다 긴 쪽(판 방향)을 따라 끊어진 결 줄. 줄은 반 단 어둡게(가끔 밝게), 가끔 옹이(한 단) | `density` 줄 비율 · `length` 토막 길이 · `gap` 끊김 비율 · `light` 밝은 줄 비율 · `knots` 100칸당 옹이 · `dir` x/y/auto |
+| `wood_grain` | 도형마다 긴 쪽(판 방향)을 따라 끊어진 결 줄. 줄은 반 단 어둡게(가끔 밝게), 가끔 옹이(한 단) | `density` 줄 비율 · `length` 토막 길이 · `gap` 끊김 비율 · `light` 밝은 줄 비율 · `knots` 100칸당 옹이 · `dir` x/y/auto/around |
 | `weave` | 짚 · 바구니. 칸 `period` 마다 방향이 엇갈리는 사선 줄(짜임) | `period` · `light` 가운데 밝은 줄을 넣나 |
 | `mottle` | 잎 · 도기 · 칠판. 값 잡음 덩어리 얼룩 — 낮은 곳 어둡게, 높은 곳 밝게, 아주 낮은 곳 두 배 | `cell` 덩어리 크기 · `share` 어둡게/밝게 몫 · `deep` 두 배 몫 |
-| `fold` | 천. 짧은 사선 · 곡선 주름 그늘(+ 빛 쪽 옆 한 칸 밝게). `style: mass` 는 넓은 그늘 판 + 빛 쪽 한 칸 밝은 테 | `density` · `length` · `lean` 기울기 · `bend` 휨 · `light` · `style` line/mass · `width` 판 너비 |
+| `fold` | 천. 짧은 사선 · 곡선 주름 그늘(+ 빛 쪽 옆 한 칸 밝게). `style: mass` 는 넓은 그늘 판 + 빛 쪽 한 칸 밝은 테 | `density` · `length` · `lean` 기울기 · `bend` 휨 · `light` · `style` line/mass · `width` 판 너비 · `spots` 자리 지정 · `tone` shade/light |
 | `hue_side` | 램프 곁색 : 같은 밝기에서 색조만 ±`shift`° 돈 색을 덩어리로 섞는다 (게임 그림 색 수 흉내) | `shift` · `share` · `cell` |
 
 - `on` 은 재질 이름 또는 그 목록이다. `*` · `?` 글자 맞추기(fnmatch)가 된다 (`*.wood`).
@@ -25,25 +25,35 @@
   밝은 결은 가운데 단에만 남긴다(맨 밝은 단은 비운다). 하이라이트 칸(재질 `highlight` 색)에는 질감을 안 얹는다.
   `form` : `light` 와 같되 빛 정도를 노멀(n·빛)로 부드럽게 재고, 둥근 도형은 얼룩 · 곁색 · 결이 둘레를 따라 휜다
   (도형 가운데를 축으로 한 각도 · 반지름 좌표로 잡음을 뽑는다).
+- `fold` `style: mass` 에 `spots` ([[x, y] 또는 [x, y, 길이]], 그림 칸)을 주면 해시로 뿌리지 않고 그 자리에만 판을 놓는다
+  (어깨 아래 · 팔꿈치 · 주머니 위). `tone: light` 는 그늘 대신 밝은 판(테 없음) — 머리 빛 띠를 자리 지정으로 놓는다 (보완 고리 1).
+  `tone: band` 는 빛 띠를 「한 색」으로 : 띠 안 칸은 재질과 머리결 줄을 가리지 않고 모두 `on` 첫 재질의 가장 많은 색을
+  `strength` 단 밝힌 한 색이 된다 — 띠 자리에서 머리결 줄이 빠지고 회색 잡음으로 안 부서진다 (보완 고리 2, 검은 머리).
+- `dir: around` (wood_grain) 는 `follow` 와 상관없이 둥근 도형의 결을 둘레를 따라 돌린다 — 둥근 테 · 바퀴 (보완 고리 3).
+  `follow: form` 은 원래도 둘레로 돌지만, 테처럼 앞을 보는 판은 노멀 빛이 0 에 가까워 `light` 를 써야 결이 산다.
+- `ramp_extra` (색 목록) 는 한 단 옮길 때 이웃 색을 재질 램프와 이 색들 가운데서 찾는다 — 한 색 재질(틀 색 갈이)에서
+  주름 그늘이 셈한 색(파랑 쪽으로 돈 회색)이 아니라 정해 둔 「한 단 어두운 같은 계열 색」이 되게 한다 (보완 고리 3, 앞치마).
 - 모두 정수 해시라 `seed` 가 같으면 언제나 같은 그림이다. `texture` 가 없으면 렌더 결과는 질감 전과 칸까지 같다.
 """
 
 from __future__ import annotations
 
 import colorsys
+import dataclasses
 import fnmatch
 from dataclasses import dataclass, field
 
 import numpy as np
 
 from ..errors import ArtToolError
-from ..palette import RGB
+from ..palette import RGB, parse_hex
 from .pattern import hash01
 
 KINDS = ("wood_grain", "weave", "mottle", "fold", "hue_side")
-DIRS = ("auto", "x", "y")
+DIRS = ("auto", "x", "y", "around")
 FOLLOWS = ("none", "light", "form")
 FOLD_STYLES = ("line", "mass")
+TONES = ("shade", "light", "band")
 LIGHT_DX = {"top_left": -1, "top": 0, "top_right": 1}   # 빛이 오는 쪽 x (그림 좌표)
 ROUND_ASPECT = 1.6       # 도형 칸 상자의 긴 변 / 짧은 변이 이 아래면 「둥근 도형」 — form 이 둘레 좌표를 쓴다
 CURVE_STRETCH = 2.5      # form : 얼룩을 둘레 방향으로 이만큼 늘인다
@@ -76,6 +86,9 @@ class TexRule:
    fade: float = 0.85
    style: str = "line"
    width: int = 3
+   spots: list = field(default_factory=list)   # fold mass : 자리 지정 [[x, y] 또는 [x, y, 길이]] (그림 칸). 주면 density 대신
+   tone: str = "shade"                          # fold mass : shade 그늘 판 · light 빛 띠 (밝게, 테 없음)
+   ramp_extra: list = field(default_factory=list)  # 이웃 색 찾기에 재질 램프와 함께 쓸 색 (보완 고리 3). 비면 재질 램프만
    extra: dict = field(default_factory=dict)
 
 
@@ -132,6 +145,25 @@ def parse(raw, materials: dict, path: str = "texture") -> list[TexRule]:
       width = data.get("width", 3)
       if isinstance(width, bool) or not isinstance(width, int) or not 1 <= width <= 8:
          raise _err(f"{here}.width", f"1 ~ 8 정수다 : {width!r}")
+      spots = data.get("spots", [])
+      if not isinstance(spots, list) or not all(
+            isinstance(q, list) and len(q) in (2, 3) and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in q)
+            for q in spots):
+         raise _err(f"{here}.spots", "[x, y] 또는 [x, y, 길이] 목록이다 (그림 칸)")
+      tone = data.get("tone", "shade")
+      if tone not in TONES:
+         raise _err(f"{here}.tone", f"{' · '.join(TONES)} 중 하나다 : {tone!r}")
+      if (spots or tone != "shade") and style != "mass":
+         raise _err(f"{here}.spots", "spots · tone 은 fold style mass 에만 쓴다")
+      if direction == "around" and kind != "wood_grain":
+         raise _err(f"{here}.dir", "around 는 wood_grain 에만 쓴다")
+      extra = data.get("ramp_extra", [])
+      if not isinstance(extra, list) or not all(isinstance(c, str) for c in extra):
+         raise _err(f"{here}.ramp_extra", "#RRGGBB 색 목록이다")
+      try:
+         extra = [parse_hex(c) for c in extra]
+      except Exception as exc:   # noqa: BLE001 — 잘못된 색 글자
+         raise _err(f"{here}.ramp_extra", f"#RRGGBB 색 목록이다 : {exc}") from None
       rule = TexRule(
          kind, on, seed,
          strength=_num(data, "strength", here, 0.5, 0.05, 2.0),
@@ -148,6 +180,7 @@ def parse(raw, materials: dict, path: str = "texture") -> list[TexRule]:
          bend=_num(data, "bend", here, 0.0, -4.0, 4.0),
          shift=_num(data, "shift", here, 10.0, 0.0, 45.0),
          follow=follow, fade=_num(data, "fade", here, 0.85, 0.0, 1.0), style=style, width=width,
+         spots=[[float(v) for v in q] for q in spots], tone=tone, ramp_extra=extra,
       )
       out.append(rule)
    return out
@@ -342,7 +375,7 @@ def _wood(rule: TexRule, ys, xs, owner, ctx: _Ctx | None = None) -> np.ndarray:
    out = np.zeros(len(xs))
    prims = owner[ys, xs]
    cu = cv = rnd = None
-   if rule.follow == "form" and ctx is not None:
+   if (rule.follow == "form" and ctx is not None) or rule.dir == "around":
       cu, cv, rnd = _polar(ys, xs, owner)
    for p in np.unique(prims):
       sel = prims == p
@@ -353,7 +386,7 @@ def _wood(rule: TexRule, ys, xs, owner, ctx: _Ctx | None = None) -> np.ndarray:
          u = np.floor(cu[sel]).astype(np.int64)
          v = np.floor(cv[sel]).astype(np.int64)
       else:
-         along_x = rule.dir == "x" or (rule.dir == "auto" and w >= h)
+         along_x = rule.dir == "x" or (rule.dir in ("auto", "around") and w >= h)   # around : 둥글지 않으면 auto
          u = px if along_x else py
          v = (py - py.min()) if along_x else (px - px.min())
       pid = np.full(len(u), int(p) + 1, dtype=np.int64)
@@ -432,14 +465,22 @@ def _fold_mass(rule: TexRule, ys, xs, own: np.ndarray, light_dx: int) -> np.ndar
    게임 옷 주름은 가는 줄이 아니라 2 ~ 3칸 너비 그늘 조각이다 (손님 셔츠 실측). 판끼리 겹치면 하나로 뭉친다.
    """
    h, w = own.shape
-   start = _h(rule.seed, xs, ys) < rule.density
    shade = np.zeros((h, w), dtype=bool)
    rim = np.zeros((h, w), dtype=bool)
    side = light_dx if light_dx != 0 else -1
-   for y0, x0, r1, r2 in zip(ys[start], xs[start], _h(rule.seed + 1, xs, ys)[start], _h(rule.seed + 2, xs, ys)[start]):
-      if shade[y0, x0]:
+   if rule.spots:
+      # 자리 지정 : 적은 자리에서만 판을 늘어뜨린다 (어깨 아래 · 팔꿈치 · 주머니 위 · 머리 빛 띠). 해시는 모양 흔들림에만
+      pts = np.array([[int(round(q[0])), int(round(q[1]))] for q in rule.spots], dtype=np.int64)
+      starts = [(int(y), int(x), r1, r2, q[2] if len(q) > 2 else None) for (x, y), q, r1, r2 in
+                zip(pts, rule.spots, _h(rule.seed + 1, pts[:, 0], pts[:, 1]), _h(rule.seed + 2, pts[:, 0], pts[:, 1]))]
+   else:
+      start = _h(rule.seed, xs, ys) < rule.density
+      starts = [(y0, x0, r1, r2, None) for y0, x0, r1, r2 in
+                zip(ys[start], xs[start], _h(rule.seed + 1, xs, ys)[start], _h(rule.seed + 2, xs, ys)[start])]
+   for y0, x0, r1, r2, fixed in starts:
+      if not (0 <= y0 < h and 0 <= x0 < w) or (shade[y0, x0] and not rule.spots):
          continue
-      length = max(3, int(round(rule.length * (0.6 + 0.8 * r1))))
+      length = max(3, int(round(rule.length * (0.6 + 0.8 * r1)))) if fixed is None else max(2, int(round(fixed)))
       lean = rule.lean * (r2 - 0.5)
       for k in range(length):
          t = k / max(1, length - 1)
@@ -453,8 +494,11 @@ def _fold_mass(rule: TexRule, ys, xs, own: np.ndarray, light_dx: int) -> np.ndar
             if 0 <= x < w and own[y, x]:
                shade[y, x] = True
          edge = xl - 1 if side < 0 else xl + wk
-         if rule.light > 0 and 0 <= edge < w and own[y, edge] and _h(rule.seed + 4, np.array([edge]), np.array([y]))[0] < rule.light * 2:
+         if rule.tone == "shade" and rule.light > 0 and 0 <= edge < w and own[y, edge] and \
+               _h(rule.seed + 4, np.array([edge]), np.array([y]))[0] < rule.light * 2:
             rim[y, edge] = True
+   if rule.tone == "light":
+      return np.where(shade, rule.strength, 0.0)[ys, xs]
    amount = np.where(shade, -rule.strength, np.where(rim, rule.strength, 0.0))
    return amount[ys, xs]
 
@@ -492,6 +536,9 @@ def apply(spec, arr: np.ndarray, hits, mat_idx: np.ndarray, levels: np.ndarray |
    names = list(spec.materials)
    ctx = _context(spec, arr, hits, mat_idx, levels) if any(r.follow != "none" for r in spec.texture) else None
    for rule in spec.texture:
+      if rule.style == "mass" and rule.tone == "band":
+         _band(rule, spec, names, mat_idx, painter)
+         continue
       for m_i, name in enumerate(names):
          if not any(fnmatch.fnmatchcase(name, p) for p in rule.on):
             continue
@@ -499,7 +546,7 @@ def apply(spec, arr: np.ndarray, hits, mat_idx: np.ndarray, levels: np.ndarray |
          if not own.any():
             continue
          ys, xs = np.nonzero(own)
-         ramp = spec.materials[name].ramp
+         ramp = list(spec.materials[name].ramp) + list(rule.ramp_extra)
          if rule.kind == "hue_side":
             degs = _hue_side(rule, ys, xs, ctx)
             if rule.follow != "none" and ctx is not None:
@@ -520,3 +567,23 @@ def apply(spec, arr: np.ndarray, hits, mat_idx: np.ndarray, levels: np.ndarray |
    solid = arr[:, :, 3] > 0
    used = {tuple(int(v) for v in c) for c in np.unique(arr[solid][:, :3], axis=0)} if solid.any() else set()
    return painter.changed, sorted(painter.new & used)
+
+
+def _band(rule: TexRule, spec, names: list[str], mat_idx: np.ndarray, painter: _Painter) -> None:
+   """tone band : 맞는 재질 칸을 하나로 보고 빛 띠 판을 놓은 뒤, 띠 안을 모두 한 색(첫 재질 주색 + strength 단)으로 칠한다."""
+   picked = [i for p in rule.on for i, n in enumerate(names) if fnmatch.fnmatchcase(n, p)]
+   picked = list(dict.fromkeys(picked))
+   if not picked:
+      return
+   own = np.isin(mat_idx, picked)
+   ref_own = mat_idx == picked[0]
+   if not ref_own.any():
+      return
+   ys, xs = np.nonzero(own)
+   light = dataclasses.replace(rule, tone="light")
+   hit = _fold_mass(light, ys, xs, own, LIGHT_DX.get(getattr(spec, "light_word", "top_left"), -1)) > 0
+   cols, counts = np.unique(painter.arr[ref_own][:, :3], axis=0, return_counts=True)
+   ref = tuple(int(v) for v in cols[int(counts.argmax())])
+   color = shift_color(ref, list(spec.materials[names[picked[0]]].ramp) + list(rule.ramp_extra), rule.strength)
+   for y, x in zip(ys[hit], xs[hit]):
+      painter._put(y, x, color)

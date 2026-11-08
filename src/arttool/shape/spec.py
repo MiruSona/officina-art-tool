@@ -20,6 +20,7 @@ from .sdf import KINDS, OPS, Prim, lathe_polygon, rotation
 from .kit import assemble
 from .template import expand, is_template_spec
 from . import texture as texture_mod
+from . import lock as lock_mod
 
 VERSION = 1
 VIEWS = {"front": 0.0, "left": -90.0, "back": 180.0, "right": 90.0}
@@ -56,6 +57,7 @@ class Stamp:
    hide_below: float = 0.15
    depth_tol: float = 4.0
    copies: list[tuple[int, int]] = field(default_factory=lambda: [(0, 0)])   # 같은 격자를 (dx, dy) 칸 옮겨 또 찍기
+   jitter: dict | None = None   # 반복 흔들림 {seed, shift, gap, thick, seg} — 없으면 예전과 칸까지 같다
 
    @property
    def size(self) -> tuple[int, int]:
@@ -80,6 +82,8 @@ class Spec:
    stamps: list[Stamp] = field(default_factory=list)
    inner_width: int = 1     # 안쪽 선 두께 (앞 물체 안쪽으로 몇 칸)
    texture: list = field(default_factory=list)   # 질감 규칙 (texture.TexRule). 비면 질감 전과 칸까지 같다
+   palette_lock: object = None   # lock.Lock — 모든 색을 정해 둔 팔레트 안으로. None 이면 잠금 전과 칸까지 같다
+   inner_color: str = "line"     # 안쪽 선 색 : line(재질 line · 램프 한 단 아래, 예전) · material(재질 램프 맨 아래를 더 어둡게)
 
 
 def _where(path: str, msg: str) -> ArtToolError:
@@ -373,10 +377,31 @@ def _stamp(data, path: str, materials: dict) -> Stamp:
       raise _where(f"{path}.copies", "정수 [dx, dy] 목록이다 (그림 칸, 아래 +)")
    return Stamp(on, (at[0], at[1]), _number(data.get("yaw", 0), f"{path}.yaw", -360, 360), grid, legend,
                 _number(data.get("hide_below", 0.15), f"{path}.hide_below", -1.0, 1.0),
-                _number(data.get("depth_tol", 4.0), f"{path}.depth_tol", 0.0), [(c[0], c[1]) for c in copies])
+                _number(data.get("depth_tol", 4.0), f"{path}.depth_tol", 0.0), [(c[0], c[1]) for c in copies],
+                _jitter(data.get("jitter"), f"{path}.jitter"))
 
 
-def parse(data, where: str = "명세") -> Spec:
+def _jitter(data, path: str) -> dict | None:
+   """도장 반복 흔들림. shift : 복사본마다 위아래로 ±칸 · gap : 토막마다 끊길 몫 · thick : 토막마다 한 칸 두꺼워질 몫 ·
+   seg : 토막 길이(칸) · seed."""
+   if data is None:
+      return None
+   if not isinstance(data, dict):
+      raise _where(path, "사전이다 {seed, shift, gap, thick, seg}")
+   unknown = sorted(set(data) - {"seed", "shift", "gap", "thick", "seg"})
+   if unknown:
+      raise _where(path, f"모르는 칸 : {', '.join(unknown)}")
+   return {"seed": _int(data.get("seed", 0), f"{path}.seed", 0, 2**31 - 1),
+           "shift": _int(data.get("shift", 1), f"{path}.shift", 0, 8),
+           "gap": _number(data.get("gap", 0.15), f"{path}.gap", 0.0, 0.9),
+           "thick": _number(data.get("thick", 0.25), f"{path}.thick", 0.0, 1.0),
+           "seg": _int(data.get("seg", 4), f"{path}.seg", 1, 64)}
+
+
+INNER_COLORS = ("line", "material")
+
+
+def parse(data, where: str = "명세", base: str | os.PathLike | None = None) -> Spec:
    """읽은 JSON 사전 → `Spec`."""
    if not isinstance(data, dict):
       raise ArtToolError(f"{where} : 맨 위는 사전이다")
@@ -411,6 +436,9 @@ def parse(data, where: str = "명세") -> Spec:
    inner_width = line.get("inner_width", 1)
    if isinstance(inner_width, bool) or not isinstance(inner_width, int) or not 1 <= inner_width <= 4:
       raise _where("outline.inner_width", f"1 ~ 4 정수다 : {inner_width!r}")
+   inner_color = line.get("inner_color", "line")
+   if inner_color not in INNER_COLORS:
+      raise _where("outline.inner_color", f"{' · '.join(INNER_COLORS)} 중 하나다 : {inner_color!r}")
    gap = line.get("inner_gap")
    inner_gap = None if gap is None else _number(gap, "outline.inner_gap", 0.0)
 
@@ -434,9 +462,11 @@ def parse(data, where: str = "명세") -> Spec:
    stamps = [_stamp(s, f"stamps[{i}]", materials) for i, s in enumerate(data.get("stamps") or [])]
 
    textures = texture_mod.parse(data.get("texture"), materials)
+   lock = lock_mod.parse(data.get("palette_lock"), base)
 
    return Spec((w, h), (origin[0], origin[1]), vec / norm, light_word, mode, line_color, width, inner_gap, cap,
-               _number(data.get("dither", 0.0), "dither", 0.0, 1.0), views, materials, prims, stamps, inner_width, textures)
+               _number(data.get("dither", 0.0), "dither", 0.0, 1.0), views, materials, prims, stamps, inner_width, textures,
+               lock, inner_color)
 
 
 def load(path: str | os.PathLike) -> Spec:
@@ -447,4 +477,4 @@ def load(path: str | os.PathLike) -> Spec:
    if is_template_spec(data):
       data = expand(data, file.parent, str(file))
    data = assemble(data, file.parent, str(file))
-   return parse(data, str(file))
+   return parse(data, str(file), file.parent)

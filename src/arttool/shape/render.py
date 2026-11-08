@@ -18,6 +18,7 @@ from ..draw.lint import lint as run_lint
 from ..draw.outline import darker, outline as draw_outline
 from ..errors import ArtToolError
 from ..palette import RGB, Ramps
+from . import lock as lock_mod
 from . import pattern as pattern_mod
 from . import texture as texture_mod
 from .sdf import Prim, scene
@@ -190,7 +191,21 @@ def place_stamps(spec: Spec, arr: np.ndarray, hits: Hits, mat_idx: np.ndarray, y
    h, w = arr.shape[:2]
    painted = 0
    for stamp in spec.stamps:
-      for cx, cy in stamp.copies:
+      jit = stamp.jitter
+      for ci, (cx, cy) in enumerate(stamp.copies):
+         cut: set = set()
+         fat: set = set()
+         if jit is not None:
+            # 반복 흔들림 : 복사본마다 위아래로 ±shift 칸, 가로 토막(seg 칸)마다 끊김 · 한 칸 두께를 해시로 고른다
+            k = np.array([[ci, 0]], dtype=np.int64)
+            cy = cy + int(round((pattern_mod.hash01(k, jit["seed"])[0] * 2 - 1) * jit["shift"]))
+            off = int(pattern_mod.hash01(np.array([[ci, 1]], dtype=np.int64), jit["seed"])[0] * jit["seg"])   # 토막 경계도 복사본마다 다르게
+            nseg = -(-(stamp.size[0] + off) // jit["seg"])
+            segs = np.stack([np.full(nseg, ci), np.arange(nseg)], axis=1).astype(np.int64)
+            r_gap = pattern_mod.hash01(segs, jit["seed"] + 1)
+            r_fat = pattern_mod.hash01(segs, jit["seed"] + 2)
+            cut = {i for i in range(nseg) if r_gap[i] < jit["gap"]}
+            fat = {i for i in range(nseg) if r_fat[i] < jit["thick"]}
          # 옮김은 그림 칸(아래 +) 이라 모델 y 는 거꾸로 간다.
          point, normal = _stamp_anchor(spec, stamp, (stamp.at[0] + cx, stamp.at[1] - cy))
          p = rot @ point
@@ -207,13 +222,18 @@ def place_stamps(spec: Spec, arr: np.ndarray, hits: Hits, mat_idx: np.ndarray, y
             for i, ch in enumerate(row):
                if ch == ".":
                   continue
-               x, y = x0 + i, y0 + j
-               if not (0 <= x < w and 0 <= y < h) or mat_idx[y, x] != on:
+               if jit is not None and (i + off) // jit["seg"] in cut:
                   continue
-               if hits.depth[y, x] > p[2] + stamp.depth_tol:   # 앞에 무엇이 가렸다
-                  continue
-               arr[y, x] = (*stamp.legend[ch], 255)
-               painted += 1
+               spots = [(x0 + i, y0 + j)]
+               if jit is not None and (i + off) // jit["seg"] in fat and j == len(stamp.grid) - 1:
+                  spots.append((x0 + i, y0 + j + 1))
+               for x, y in spots:
+                  if not (0 <= x < w and 0 <= y < h) or mat_idx[y, x] != on:
+                     continue
+                  if hits.depth[y, x] > p[2] + stamp.depth_tol:   # 앞에 무엇이 가렸다
+                     continue
+                  arr[y, x] = (*stamp.legend[ch], 255)
+                  painted += 1
    return painted
 
 
@@ -298,7 +318,14 @@ def inner_lines(arr: np.ndarray, hits: Hits, gap: float, ramps: Ramps, spec: Spe
       front |= grow
    names = list(spec.materials) if spec is not None else []
    cache: dict[RGB, RGB] = {}
+   by_mat = spec is not None and mat_idx is not None and spec.inner_color == "material"
    for y, x in zip(*np.nonzero(front)):
+      if by_mat and mat_idx[y, x] >= 0:
+         # 재질별 어두운 색 : 램프 맨 아래 칸을 같은 색조로 더 어둡게 (뒤 칸이 빛 쪽이면 맨 아래 칸 그대로)
+         mat = spec.materials[names[mat_idx[y, x]]]
+         lit = _is_light_side(int(toward[y, x, 0]), int(toward[y, x, 1]), spec.light_word)
+         arr[y, x, :3] = mat.ramp[0] if lit else material_dark(mat.ramp[0])
+         continue
       if spec is not None and mat_idx is not None and mat_idx[y, x] >= 0:
          mat = spec.materials[names[mat_idx[y, x]]]
          if mat.line is not None:
@@ -309,6 +336,18 @@ def inner_lines(arr: np.ndarray, hits: Hits, gap: float, ramps: Ramps, spec: Spe
          cache[rgb] = darker(rgb, 1, ramps)
       arr[y, x, :3] = cache[rgb]
    return int(front.sum())
+
+
+INNER_DARK = 0.62     # inner_color material : 맨 아래 칸 밝기(HSV v) 배율
+INNER_HUE = 6.0       # 그때 파랑 쪽으로 돌릴 색조(도)
+
+
+def material_dark(c: RGB) -> RGB:
+   """재질 램프 맨 아래 칸 → 같은 색조로 더 어두운 선 색 (어두울수록 차갑게 — 파랑 쪽 6°)."""
+   h, s, v = texture_mod._hsv(c)
+   if s > 0.05:
+      h = texture_mod._turn(h, 240.0, INNER_HUE)
+   return texture_mod._rgb(h, min(1.0, s * 1.1), v * INNER_DARK)
 
 
 def material_lines(spec: Spec, arr: np.ndarray, before: np.ndarray, mat_idx: np.ndarray, hits: Hits) -> int:
@@ -372,6 +411,13 @@ def render(spec: Spec, view: str = "front") -> tuple[np.ndarray, dict]:
       arr = draw_outline(arr, spec.outline_mode, ramps=ramps, light=spec.light_word, color=spec.outline_color,
                          width=spec.outline_width)
       lined = material_lines(spec, arr, before, mat_idx, hits)
+   locked = 0
+   if spec.palette_lock is not None:
+      # 바깥 외곽선 칸(재질 없음)은 따로 한 무리로 짝짓는다
+      groups = np.where(mat_idx >= 0, mat_idx, -1)
+      locked = lock_mod.apply(spec.palette_lock, arr, groups)
+      ramps = Ramps("lock", {"lock": list(spec.palette_lock.colors)}, spec.outline_color,
+                    len(spec.palette_lock.colors), mode="max")
    merged = cap_colors(arr, spec.max_colors) if spec.max_colors else 0
    ms = (time.perf_counter() - started) * 1000.0
    result = run_lint(arr, ramps=ramps, light=spec.light_word,
@@ -390,6 +436,8 @@ def render(spec: Spec, view: str = "front") -> tuple[np.ndarray, dict]:
       "patterned": patterned,
       "merged_colors": merged,
       **({"textured": textured} if spec.texture else {}),
+      **({"locked": locked} if spec.palette_lock is not None else {}),
+      **({"lock_kept": spec.palette_lock.kept} if spec.palette_lock is not None and spec.palette_lock.family else {}),
       "ms": round(ms, 1),
       "lint": {"status": result.status, "counts": result.counts},
    }

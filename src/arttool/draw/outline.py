@@ -8,6 +8,9 @@
 | `selout` | 맞닿은 칠한 색의 **두 단 어두운** 색 |
 | `selout+light` | `selout` 과 같되 빛이 오는 쪽만 **한 단 어두운** 색(그래서 빛 쪽이 밝다) |
 
+selout 깊이 `steps`(기본 없음 = 두 단, 빛 쪽 한 단) 를 주면 그만큼 어둡게 한다(빛 쪽은 steps - 1). 3단 램프 아래에
+선 전용 어두운 칸을 붙인 팔레트에서 selout 을 두 번 거는 대신 한 번에 깊은 선을 얻는다 (2026-11-08 도형 렌더러 보완 고리).
+
 「한 단 어두운 색」은 팔레트가 있고 칠한 색이 어느 램프에 있으면 그 램프의 한 칸 아래 색이다(팔레트 안에 머문다).
 없으면 밝기를 단마다 20% 덜고 색조를 파랑 쪽으로 10° 돌려 셈한다(어두울수록 차갑게) — 이때는 팔레트 밖 색이 될 수 있다.
 칠한 색이 이미 램프 맨 아래 칸이라 더 내려갈 데가 없으면(그대로면 외곽선이 안 보인다) 팔레트 `outline` 색,
@@ -109,6 +112,18 @@ def _darker(rgb, steps: int, ramps: Ramps | None) -> tuple[tuple[int, int, int],
    return _computed(rgb, steps), False
 
 
+def _deep(rgb, steps: int, ramps: Ramps | None) -> tuple[tuple[int, int, int], bool]:
+   """깊이 steps : 두 단씩 끊어 이어 밟는다 — selout 을 여러 번 거는 것과 같은 끝 색
+   (한 번 걸 때 맨 아래 칸에서 멈추고, 다음 번에 맨 아래면 outline 색으로 간다)."""
+   fell = False
+   while steps > 0:
+      hop = min(2, steps)
+      rgb, f = _darker(rgb, hop, ramps)
+      fell |= f
+      steps -= hop
+   return rgb, fell
+
+
 def _computed(rgb, steps: int) -> tuple[int, int, int]:
    hue, sat, val = colorsys.rgb_to_hsv(rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0)
    hue *= 360.0
@@ -139,11 +154,12 @@ def solid_color(color) -> tuple[int, int, int]:
 
 
 def plan(arr: image.RGBA, mode: str, *, ramps: Ramps | None = None, light: str = "top_left", where: str = "outside",
-         color=None, width: int = 1, notes: list | None = None) -> list[tuple[int, int, tuple[int, int, int], tuple[int, int]]]:
+         color=None, width: int = 1, notes: list | None = None, steps: int | None = None) -> list[tuple[int, int, tuple[int, int, int], tuple[int, int]]]:
    """두를 칸 목록 `(x, y, 색, 기댄 칠한 칸 (x, y))` 을 셈만 하고 그리지는 않는다.
 
    「기댄 칠한 칸」은 그 외곽선 색을 정한 칸이다. 겹이 여럿일 때 `Canvas.outline` 이 그 칸의 주인 겹에 외곽선을 넣는다.
    color : solid 방식의 한 색. width : 두께(1 ~ 4). notes : 목록을 주면 알릴 일(`{"rule", "count"}`)을 덧붙인다.
+   steps : selout 깊이 — 몇 단 어둡게 (없으면 2, selout+light 빛 쪽은 steps - 1). 1 ~ 8.
    """
    check_mode(mode)
    if where not in WHERE:
@@ -151,10 +167,12 @@ def plan(arr: image.RGBA, mode: str, *, ramps: Ramps | None = None, light: str =
    if not isinstance(width, int) or isinstance(width, bool) or not 1 <= width <= 4:
       raise ArtToolError(f"외곽선 두께는 1 ~ 4 정수다 : {width!r}")
    lx, ly = check_light(light)
+   if steps is not None and (not isinstance(steps, int) or isinstance(steps, bool) or not 1 <= steps <= 8):
+      raise ArtToolError(f"selout 깊이 steps 는 1 ~ 8 정수다 : {steps!r}")
    if mode == "none":
       return []
    one = solid_color(color) if mode == "solid" else None
-   first = _one_round(arr, mode, ramps, (lx, ly), where, one, notes)
+   first = _one_round(arr, mode, ramps, (lx, ly), where, one, notes, steps)
    out = list(first)
    done = {(x, y): (c, a) for x, y, c, a in first}
    solid = arr[:, :, 3] > 0
@@ -180,7 +198,7 @@ def plan(arr: image.RGBA, mode: str, *, ramps: Ramps | None = None, light: str =
    return out
 
 
-def _one_round(arr, mode, ramps, light_xy, where, one, notes):
+def _one_round(arr, mode, ramps, light_xy, where, one, notes, steps=None):
    lx, ly = light_xy
    fell = 0
    solid = arr[:, :, 3] > 0
@@ -211,7 +229,10 @@ def _one_round(arr, mode, ramps, light_xy, where, one, notes):
          color = one
       else:
          lit = mode == "selout+light" and any(dx * lx + dy * ly > 0 for dx, dy in outward)
-         color, changed = _darker(base, 1 if lit else 2, ramps)
+         if steps is None:
+            color, changed = _darker(base, 1 if lit else 2, ramps)
+         else:
+            color, changed = _deep(base, max(1, steps - 1) if lit else steps, ramps)
          fell += changed
       out.append((x, y, color, anchor))
    if fell and notes is not None:
@@ -221,9 +242,9 @@ def _one_round(arr, mode, ramps, light_xy, where, one, notes):
 
 
 def outline(arr: image.RGBA, mode: str, *, ramps: Ramps | None = None, light: str = "top_left", where: str = "outside",
-            color=None, width: int = 1) -> image.RGBA:
+            color=None, width: int = 1, steps: int | None = None) -> image.RGBA:
    """그림 한 장에 외곽선을 두른 새 배열을 돌려준다(받은 배열은 그대로). solid 는 color 를, 두꺼운 선은 width 를 준다."""
    out = arr.copy()
-   for x, y, color, _ in plan(arr, mode, ramps=ramps, light=light, where=where, color=color, width=width):
+   for x, y, color, _ in plan(arr, mode, ramps=ramps, light=light, where=where, color=color, width=width, steps=steps):
       out[y, x] = (*color, 255)
    return out
