@@ -143,6 +143,7 @@ CONTRACT = [
    (["grid", "apply", "--in", "s", "--grid", "p.px", "--out", "o"],
     {"sub": "apply", "in_path": "s", "grid_file": "p.px", "layer": None, "at": None, "mode": "over", "out": "o", "report": None}),
    (["lint", "--in", "s"], {"in_path": "s", "item": "idle", "template": None, "rules": None, "report": None}),
+   (["shape", "render", "s.shape.json", "--out", "o.png"], {"sub": "render", "spec": "s.shape.json", "out_file": "o.png", "view": "front", "ref": None, "report": None}),
 ]
 
 

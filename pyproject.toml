@@ -22,7 +22,7 @@ dev = ["pytest>=7"]
 [tool.setuptools]
 packages = [
    "arttool", "arttool.checks", "arttool.draw", "arttool.edit", "arttool.extend", "arttool.frames", "arttool.measure", "arttool.providers",
-   "arttool.sprite", "arttool.style", "arttool.template", "arttool.tiles", "arttool.ui",
+   "arttool.shape", "arttool.sprite", "arttool.style", "arttool.template", "arttool.tiles", "arttool.ui",
    "arttool._home.profiles", "arttool._home.profiles.presets", "arttool._home.palettes", "arttool._home.templates",
 ]
 

@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "canvas": { "size": [64, 64], "origin": [32, 50] },
+  "light": "top_left",
+  "outline": { "mode": "solid", "color": "#CCCCCC", "inner_gap": 3 },
+  "max_colors": 24,
+  "views": { "left": -68, "right": 68 },
+  "materials": {
+    "slime": { "ramp": ["#E2E2E2", "#FFFFFF"], "ambient": 0.9,
+               "rim": { "below": 0.3, "index": 0 },
+               "highlight": { "color": "#FFFEF9", "above": 0.97 } },
+    "gold": { "ramp": ["#A48A00", "#D4B300", "#EDC800", "#F8D100"], "ambient": 0.55 }
+  },
+  "shapes": [
+    { "name": "body", "type": "lathe", "material": "slime",
+      "profile": [[0, 0], [13, 0], [17, 2.5], [19.5, 6], [20.5, 11], [19.5, 18], [17, 23.5], [14, 27.5], [9, 31], [0, 33.5]] },
+    { "name": "crown", "type": "group", "material": "gold", "pos": [16, 27, 2], "rot": [0, 0, -30],
+      "shapes": [
+        { "type": "lathe", "profile": [[0, 0], [5.5, 0], [6, 5], [0, 5]] },
+        { "type": "sphere", "r": 2, "pos": [4.8, 6.5, 0] },
+        { "type": "sphere", "r": 2, "pos": [-2.4, 6.5, 4.2] },
+        { "type": "sphere", "r": 2, "pos": [-2.4, 6.5, -4.2] }
+      ] }
+  ],
+  "stamps": [
+    { "on": "slime", "at": [-7, 18], "legend": { "#": "#000000" }, "grid": ["##", "##", "##", "##", "##", "##"] },
+    { "on": "slime", "at": [7, 18], "legend": { "#": "#000000" }, "grid": ["##", "##", "##", "##", "##", "##"] },
+    { "on": "slime", "at": [0, 13.5], "legend": { "#": "#000000" }, "grid": ["######"] },
+    { "on": "slime", "at": [-12.5, 10.5], "legend": { "y": "#FFD500", "l": "#FFE76B", "m": "#FFE24D", "w": "#FCEC9C" },
+      "grid": ["..wlmymlw..", ".lyyyyyyyl.", "wyyyyyyyyyw", "lyyyyyyyyyl", "myyyyyyyyym", "yyyyyyyyyyy",
+               "myyyyyyyyym", "lyyyyyyyyyl", "wyyyyyyyyyw", ".lyyyyyyyl.", "..wlmymlw.."] },
+    { "on": "slime", "at": [12.5, 10.5], "legend": { "y": "#FFD500", "l": "#FFE76B", "m": "#FFE24D", "w": "#FCEC9C" },
+      "grid": ["..wlmymlw..", ".lyyyyyyyl.", "wyyyyyyyyyw", "lyyyyyyyyyl", "myyyyyyyyym", "yyyyyyyyyyy",
+               "myyyyyyyyym", "lyyyyyyyyyl", "wyyyyyyyyyw", ".lyyyyyyyl.", "..wlmymlw.."] }
+  ]
+}

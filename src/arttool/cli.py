@@ -32,6 +32,7 @@
 | `palette check` | `arttool.checks.palette_check.run` (2026-10-06 3판-가, 램프 파일만 잰다) |
 | `grid show` · `apply` | `arttool.draw.gridcmd.run` (2026-10-07 draw 고리, `args.sub` 로 가른다) |
 | `lint` | `arttool.draw.lintcmd.run` (2026-10-07 draw 고리, 파일 안 씀 · 걸려도 종료 0) |
+| `shape render` | `arttool.shape.cmd.run` (2026-11-08 도형 렌더러 시험 판, 명세 JSON → PNG) |
 | `layers compose` | 여기서 `sprite.layers.compose_sheets` 를 바로 부른다 (옛 `layers`) |
 | `check --no-warn · --mode · --template` | `check.run(prof, in_dir, no_ramps, *, warn, mode, template)` — 그 세 칸을 받게 되면 넘긴다 |
 | `check --known · --baseline · --fail-on-new` | `check.run(..., *, known, baseline, fail_on_new)` — 셋 중 하나라도 줬을 때만 넘긴다 |
@@ -120,6 +121,7 @@ LATE: dict[tuple[str, str | None], tuple[str, str]] = {
    ("grid", "show"): ("arttool.draw.gridcmd", "run"),
    ("grid", "apply"): ("arttool.draw.gridcmd", "run"),
    ("lint", None): ("arttool.draw.lintcmd", "run"),
+   ("shape", "render"): ("arttool.shape.cmd", "run"),
 }
 
 # check.run 이 이 세 칸을 키워드로 받게 되면(D 갈래) 새 인자를 넘긴다.
@@ -206,6 +208,7 @@ def build_parser() -> argparse.ArgumentParser:
    _add_palette(subs)
    _add_grid(subs)
    _add_lint(subs)
+   _add_shape(subs)
    return parser
 
 
@@ -241,6 +244,17 @@ def _add_lint(subs) -> None:
    node.add_argument("--rules", help="쉼표로 고른 규칙 (예 orphan,hole,asym). 안 주면 기본 규칙")
    node.add_argument("--report", dest="report", help="보고 JSON")
    node.set_defaults(legend_file=None)   # gridcmd.open_input 을 같이 쓴다
+
+
+def _add_shape(subs) -> None:
+   node = subs.add_parser("shape", help="도형 명세 묶음 명령 (render)")
+   inner = node.add_subparsers(dest="sub", required=True)
+   render = inner.add_parser("render", help="도형 + 재질 명세 JSON → 도트 PNG 한 장 (보는 방향 하나)", parents=[COMMON])
+   render.add_argument("spec", help="명세 JSON (*.shape.json)")
+   render.add_argument("--out", dest="out_file", required=True, help="PNG")
+   render.add_argument("--view", default="front", help="보는 방향 front · back · left · right (명세 views 에 더한 이름도)")
+   render.add_argument("--ref", dest="ref", help="원본 PNG. 주면 보고에 닮음 점수(score)를 싣는다")
+   render.add_argument("--report", dest="report", help="보고 JSON")
 
 
 def _add_profile(subs) -> None:
@@ -924,6 +938,7 @@ DRY_RUN_REFUSED = {
    ("tile", "blob"),
    ("ui", "frame"), ("ui", "import"), ("ui", "icons"), ("ui", "bake"), ("ui", "screen"),
    ("template", "render"), ("style", "extract"),
+   ("shape", "render"),
 }
 FORCE_TAKES = {("bake", None), ("ui", "bake"), ("style", "extract")}
 PROVIDER_TAKES = {("provider", "make")}
