@@ -19,6 +19,7 @@ from ..draw.outline import darker, outline as draw_outline
 from ..errors import ArtToolError
 from ..palette import RGB, Ramps
 from . import pattern as pattern_mod
+from . import texture as texture_mod
 from .sdf import Prim, scene
 from .spec import Material, Spec, Stamp
 
@@ -216,8 +217,11 @@ def place_stamps(spec: Spec, arr: np.ndarray, hits: Hits, mat_idx: np.ndarray, y
    return painted
 
 
-def palette_ramps(spec: Spec) -> Ramps:
-   """명세에 나오는 색을 모두 램프 묶음 하나로. 외곽선 selout 이 팔레트 안에 머물고 lint 가 팔레트 밖 색을 짚게."""
+def palette_ramps(spec: Spec, more: list[RGB] | None = None) -> Ramps:
+   """명세에 나오는 색을 모두 램프 묶음 하나로. 외곽선 selout 이 팔레트 안에 머물고 lint 가 팔레트 밖 색을 짚게.
+
+   more : 질감이 새로 만든 색 — 한 색 램프로 덧붙인다.
+   """
    ramps: dict[str, list[RGB]] = {name: list(m.ramp) for name, m in spec.materials.items()}
    extra: list[RGB] = []
    for m in spec.materials.values():
@@ -231,6 +235,7 @@ def palette_ramps(spec: Spec) -> Ramps:
             extra.append(c)
    for s in spec.stamps:
       extra.extend(s.legend.values())
+   extra.extend(more or [])
    for i, color in enumerate(dict.fromkeys(extra)):
       ramps[f"_extra{i}"] = [color]
    length = max(len(c) for c in ramps.values())
@@ -355,6 +360,10 @@ def render(spec: Spec, view: str = "front") -> tuple[np.ndarray, dict]:
    hits = trace(spec, yaw)
    arr, mat_idx, levels = shade_pixels(spec, hits, yaw)
    patterned = pattern_mod.apply(spec, arr, hits, mat_idx, levels)
+   textured = 0
+   if spec.texture:
+      textured, tex_colors = texture_mod.apply(spec, arr, hits, mat_idx, levels)
+      ramps = palette_ramps(spec, tex_colors)
    inner = inner_lines(arr, hits, spec.inner_gap, ramps, spec, mat_idx) if spec.inner_gap is not None else 0
    stamped = place_stamps(spec, arr, hits, mat_idx, yaw)
    lined = 0
@@ -380,6 +389,7 @@ def render(spec: Spec, view: str = "front") -> tuple[np.ndarray, dict]:
       "material_line": lined,
       "patterned": patterned,
       "merged_colors": merged,
+      **({"textured": textured} if spec.texture else {}),
       "ms": round(ms, 1),
       "lint": {"status": result.status, "counts": result.counts},
    }

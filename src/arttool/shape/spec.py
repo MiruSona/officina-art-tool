@@ -19,6 +19,7 @@ from .pattern import AXES as PATTERN_AXES, KINDS as PATTERN_KINDS, Pattern
 from .sdf import KINDS, OPS, Prim, lathe_polygon, rotation
 from .kit import assemble
 from .template import expand, is_template_spec
+from . import texture as texture_mod
 
 VERSION = 1
 VIEWS = {"front": 0.0, "left": -90.0, "back": 180.0, "right": 90.0}
@@ -78,6 +79,7 @@ class Spec:
    prims: list[Prim]
    stamps: list[Stamp] = field(default_factory=list)
    inner_width: int = 1     # 안쪽 선 두께 (앞 물체 안쪽으로 몇 칸)
+   texture: list = field(default_factory=list)   # 질감 규칙 (texture.TexRule). 비면 질감 전과 칸까지 같다
 
 
 def _where(path: str, msg: str) -> ArtToolError:
@@ -431,8 +433,10 @@ def parse(data, where: str = "명세") -> Spec:
       raise _where("shapes", "도형이 하나도 없다")
    stamps = [_stamp(s, f"stamps[{i}]", materials) for i, s in enumerate(data.get("stamps") or [])]
 
+   textures = texture_mod.parse(data.get("texture"), materials)
+
    return Spec((w, h), (origin[0], origin[1]), vec / norm, light_word, mode, line_color, width, inner_gap, cap,
-               _number(data.get("dither", 0.0), "dither", 0.0, 1.0), views, materials, prims, stamps, inner_width)
+               _number(data.get("dither", 0.0), "dither", 0.0, 1.0), views, materials, prims, stamps, inner_width, textures)
 
 
 def load(path: str | os.PathLike) -> Spec:
