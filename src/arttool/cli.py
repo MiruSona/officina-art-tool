@@ -33,6 +33,8 @@
 | `grid show` · `apply` | `arttool.draw.gridcmd.run` (2026-10-07 draw 고리, `args.sub` 로 가른다) |
 | `lint` | `arttool.draw.lintcmd.run` (2026-10-07 draw 고리, 파일 안 씀 · 걸려도 종료 0) |
 | `shape render` | `arttool.shape.cmd.run` (2026-11-08 도형 렌더러 시험 판, 명세 JSON → PNG) |
+| `shape flatten` | `arttool.shape.flatten.run` (2026-11-08 작은 다듬기 모델 P3, 그림 → 납작화 짝) |
+| `shape polish` | `arttool.shape.polish.run` (2026-11-08 작은 다듬기 모델 P6, 납작한 그림 → 팔레트 색 다시 고르기) |
 | `layers compose` | 여기서 `sprite.layers.compose_sheets` 를 바로 부른다 (옛 `layers`) |
 | `check --no-warn · --mode · --template` | `check.run(prof, in_dir, no_ramps, *, warn, mode, template)` — 그 세 칸을 받게 되면 넘긴다 |
 | `check --known · --baseline · --fail-on-new` | `check.run(..., *, known, baseline, fail_on_new)` — 셋 중 하나라도 줬을 때만 넘긴다 |
@@ -122,6 +124,8 @@ LATE: dict[tuple[str, str | None], tuple[str, str]] = {
    ("grid", "apply"): ("arttool.draw.gridcmd", "run"),
    ("lint", None): ("arttool.draw.lintcmd", "run"),
    ("shape", "render"): ("arttool.shape.cmd", "run"),
+   ("shape", "flatten"): ("arttool.shape.flatten", "run"),
+   ("shape", "polish"): ("arttool.shape.polish", "run"),
 }
 
 # check.run 이 이 세 칸을 키워드로 받게 되면(D 갈래) 새 인자를 넘긴다.
@@ -255,6 +259,17 @@ def _add_shape(subs) -> None:
    render.add_argument("--view", default="front", help="보는 방향 front · back · left · right (명세 views 에 더한 이름도)")
    render.add_argument("--ref", dest="ref", help="원본 PNG. 주면 보고에 닮음 점수(score)를 싣는다")
    render.add_argument("--report", dest="report", help="보고 JSON")
+   flat = inner.add_parser("flatten", help="그림 → 렌더러처럼 납작한 짝 (작은 다듬기 모델 학습 입력)", parents=[COMMON])
+   flat.add_argument("in_path", help="PNG 한 장 또는 PNG 폴더")
+   flat.add_argument("--out", dest="out_file", required=True, help="PNG, 또는 있는 폴더(묶음)")
+   flat.add_argument("--seed", type=int, default=0, help="손잡이 섞기 씨앗 (같으면 같은 그림)")
+   flat.add_argument("--report", dest="report", help="보고 JSON")
+   pol = inner.add_parser("polish", help="납작한 그림 → 칸마다 모델 팔레트 색을 다시 고른다 (작은 다듬기 모델)", parents=[COMMON])
+   pol.add_argument("in_path", help="PNG 한 장")
+   pol.add_argument("--out", dest="out_file", required=True, help="PNG")
+   pol.add_argument("--model", dest="model", required=True, help="모델 JSON (kind shape_polish)")
+   pol.add_argument("--ref", dest="ref", help="원본 PNG. 주면 보고에 닮음 점수(score)를 싣는다")
+   pol.add_argument("--report", dest="report", help="보고 JSON")
 
 
 def _add_profile(subs) -> None:
@@ -940,6 +955,8 @@ DRY_RUN_REFUSED = {
    ("ui", "frame"), ("ui", "import"), ("ui", "icons"), ("ui", "bake"), ("ui", "screen"),
    ("template", "render"), ("style", "extract"),
    ("shape", "render"),
+   ("shape", "flatten"),
+   ("shape", "polish"),
 }
 FORCE_TAKES = {("bake", None), ("ui", "bake"), ("style", "extract")}
 PROVIDER_TAKES = {("provider", "make")}

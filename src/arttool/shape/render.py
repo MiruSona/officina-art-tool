@@ -395,8 +395,17 @@ def render(spec: Spec, view: str = "front") -> tuple[np.ndarray, dict]:
       raise ArtToolError(f"없는 보는 방향 : {view} (있는 것 : {' · '.join(spec.views)})")
    started = time.perf_counter()
    yaw = spec.views[view]
+   return finish(spec, trace(spec, yaw), yaw, view, started)
+
+
+def finish(spec: Spec, hits: Hits, yaw: float, view: str, started: float | None = None) -> tuple[np.ndarray, dict]:
+   """render 뒷단 : 맞은 결과(Hits) → 칠 · 무늬 · 질감 · 선 · 도장 · 잠금 · 색 수 → (RGBA 배열, 보고 사전).
+
+   납작화(`flatten`)는 진짜 그림에서 흉내 낸 가짜 Hits 를 넣어 같은 뒷단을 돌린다.
+   started : 보고 ms 를 잴 시작 시각 (render 가 trace 시간까지 넣으려고 준다).
+   """
+   started = time.perf_counter() if started is None else started
    ramps = palette_ramps(spec)
-   hits = trace(spec, yaw)
    arr, mat_idx, levels = shade_pixels(spec, hits, yaw)
    patterned = pattern_mod.apply(spec, arr, hits, mat_idx, levels)
    textured = 0
